@@ -1,0 +1,22 @@
+# Dados de mãos - ignorar conteúdo mas manter estrutura
+data/cash/*
+data/tournament/*
+data/tournament-summary/*
+data/pokerstars/*
+
+# Manter estrutura de pastas
+!data/cash/.gitkeep
+!data/tournament/.gitkeep
+!data/tournament-summary/.gitkeep
+!data/pokerstars/.gitkeep
+
+# Relatórios gerados
+*.html
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude
+.claude/
