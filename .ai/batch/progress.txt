@@ -60,3 +60,18 @@
 
 === US-004 completed at 2026-02-28T20:09:09.457Z ===
 - All quality gates passed
+
+=== US-005 completed at 2026-02-28 ===
+- All 305 tests passing (48 new + 257 existing)
+- Pattern: get_hands_for_session() / get_actions_for_session() use date range queries (>= start, <= end)
+- Pattern: get_session_stats() reuses existing _analyze_preflop_hand() and _analyze_postflop_hand() static methods
+- Pattern: get_session_sparkline() builds cumulative profit points from hands within session time range
+- Pattern: get_session_details() aggregates stats, sparkline, and notable hands per session
+- Pattern: get_daily_reports_with_sessions() replaces get_daily_reports() for session-aware reports
+- Pattern: _aggregate_session_stats() computes weighted average stats (weighted by hands count)
+- Pattern: _build_session_comparison() identifies best/worst session index per stat
+- Pattern: _render_session_card() uses accordion pattern with CSS max-height transition + JS toggle
+- Pattern: _render_sparkline() generates compact inline SVG (300x60) with color based on final profit
+- Pattern: _render_daily_report() delegates to sub-renderers for sessions, day stats, comparison
+- Pattern: CSS responsive breakpoints at 768px (tablet) and 480px (mobile) for grid layout
+- Lesson: CSS class names appear in both style block and HTML body; test assertions should use full element selectors (e.g., '<div class="session-card">') not substring matches
