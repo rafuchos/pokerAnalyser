@@ -57,3 +57,6 @@
 - Pattern: _render_ev_chart() generates inline SVG with polylines, gridlines, and legend
 - Lesson: Previous attempt timed out; this attempt reused existing implementation and focused on tests
 - Limitation: Equity calc doesn't account for side pots in multi-way all-ins
+
+=== US-004 completed at 2026-02-28T20:09:09.457Z ===
+- All quality gates passed
