@@ -22,3 +22,6 @@
 - Pattern: Stats grouped by hand_id from action sequences, then analyzed per-hand and aggregated
 - Lesson: SQL is best for simple aggregation; complex sequence analysis (3-bet, fold-to-3bet, ATS) done in Python
 - Limitation: all-in actions can't distinguish raise-all-in vs call-all-in; PFR only counts explicit 'raise' type
+
+=== US-002 completed at 2026-02-28T19:27:57.592Z ===
+- All quality gates passed

@@ -202,7 +202,8 @@
         "src/analyzers/cash.py",
         "src/db/repository.py",
         "src/reports/cash_report.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-003",
