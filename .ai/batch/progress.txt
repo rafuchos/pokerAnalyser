@@ -12,3 +12,13 @@
 
 === US-001 completed at 2026-02-28T19:09:56.483Z ===
 - All quality gates passed
+
+=== US-002 completed at 2026-02-28 ===
+- All 126 tests passing (43 new + 83 existing)
+- Pattern: _analyze_preflop_hand() is a static method for sequence-based stat detection
+- Pattern: get_preflop_action_sequences() fetches joined data in one query for batch processing in Python
+- Pattern: Health badges use HEALTHY_RANGES/WARNING_RANGES class constants for 6-max NL thresholds
+- Pattern: _render_player_stats() is a standalone function to keep report generation modular
+- Pattern: Stats grouped by hand_id from action sequences, then analyzed per-hand and aggregated
+- Lesson: SQL is best for simple aggregation; complex sequence analysis (3-bet, fold-to-3bet, ATS) done in Python
+- Limitation: all-in actions can't distinguish raise-all-in vs call-all-in; PFR only counts explicit 'raise' type
