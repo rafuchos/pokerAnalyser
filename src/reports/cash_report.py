@@ -15,6 +15,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     summary = analyzer.get_summary()
     daily_reports = analyzer.get_daily_reports()
     preflop_stats = analyzer.get_preflop_stats()
+    postflop_stats = analyzer.get_postflop_stats()
 
     total_hands = summary['total_hands']
     total_net = summary['total_net']
@@ -326,6 +327,15 @@ def generate_cash_report(analyzer: CashAnalyzer,
     if overall.get('total_hands', 0) > 0:
         html += _render_player_stats(overall, by_position)
 
+    # ── Postflop Analysis Section ──────────────────────────────────
+    postflop_overall = postflop_stats.get('overall', {})
+    if postflop_overall.get('saw_flop_hands', 0) > 0:
+        html += _render_postflop_stats(
+            postflop_overall,
+            postflop_stats.get('by_street', {}),
+            postflop_stats.get('by_week', {}),
+        )
+
     for report in daily_reports:
         date_obj = datetime.strptime(report['date'], '%Y-%m-%d')
         date_formatted = date_obj.strftime('%d/%m/%Y (%A)')
@@ -500,6 +510,118 @@ def _render_player_stats(overall: dict, by_position: dict) -> str:
                         <td>{ps['pfr']:.1f}%</td>
                         <td>{ps['three_bet']:.1f}%</td>
                         <td>{ats_val}</td>
+                    </tr>
+"""
+        html += """
+                </tbody>
+            </table>
+"""
+
+    html += """
+        </div>
+"""
+    return html
+
+
+def _render_postflop_stats(overall: dict, by_street: dict, by_week: dict) -> str:
+    """Render the Postflop Analysis HTML section."""
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    def stat_card(label: str, value: float, health: str, detail: str = '',
+                  fmt: str = '{:.1f}%') -> str:
+        val_str = fmt.format(value)
+        detail_html = f'<div class="stat-detail">{detail}</div>' if detail else ''
+        return (
+            f'<div class="stat-card">'
+            f'<div class="stat-label">{label}</div>'
+            f'<div class="stat-value">{val_str}</div>'
+            f'{badge_html(health)}'
+            f'{detail_html}'
+            f'</div>'
+        )
+
+    af_detail = f'{overall["af_bets_raises"]} agg / {overall["af_calls"]} calls'
+    wtsd_detail = f'{overall["wtsd_hands"]}/{overall["wtsd_opps"]} flops'
+    wsd_detail = f'{overall["wsd_hands"]}/{overall["wsd_opps"]} showdowns'
+    cbet_detail = f'{overall["cbet_hands"]}/{overall["cbet_opps"]} opps'
+    fold_cbet_detail = f'{overall["fold_to_cbet_hands"]}/{overall["fold_to_cbet_opps"]} opps'
+    cr_detail = f'{overall["check_raise_hands"]}/{overall["check_raise_opps"]} opps'
+
+    html = f"""
+        <div class="player-stats">
+            <h2>Postflop Analysis</h2>
+            <div class="stats-grid">
+                {stat_card('AF', overall['af'], overall['af_health'], af_detail, '{:.2f}')}
+                {stat_card('AFq', overall['afq'], 'good', '', '{:.1f}%')}
+                {stat_card('WTSD%', overall['wtsd'], overall['wtsd_health'], wtsd_detail)}
+                {stat_card('W$SD%', overall['wsd'], overall['wsd_health'], wsd_detail)}
+                {stat_card('CBet%', overall['cbet'], overall['cbet_health'], cbet_detail)}
+                {stat_card('Fold to CBet', overall['fold_to_cbet'], overall['fold_to_cbet_health'], fold_cbet_detail)}
+                {stat_card('Check-Raise%', overall['check_raise'], overall['check_raise_health'], cr_detail)}
+            </div>
+"""
+
+    # By street table
+    html += """
+            <h3 class="section-subtitle">Stats por Street</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Street</th>
+                        <th>AF</th>
+                        <th>AFq</th>
+                        <th>Check-Raise%</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+    for street in ('flop', 'turn', 'river'):
+        if street in by_street:
+            s = by_street[street]
+            html += f"""
+                    <tr>
+                        <td><strong>{street.capitalize()}</strong></td>
+                        <td>{s['af']:.2f}</td>
+                        <td>{s['afq']:.1f}%</td>
+                        <td>{s['check_raise']:.1f}%</td>
+                    </tr>
+"""
+    html += """
+                </tbody>
+            </table>
+"""
+
+    # Weekly trends table
+    if by_week:
+        html += """
+            <h3 class="section-subtitle">Tend\u00eancias Semanais</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Semana</th>
+                        <th>M\u00e3os</th>
+                        <th>Saw Flop</th>
+                        <th>AF</th>
+                        <th>WTSD%</th>
+                        <th>W$SD%</th>
+                        <th>CBet%</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        for week, ws in by_week.items():
+            html += f"""
+                    <tr>
+                        <td><strong>{week}</strong></td>
+                        <td>{ws['total_hands']}</td>
+                        <td>{ws['saw_flop']}</td>
+                        <td>{ws['af']:.2f}</td>
+                        <td>{ws['wtsd']:.1f}%</td>
+                        <td>{ws['wsd']:.1f}%</td>
+                        <td>{ws['cbet']:.1f}%</td>
                     </tr>
 """
         html += """

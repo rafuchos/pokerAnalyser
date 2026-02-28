@@ -95,6 +95,25 @@ class CashAnalyzer:
         'ats': (20, 55),
     }
 
+    # Healthy ranges for 6-max NL postflop stats
+    POSTFLOP_HEALTHY_RANGES = {
+        'af': (2.0, 3.5),
+        'wtsd': (25, 33),
+        'wsd': (48, 55),
+        'cbet': (60, 75),
+        'fold_to_cbet': (35, 50),
+        'check_raise': (6, 12),
+    }
+
+    POSTFLOP_WARNING_RANGES = {
+        'af': (1.5, 4.5),
+        'wtsd': (20, 38),
+        'wsd': (42, 60),
+        'cbet': (50, 85),
+        'fold_to_cbet': (25, 60),
+        'check_raise': (3, 18),
+    }
+
     def get_preflop_stats(self) -> dict:
         """Calculate preflop statistics: VPIP, PFR, 3-Bet%, Fold-to-3-Bet%, ATS%.
 
@@ -345,6 +364,364 @@ class CashAnalyzer:
         if warning[0] <= value <= warning[1]:
             return 'warning'
         return 'danger'
+
+    @classmethod
+    def _classify_postflop_health(cls, stat_name: str, value: float) -> str:
+        """Classify a postflop stat value as 'good', 'warning', or 'danger'."""
+        healthy = cls.POSTFLOP_HEALTHY_RANGES.get(stat_name)
+        warning = cls.POSTFLOP_WARNING_RANGES.get(stat_name)
+        if not healthy or not warning:
+            return 'good'
+
+        if healthy[0] <= value <= healthy[1]:
+            return 'good'
+        if warning[0] <= value <= warning[1]:
+            return 'warning'
+        return 'danger'
+
+    # ── Postflop Stats ──────────────────────────────────────────────
+
+    def get_postflop_stats(self) -> dict:
+        """Calculate postflop statistics: AF, AFq, WTSD%, W$SD%, CBet%, Fold-to-CBet%, Check-Raise%.
+
+        Returns dict with overall stats, by-street breakdown, and by-week trends.
+        """
+        sequences = self.repo.get_all_action_sequences(self.year)
+
+        # Group by hand_id
+        hands_actions = defaultdict(list)
+        hand_meta = {}
+        for action in sequences:
+            hand_id = action['hand_id']
+            hands_actions[hand_id].append(action)
+            if hand_id not in hand_meta:
+                hand_meta[hand_id] = {
+                    'hero_position': action.get('hero_position'),
+                    'hero_net': action.get('hero_net', 0) or 0,
+                    'day': action.get('day'),
+                }
+
+        # Overall counters
+        total_hands = 0
+        saw_flop_count = 0
+        wtsd_count = 0
+        wsd_count = 0
+        cbet_opps = 0
+        cbet_count = 0
+        fold_cbet_opps = 0
+        fold_cbet_count = 0
+
+        # Aggression counters per street
+        agg = {s: {'bets_raises': 0, 'calls': 0, 'total_actions': 0}
+               for s in ('flop', 'turn', 'river')}
+
+        # Check-raise counters per street
+        cr = {s: {'opps': 0, 'did': 0} for s in ('flop', 'turn', 'river')}
+
+        # Weekly counters
+        week_stats = defaultdict(lambda: {
+            'total': 0, 'saw_flop': 0, 'wtsd': 0, 'wsd': 0,
+            'cbet_opps': 0, 'cbet': 0,
+            'bets_raises': 0, 'calls': 0,
+        })
+
+        for hand_id, actions in hands_actions.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+
+            total_hands += 1
+            meta = hand_meta[hand_id]
+            week = self._get_week(meta['day'])
+            week_stats[week]['total'] += 1
+
+            result = self._analyze_postflop_hand(actions, meta['hero_net'])
+
+            if result['saw_flop']:
+                saw_flop_count += 1
+                week_stats[week]['saw_flop'] += 1
+
+            if result['went_to_showdown']:
+                wtsd_count += 1
+                week_stats[week]['wtsd'] += 1
+
+            if result['won_at_showdown']:
+                wsd_count += 1
+                week_stats[week]['wsd'] += 1
+
+            if result['cbet_opp']:
+                cbet_opps += 1
+                week_stats[week]['cbet_opps'] += 1
+                if result['cbet']:
+                    cbet_count += 1
+                    week_stats[week]['cbet'] += 1
+
+            if result['fold_to_cbet_opp']:
+                fold_cbet_opps += 1
+                if result['fold_to_cbet']:
+                    fold_cbet_count += 1
+
+            # Aggregate aggression
+            for street in ('flop', 'turn', 'river'):
+                if street in result['hero_aggression']:
+                    ha = result['hero_aggression'][street]
+                    br = ha['bets'] + ha['raises']
+                    c = ha['calls']
+                    f = ha['folds']
+                    agg[street]['bets_raises'] += br
+                    agg[street]['calls'] += c
+                    agg[street]['total_actions'] += br + c + f
+                    week_stats[week]['bets_raises'] += br
+                    week_stats[week]['calls'] += c
+
+            # Aggregate check-raises
+            for street in ('flop', 'turn', 'river'):
+                if street in result['check_raise']:
+                    cr_data = result['check_raise'][street]
+                    if cr_data['opp']:
+                        cr[street]['opps'] += 1
+                        if cr_data['did']:
+                            cr[street]['did'] += 1
+
+        return self._format_postflop_stats(
+            total_hands, saw_flop_count, wtsd_count, wsd_count,
+            cbet_opps, cbet_count, fold_cbet_opps, fold_cbet_count,
+            agg, cr, dict(week_stats),
+        )
+
+    @staticmethod
+    def _analyze_postflop_hand(all_actions: list[dict], hero_net: float) -> dict:
+        """Analyze a single hand for postflop statistics.
+
+        Args:
+            all_actions: All actions for the hand (preflop + postflop), ordered by street/sequence.
+            hero_net: Hero's net result for the hand (for W$SD detection).
+
+        Returns dict with saw_flop, went_to_showdown, won_at_showdown, CBet info,
+        aggression counts per street, and check-raise info per street.
+
+        Note: All-in preflop hands where no postflop actions exist won't count
+        as "saw flop" since there are no flop actions to detect.
+        """
+        preflop = [a for a in all_actions
+                   if a['street'] == 'preflop'
+                   and a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')]
+        postflop = [a for a in all_actions if a['street'] in ('flop', 'turn', 'river')]
+
+        empty_result = {
+            'saw_flop': False, 'went_to_showdown': False, 'won_at_showdown': False,
+            'cbet_opp': False, 'cbet': False,
+            'fold_to_cbet_opp': False, 'fold_to_cbet': False,
+            'hero_aggression': {}, 'check_raise': {},
+        }
+
+        # Check if hero saw the flop
+        hero_flop_actions = [a for a in postflop if a['street'] == 'flop' and a['is_hero']]
+        if not hero_flop_actions:
+            return empty_result
+
+        # Identify hero name
+        hero_name = None
+        for a in all_actions:
+            if a['is_hero']:
+                hero_name = a['player']
+                break
+
+        # Find last preflop raiser (PFA = preflop aggressor)
+        last_raiser = None
+        for a in preflop:
+            if a['action_type'] in ('raise', 'bet'):
+                last_raiser = a['player']
+        hero_is_pfa = last_raiser == hero_name and last_raiser is not None
+
+        # Detect showdown: 2+ players remain (didn't fold) after all postflop action
+        flop_players = set()
+        folded_players = set()
+        for a in postflop:
+            if a['street'] == 'flop':
+                flop_players.add(a['player'])
+            if a['action_type'] == 'fold':
+                folded_players.add(a['player'])
+
+        remaining = flop_players - folded_players
+        went_to_showdown = len(remaining) >= 2 and hero_name in remaining
+        won_at_showdown = went_to_showdown and hero_net > 0
+
+        # CBet detection: hero was PFA and hero made first bet on flop
+        cbet_opp = hero_is_pfa
+        cbet = False
+        flop_actions = [a for a in postflop if a['street'] == 'flop']
+
+        if hero_is_pfa:
+            for a in flop_actions:
+                if a['action_type'] in ('bet', 'all-in'):
+                    if a['is_hero']:
+                        cbet = True
+                    break  # Only check first money action
+
+        # Fold to CBet: opponent was PFA, opponent bet on flop, hero folded
+        fold_to_cbet_opp = False
+        fold_to_cbet = False
+        if not hero_is_pfa and last_raiser is not None:
+            cbet_idx = None
+            for i, a in enumerate(flop_actions):
+                if a['action_type'] in ('bet', 'all-in'):
+                    if not a['is_hero'] and a['player'] == last_raiser:
+                        cbet_idx = i
+                    break  # Only check first money action
+
+            if cbet_idx is not None:
+                for a in flop_actions[cbet_idx + 1:]:
+                    if a['is_hero']:
+                        fold_to_cbet_opp = True
+                        if a['action_type'] == 'fold':
+                            fold_to_cbet = True
+                        break
+
+        # Hero aggression by street (bets, raises, calls, folds)
+        hero_aggression = {}
+        for street in ('flop', 'turn', 'river'):
+            street_hero = [a for a in postflop if a['street'] == street and a['is_hero']]
+            if not street_hero:
+                continue
+            bets = sum(1 for a in street_hero if a['action_type'] == 'bet')
+            raises = sum(1 for a in street_hero if a['action_type'] in ('raise', 'all-in'))
+            calls = sum(1 for a in street_hero if a['action_type'] == 'call')
+            folds = sum(1 for a in street_hero if a['action_type'] == 'fold')
+            hero_aggression[street] = {
+                'bets': bets, 'raises': raises, 'calls': calls, 'folds': folds,
+            }
+
+        # Check-raise detection by street
+        check_raise = {}
+        for street in ('flop', 'turn', 'river'):
+            street_actions = [a for a in postflop if a['street'] == street]
+            hero_checked = False
+            opp_bet_after = False
+            cr_opp = False
+            cr_did = False
+
+            for a in street_actions:
+                if a['is_hero']:
+                    if a['action_type'] == 'check' and not hero_checked:
+                        hero_checked = True
+                    elif hero_checked and opp_bet_after:
+                        cr_opp = True
+                        if a['action_type'] in ('raise', 'all-in'):
+                            cr_did = True
+                        break
+                else:
+                    if hero_checked and not opp_bet_after:
+                        if a['action_type'] in ('bet', 'raise', 'all-in'):
+                            opp_bet_after = True
+
+            if cr_opp:
+                check_raise[street] = {'opp': True, 'did': cr_did}
+
+        return {
+            'saw_flop': True,
+            'went_to_showdown': went_to_showdown,
+            'won_at_showdown': won_at_showdown,
+            'cbet_opp': cbet_opp,
+            'cbet': cbet,
+            'fold_to_cbet_opp': fold_to_cbet_opp,
+            'fold_to_cbet': fold_to_cbet,
+            'hero_aggression': hero_aggression,
+            'check_raise': check_raise,
+        }
+
+    def _format_postflop_stats(self, total_hands, saw_flop_count, wtsd_count, wsd_count,
+                               cbet_opps, cbet_count, fold_cbet_opps, fold_cbet_count,
+                               agg, cr, week_stats) -> dict:
+        """Format raw postflop counts into percentages with health badges."""
+
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        # Overall AF / AFq
+        total_br = sum(agg[s]['bets_raises'] for s in ('flop', 'turn', 'river'))
+        total_calls = sum(agg[s]['calls'] for s in ('flop', 'turn', 'river'))
+        total_actions = sum(agg[s]['total_actions'] for s in ('flop', 'turn', 'river'))
+
+        overall_af = total_br / total_calls if total_calls > 0 else 0.0
+        overall_afq = pct(total_br, total_actions)
+
+        # Overall check-raise
+        total_cr_opps = sum(cr[s]['opps'] for s in ('flop', 'turn', 'river'))
+        total_cr_did = sum(cr[s]['did'] for s in ('flop', 'turn', 'river'))
+
+        overall = {
+            'total_hands': total_hands,
+            'saw_flop_hands': saw_flop_count,
+            'af': overall_af,
+            'af_bets_raises': total_br,
+            'af_calls': total_calls,
+            'afq': overall_afq,
+            'wtsd': pct(wtsd_count, saw_flop_count),
+            'wtsd_hands': wtsd_count,
+            'wtsd_opps': saw_flop_count,
+            'wsd': pct(wsd_count, wtsd_count),
+            'wsd_hands': wsd_count,
+            'wsd_opps': wtsd_count,
+            'cbet': pct(cbet_count, cbet_opps),
+            'cbet_hands': cbet_count,
+            'cbet_opps': cbet_opps,
+            'fold_to_cbet': pct(fold_cbet_count, fold_cbet_opps),
+            'fold_to_cbet_hands': fold_cbet_count,
+            'fold_to_cbet_opps': fold_cbet_opps,
+            'check_raise': pct(total_cr_did, total_cr_opps),
+            'check_raise_hands': total_cr_did,
+            'check_raise_opps': total_cr_opps,
+        }
+
+        # Health badges
+        for stat in ('af', 'wtsd', 'wsd', 'cbet', 'fold_to_cbet', 'check_raise'):
+            overall[f'{stat}_health'] = self._classify_postflop_health(stat, overall[stat])
+
+        # By street
+        by_street = {}
+        for street in ('flop', 'turn', 'river'):
+            s_br = agg[street]['bets_raises']
+            s_calls = agg[street]['calls']
+            s_total = agg[street]['total_actions']
+            s_cr_opps = cr[street]['opps']
+            s_cr_did = cr[street]['did']
+            by_street[street] = {
+                'af': s_br / s_calls if s_calls > 0 else 0.0,
+                'afq': pct(s_br, s_total),
+                'check_raise': pct(s_cr_did, s_cr_opps),
+                'check_raise_hands': s_cr_did,
+                'check_raise_opps': s_cr_opps,
+            }
+
+        # By week
+        by_week = {}
+        for week, counts in sorted(week_stats.items()):
+            sf = counts['saw_flop']
+            w_br = counts['bets_raises']
+            w_calls = counts['calls']
+            by_week[week] = {
+                'total_hands': counts['total'],
+                'saw_flop': sf,
+                'af': w_br / w_calls if w_calls > 0 else 0.0,
+                'wtsd': pct(counts['wtsd'], sf),
+                'wsd': pct(counts['wsd'], counts['wtsd']),
+                'cbet': pct(counts['cbet'], counts['cbet_opps']),
+            }
+
+        return {
+            'overall': overall,
+            'by_street': by_street,
+            'by_week': by_week,
+        }
+
+    @staticmethod
+    def _get_week(day: str) -> str:
+        """Get ISO week string from a date string (YYYY-MM-DD)."""
+        if not day:
+            return 'unknown'
+        d = datetime.strptime(day, '%Y-%m-%d')
+        iso_year, iso_week, _ = d.isocalendar()
+        return f"{iso_year}-W{iso_week:02d}"
 
     def _compute_total_invested(self, sessions: list[dict]) -> float:
         """Compute total buy-in for a day's sessions."""

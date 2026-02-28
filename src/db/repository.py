@@ -352,6 +352,33 @@ class Repository:
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    # ── Postflop Stats Queries ─────────────────────────────────────
+
+    def get_all_action_sequences(self, year: Optional[str] = None) -> list[dict]:
+        """Get all actions across all streets for cash hands.
+
+        Joins with hands table to include hero_position, net, and date.
+        Used by CashAnalyzer to compute postflop stats (AF, WTSD, W$SD, CBet, etc.).
+        """
+        query = """
+            SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position,
+                   h.hero_position, h.net as hero_net, substr(h.date, 1, 10) as day
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE h.game_type = 'cash'
+        """
+        params = []
+        if year:
+            query += " AND h.date LIKE ?"
+            params.append(f"{year}%")
+        query += """ ORDER BY ha.hand_id,
+            CASE ha.street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
+            WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
+            ha.sequence_order"""
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
     def get_imported_files_count(self) -> int:
         """Get count of imported files."""
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM imported_files").fetchone()

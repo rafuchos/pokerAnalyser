@@ -67,10 +67,24 @@ Update this section weekly with sprint goals and dates.
 - [x] US-000: Reestruturação do Projeto + Banco SQLite com Import Pipeline (2026-02-28)
 - [x] US-001: Parser de Ações Detalhadas por Street (2026-02-28)
 - [x] US-002: Cálculo de VPIP, PFR e Estatísticas Preflop do Hero (2026-02-28)
+- [x] US-003: Estatísticas Postflop: AF, WTSD, W$SD, CBet (2026-02-28)
 
 ---
 
 ## Completed
+
+- [x] US-003: Estatísticas Postflop: AF, WTSD, W$SD, CBet (2026-02-28)
+  - AF (Aggression Factor): (bets + raises) / calls per street and overall
+  - AFq (Aggression Frequency): (bets + raises) / (bets + raises + calls + folds) per street
+  - WTSD% (Went To Showdown): % of hands that went to showdown when saw flop
+  - W$SD% (Won $ at Showdown): % of hands won at showdown
+  - CBet% (Continuation Bet): % of times hero bet on flop after being preflop aggressor
+  - Fold to CBet%: % of times hero folded to opponent's CBet
+  - Check-Raise%: % of times hero check-raised per street
+  - Postflop Analysis section in HTML report with health badges
+  - Per-street breakdown table (AF, AFq, Check-Raise% by flop/turn/river)
+  - Weekly trends table (AF, WTSD%, W$SD%, CBet% by ISO week)
+  - 53 new tests (179 total)
 
 - [x] US-002: Cálculo de VPIP, PFR e Estatísticas Preflop do Hero (2026-02-28)
   - VPIP: % de mãos com entrada voluntária preflop (excluindo blinds)
