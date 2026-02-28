@@ -1,7 +1,7 @@
 {
   "id": "US-001",
   "title": "Parser de Ações Detalhadas por Street",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 1800,
   "timeout_seconds": 1890,
   "plan": [
@@ -30,7 +30,7 @@
     "tests/test_parsers.py"
   ],
   "created_at": "2026-02-28T18:47:06.582Z",
-  "completed_at": null,
+  "completed_at": "2026-02-28T19:09:58.045Z",
   "failure_reason": null,
   "branch": "feat/US-001",
   "replanned_at": "2026-02-28T19:02:52.063Z",
