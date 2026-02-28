@@ -165,7 +165,8 @@
         "src/parsers/base.py",
         "src/db/schema.py",
         "src/db/repository.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-002",
