@@ -99,6 +99,18 @@ class Repository:
             (hero_position, hand_id)
         )
 
+    def update_hand_showdown(self, hand_id: str, pot_total: float = None,
+                              opponent_cards: str = None,
+                              has_allin: bool = False,
+                              allin_street: str = None):
+        """Update showdown and all-in data for a hand."""
+        self.conn.execute(
+            "UPDATE hands SET pot_total = ?, opponent_cards = ?, "
+            "has_allin = ?, allin_street = ? WHERE hand_id = ?",
+            (pot_total, opponent_cards, 1 if has_allin else 0,
+             allin_street, hand_id)
+        )
+
     def get_hand_actions(self, hand_id: str) -> list[dict]:
         """Get all actions for a hand, ordered by street and sequence."""
         rows = self.conn.execute(
@@ -376,6 +388,29 @@ class Repository:
             CASE ha.street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
             WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
             ha.sequence_order"""
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── EV / All-in Queries ──────────────────────────────────────────
+
+    def get_allin_hands(self, year: Optional[str] = None) -> list[dict]:
+        """Get all-in hands with showdown (opponent cards visible).
+
+        Returns hands where has_allin=1 AND opponent_cards IS NOT NULL,
+        ordered by date. Used for EV analysis.
+        """
+        query = """
+            SELECT * FROM hands
+            WHERE game_type = 'cash'
+              AND has_allin = 1
+              AND opponent_cards IS NOT NULL
+              AND hero_cards IS NOT NULL
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        query += " ORDER BY date"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 

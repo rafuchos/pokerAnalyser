@@ -134,12 +134,17 @@ class Importer:
                 actions, board, positions = self.gg_parser.parse_actions(
                     hand_text, hand.hand_id
                 )
-                all_actions.append((hand.hand_id, actions, board, positions))
+
+                # Parse showdown data for EV analysis
+                showdown = self.gg_parser.parse_showdown_data(hand_text)
+
+                all_actions.append(
+                    (hand.hand_id, actions, board, positions, showdown))
 
             inserted = self.repo.insert_hands_batch(hands)
 
-            # Persist actions, board cards, and hero positions
-            for hand_id, actions, board, positions in all_actions:
+            # Persist actions, board cards, hero positions, and showdown data
+            for hand_id, actions, board, positions, showdown in all_actions:
                 if actions:
                     self.repo.insert_actions_batch(actions)
                 if board.flop or board.turn or board.river:
@@ -147,6 +152,14 @@ class Importer:
                 hero_pos = positions.get('Hero')
                 if hero_pos:
                     self.repo.update_hand_position(hand_id, hero_pos)
+                if showdown.get('pot_total') or showdown.get('has_allin'):
+                    self.repo.update_hand_showdown(
+                        hand_id,
+                        pot_total=showdown.get('pot_total'),
+                        opponent_cards=showdown.get('opponent_cards'),
+                        has_allin=showdown.get('has_allin', False),
+                        allin_street=showdown.get('allin_street'),
+                    )
 
             self.conn.commit()
             self.repo.mark_file_imported(fpath_str, fhash, inserted)

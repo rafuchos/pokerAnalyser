@@ -18,7 +18,11 @@ CREATE TABLE IF NOT EXISTS hands (
     num_players INTEGER,
     board_flop TEXT,
     board_turn TEXT,
-    board_river TEXT
+    board_river TEXT,
+    pot_total REAL,
+    opponent_cards TEXT,
+    has_allin INTEGER DEFAULT 0,
+    allin_street TEXT
 );
 
 CREATE TABLE IF NOT EXISTS hand_actions (
@@ -135,4 +139,12 @@ def _run_migrations(conn):
     if 'position' not in action_cols:
         conn.execute("ALTER TABLE hand_actions ADD COLUMN position TEXT")
         conn.execute("ALTER TABLE hand_actions ADD COLUMN is_voluntary INTEGER DEFAULT 0")
+        conn.commit()
+
+    # US-004: Add showdown/all-in columns to hands table
+    if 'pot_total' not in hand_cols:
+        conn.execute("ALTER TABLE hands ADD COLUMN pot_total REAL")
+        conn.execute("ALTER TABLE hands ADD COLUMN opponent_cards TEXT")
+        conn.execute("ALTER TABLE hands ADD COLUMN has_allin INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE hands ADD COLUMN allin_street TEXT")
         conn.commit()

@@ -7,15 +7,18 @@ but reads data from the SQLite database via CashAnalyzer.
 from datetime import datetime
 
 from src.analyzers.cash import CashAnalyzer
+from src.analyzers.ev import EVAnalyzer
 
 
 def generate_cash_report(analyzer: CashAnalyzer,
-                         output_file: str = 'output/cash_report.html') -> str:
+                         output_file: str = 'output/cash_report.html',
+                         ev_analyzer: EVAnalyzer = None) -> str:
     """Generate the cash game HTML report."""
     summary = analyzer.get_summary()
     daily_reports = analyzer.get_daily_reports()
     preflop_stats = analyzer.get_preflop_stats()
     postflop_stats = analyzer.get_postflop_stats()
+    ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
 
     total_hands = summary['total_hands']
     total_net = summary['total_net']
@@ -336,6 +339,14 @@ def generate_cash_report(analyzer: CashAnalyzer,
             postflop_stats.get('by_week', {}),
         )
 
+    # ── EV Analysis Section ──────────────────────────────────────
+    if ev_stats and ev_stats.get('overall', {}).get('allin_hands', 0) > 0:
+        html += _render_ev_analysis(
+            ev_stats['overall'],
+            ev_stats.get('by_stakes', {}),
+            ev_stats.get('chart_data', []),
+        )
+
     for report in daily_reports:
         date_obj = datetime.strptime(report['date'], '%Y-%m-%d')
         date_formatted = date_obj.strftime('%d/%m/%Y (%A)')
@@ -633,3 +644,193 @@ def _render_postflop_stats(overall: dict, by_street: dict, by_week: dict) -> str
         </div>
 """
     return html
+
+
+def _render_ev_analysis(overall: dict, by_stakes: dict,
+                        chart_data: list) -> str:
+    """Render the EV Analysis HTML section with inline SVG chart."""
+
+    luck = overall.get('luck_factor', 0)
+    luck_class = 'positive' if luck >= 0 else 'negative'
+    luck_label = 'acima do EV' if luck >= 0 else 'abaixo do EV'
+
+    html = f"""
+        <div class="player-stats">
+            <h2>EV Analysis</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">All-in Hands</div>
+                    <div class="stat-value">{overall['allin_hands']}</div>
+                    <div class="stat-detail">{overall['total_hands']} total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">bb/100 Real</div>
+                    <div class="stat-value {'positive' if overall['bb100_real'] >= 0 else 'negative'}">{overall['bb100_real']:.2f}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">bb/100 EV-Adjusted</div>
+                    <div class="stat-value {'positive' if overall['bb100_ev'] >= 0 else 'negative'}">{overall['bb100_ev']:.2f}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Luck Factor</div>
+                    <div class="stat-value {luck_class}">${luck:+.2f}</div>
+                    <div class="stat-detail">{luck_label}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Resultado Real</div>
+                    <div class="stat-value {'positive' if overall['real_net'] >= 0 else 'negative'}">${overall['real_net']:.2f}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Resultado EV</div>
+                    <div class="stat-value {'positive' if overall['ev_net'] >= 0 else 'negative'}">${overall['ev_net']:.2f}</div>
+                </div>
+            </div>
+"""
+
+    # SVG Chart: EV line vs Real line
+    if chart_data and len(chart_data) >= 2:
+        html += _render_ev_chart(chart_data)
+
+    # Stakes breakdown table
+    if by_stakes:
+        html += """
+            <h3 class="section-subtitle">Breakdown por Stakes</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Stakes</th>
+                        <th>M\u00e3os</th>
+                        <th>All-ins</th>
+                        <th>bb/100 Real</th>
+                        <th>bb/100 EV</th>
+                        <th>Luck Factor</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        for stakes, data in by_stakes.items():
+            lf = data['luck_factor']
+            lf_class = 'positive' if lf >= 0 else 'negative'
+            r_class = 'positive' if data['bb100_real'] >= 0 else 'negative'
+            e_class = 'positive' if data['bb100_ev'] >= 0 else 'negative'
+            html += f"""
+                    <tr>
+                        <td><strong>{stakes}</strong></td>
+                        <td>{data['total_hands']}</td>
+                        <td>{data['allin_hands']}</td>
+                        <td class="{r_class}">{data['bb100_real']:.2f}</td>
+                        <td class="{e_class}">{data['bb100_ev']:.2f}</td>
+                        <td class="{lf_class}">${lf:+.2f}</td>
+                    </tr>
+"""
+        html += """
+                </tbody>
+            </table>
+"""
+
+    html += """
+        </div>
+"""
+    return html
+
+
+def _render_ev_chart(chart_data: list) -> str:
+    """Generate inline SVG chart for EV line vs Real line."""
+    width = 700
+    height = 300
+    margin_top = 30
+    margin_right = 20
+    margin_bottom = 40
+    margin_left = 70
+    plot_w = width - margin_left - margin_right
+    plot_h = height - margin_top - margin_bottom
+
+    # Data range
+    all_values = ([d['real'] for d in chart_data]
+                  + [d['ev'] for d in chart_data])
+    y_min = min(all_values)
+    y_max = max(all_values)
+    x_max = chart_data[-1]['hand']
+
+    # Add padding to y range
+    y_range = y_max - y_min if y_max != y_min else 1.0
+    y_min -= y_range * 0.1
+    y_max += y_range * 0.1
+    y_range = y_max - y_min
+
+    def scale_x(hand):
+        return (margin_left + (hand / x_max) * plot_w
+                if x_max > 0 else margin_left)
+
+    def scale_y(val):
+        return margin_top + plot_h - ((val - y_min) / y_range) * plot_h
+
+    # Build polyline points
+    real_points = ' '.join(
+        f'{scale_x(d["hand"]):.1f},{scale_y(d["real"]):.1f}'
+        for d in chart_data)
+    ev_points = ' '.join(
+        f'{scale_x(d["hand"]):.1f},{scale_y(d["ev"]):.1f}'
+        for d in chart_data)
+
+    # Y-axis grid lines and labels
+    num_gridlines = 5
+    grid_html = ''
+    for i in range(num_gridlines + 1):
+        y_val = y_min + (y_range * i / num_gridlines)
+        y_pos = scale_y(y_val)
+        grid_html += (
+            f'<line x1="{margin_left}" y1="{y_pos:.1f}" '
+            f'x2="{width - margin_right}" y2="{y_pos:.1f}" '
+            f'stroke="rgba(255,255,255,0.1)" stroke-width="1"/>\n'
+            f'<text x="{margin_left - 5}" y="{y_pos:.1f}" '
+            f'text-anchor="end" fill="#888" font-size="10" '
+            f'dominant-baseline="middle">${y_val:.0f}</text>\n'
+        )
+
+    # Zero line
+    zero_line = ''
+    if y_min <= 0 <= y_max:
+        zero_y = scale_y(0)
+        zero_line = (
+            f'<line x1="{margin_left}" y1="{zero_y:.1f}" '
+            f'x2="{width - margin_right}" y2="{zero_y:.1f}" '
+            f'stroke="rgba(255,255,255,0.3)" stroke-width="1" '
+            f'stroke-dasharray="4,4"/>\n'
+        )
+
+    legend_x = width - margin_right - 140
+
+    svg = f"""
+            <h3 class="section-subtitle">EV Line vs Real Line</h3>
+            <svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"
+                 style="width:100%;max-width:{width}px;background:rgba(0,0,0,0.2);border-radius:10px;margin:15px 0;">
+                {grid_html}
+                {zero_line}
+                <line x1="{margin_left}" y1="{margin_top}" x2="{margin_left}" y2="{height - margin_bottom}"
+                      stroke="#555" stroke-width="1"/>
+                <line x1="{margin_left}" y1="{height - margin_bottom}" x2="{width - margin_right}" y2="{height - margin_bottom}"
+                      stroke="#555" stroke-width="1"/>
+                <text x="{width / 2}" y="{height - 5}" text-anchor="middle" fill="#888" font-size="11">M\u00e3os</text>
+                <text x="15" y="{height / 2}" text-anchor="middle" fill="#888" font-size="11"
+                      transform="rotate(-90, 15, {height / 2})">Profit ($)</text>
+                <polyline points="{real_points}"
+                          fill="none" stroke="#00ff88" stroke-width="2" stroke-linejoin="round"/>
+                <polyline points="{ev_points}"
+                          fill="none" stroke="#ffa500" stroke-width="2" stroke-linejoin="round"
+                          stroke-dasharray="6,3"/>
+                <rect x="{legend_x}" y="{margin_top}" width="130" height="45"
+                      fill="rgba(0,0,0,0.5)" rx="5"/>
+                <line x1="{legend_x + 10}" y1="{margin_top + 15}"
+                      x2="{legend_x + 30}" y2="{margin_top + 15}"
+                      stroke="#00ff88" stroke-width="2"/>
+                <text x="{legend_x + 35}" y="{margin_top + 19}"
+                      fill="#e0e0e0" font-size="11">Real</text>
+                <line x1="{legend_x + 10}" y1="{margin_top + 35}"
+                      x2="{legend_x + 30}" y2="{margin_top + 35}"
+                      stroke="#ffa500" stroke-width="2" stroke-dasharray="6,3"/>
+                <text x="{legend_x + 35}" y="{margin_top + 39}"
+                      fill="#e0e0e0" font-size="11">EV-Adjusted</text>
+            </svg>
+"""
+    return svg

@@ -371,6 +371,91 @@ class GGPokerParser(BaseParser):
 
         return positions
 
+    def parse_showdown_data(self, hand_text: str,
+                            hero_name: str = 'Hero') -> dict:
+        """Extract showdown and all-in information from a hand.
+
+        Returns dict with:
+        - pot_total: total pot from SUMMARY
+        - opponent_cards: pipe-separated opponent cards (e.g. "Qh Qd|Jh Js")
+        - has_allin: whether any player went all-in
+        - allin_street: street where first all-in occurred
+        """
+        lines = hand_text.strip().split('\n')
+
+        # Extract pot total from SUMMARY
+        pot_total = 0.0
+        for line in lines:
+            m = re.search(
+                r'Total pot \$?([\d,]+\.?\d*)',
+                line)
+            if m:
+                pot_total = float(m.group(1).replace(',', ''))
+                break
+
+        # Extract opponent cards from SHOW DOWN or SUMMARY sections
+        opponent_cards = {}
+        in_showdown = False
+        in_summary = False
+        for line in lines:
+            if '*** SHOW DOWN ***' in line or '*** SHOWDOWN ***' in line:
+                in_showdown = True
+                continue
+            if '*** SUMMARY ***' in line:
+                in_showdown = False
+                in_summary = True
+                continue
+
+            if in_showdown:
+                m = re.match(r'^(.+?): shows \[(.+?)\]', line)
+                if m:
+                    player = m.group(1).strip()
+                    cards = m.group(2).strip()
+                    if player != hero_name:
+                        opponent_cards[player] = cards
+
+            if in_summary:
+                m = re.search(
+                    r'Seat \d+: (.+?) (?:\(.+?\) )?showed \[(.+?)\]', line)
+                if m:
+                    player = m.group(1).strip()
+                    cards = m.group(2).strip()
+                    if player != hero_name and player not in opponent_cards:
+                        opponent_cards[player] = cards
+
+        # Detect all-in and street
+        has_allin = False
+        allin_street = None
+        current_street = 'preflop'
+
+        for line in lines:
+            if '*** FLOP ***' in line:
+                current_street = 'flop'
+            elif '*** TURN ***' in line:
+                current_street = 'turn'
+            elif '*** RIVER ***' in line:
+                current_street = 'river'
+            elif ('*** SHOW DOWN ***' in line or '*** SHOWDOWN ***' in line
+                  or '*** SUMMARY ***' in line):
+                break
+
+            if 'all-in' in line.lower():
+                has_allin = True
+                if allin_street is None:
+                    allin_street = current_street
+
+        # Only return opponent cards if there was a showdown
+        opp_cards_str = None
+        if opponent_cards:
+            opp_cards_str = '|'.join(opponent_cards.values())
+
+        return {
+            'pot_total': pot_total,
+            'opponent_cards': opp_cards_str,
+            'has_allin': has_allin,
+            'allin_street': allin_street,
+        }
+
     def parse_summary_file(self, filepath: str) -> Optional[TournamentSummaryData]:
         """Parse a GGPoker tournament summary file."""
         with open(filepath, 'r', encoding='utf-8') as f:
