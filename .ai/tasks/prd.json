@@ -126,7 +126,8 @@
         "DEPRECATE: poker_cash_analyzer.py",
         "DEPRECATE: poker_tournament_analyzer.py",
         "DEPRECATE: poker_spin_analyzer.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-001",
@@ -155,7 +156,9 @@
         "Adicionar coluna board_flop, board_turn, board_river na tabela hands"
       ],
       "estimated_points": 8,
-      "dependencies": ["US-000"],
+      "dependencies": [
+        "US-000"
+      ],
       "files_affected": [
         "src/parsers/ggpoker.py",
         "src/parsers/pokerstars.py",
@@ -191,7 +194,9 @@
         "Stats por posição requer mapeamento correto de seats na tabela hands"
       ],
       "estimated_points": 5,
-      "dependencies": ["US-001"],
+      "dependencies": [
+        "US-001"
+      ],
       "files_affected": [
         "src/analyzers/cash.py",
         "src/db/repository.py",
@@ -227,7 +232,10 @@
         "Para gráficos de tendência, SVG inline gerado pelo Python"
       ],
       "estimated_points": 8,
-      "dependencies": ["US-001", "US-002"],
+      "dependencies": [
+        "US-001",
+        "US-002"
+      ],
       "files_affected": [
         "src/analyzers/cash.py",
         "src/db/schema.py",
@@ -264,7 +272,9 @@
         "Complexidade alta: equity calculator é um projeto significativo, considerar simplificações"
       ],
       "estimated_points": 13,
-      "dependencies": ["US-001"],
+      "dependencies": [
+        "US-001"
+      ],
       "files_affected": [
         "NEW: src/analyzers/equity.py",
         "src/analyzers/cash.py",
@@ -335,7 +345,11 @@
         "- Manter dark theme verde existente"
       ],
       "estimated_points": 8,
-      "dependencies": ["US-000", "US-002", "US-003"],
+      "dependencies": [
+        "US-000",
+        "US-002",
+        "US-003"
+      ],
       "files_affected": [
         "src/reports/cash_report.py",
         "src/analyzers/cash.py",

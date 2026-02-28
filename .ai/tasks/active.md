@@ -64,7 +64,20 @@ Update this section weekly with sprint goals and dates.
 
 ## Today's Focus
 
-Highlight 1-3 most important tasks for today.
+- [x] US-000: Reestruturação do Projeto + Banco SQLite com Import Pipeline (2026-02-28)
+
+---
+
+## Completed
+
+- [x] US-000: Reestruturação do Projeto + Banco SQLite com Import Pipeline (2026-02-28)
+  - Reorganized project structure under src/ with parsers/, db/, analyzers/, reports/
+  - Implemented SQLite database with schema for hands, sessions, tournaments
+  - Created incremental import pipeline with file hash deduplication
+  - Built CLI entry point (main.py) with import, report, stats subcommands
+  - Extracted parsers from original monolithic scripts into dedicated modules
+  - Reports now read from database instead of memory
+  - 22 tests passing
 
 ---
 

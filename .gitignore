@@ -11,7 +11,12 @@ data/pokerstars/*
 !data/pokerstars/.gitkeep
 
 # Relatórios gerados
+output/
 *.html
+
+# SQLite database
+poker.db
+*.db
 
 # Python
 __pycache__/
@@ -23,3 +28,6 @@ __pycache__/
 
 # PWN
 .ai/state.json
+
+# Logs
+logs/
