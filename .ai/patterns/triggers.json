@@ -1,0 +1,1087 @@
+{
+  "version": "1.0.0",
+  "description": "Pattern trigger definitions - determines which patterns auto-load based on context",
+  "lastUpdated": "2026-01-22T00:00:00Z",
+  "triggers": [
+    {
+      "id": "fe-react-tsx",
+      "name": "React TypeScript Components",
+      "type": "fileExt",
+      "value": ["*.tsx"],
+      "patterns": ["frontend/react", "universal/typescript"],
+      "description": "Auto-loads React and TypeScript patterns for .tsx files",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "fe-react-jsx",
+      "name": "React JavaScript Components",
+      "type": "fileExt",
+      "value": ["*.jsx"],
+      "patterns": ["frontend/react"],
+      "description": "Auto-loads React patterns for .jsx files",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "fe-vue-sfc",
+      "name": "Vue Single File Components",
+      "type": "fileExt",
+      "value": ["*.vue"],
+      "patterns": ["frontend/vue", "universal/typescript"],
+      "description": "Auto-loads Vue patterns for .vue files",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "fe-svelte-components",
+      "name": "Svelte Components",
+      "type": "fileExt",
+      "value": ["*.svelte"],
+      "patterns": ["frontend/svelte"],
+      "description": "Auto-loads Svelte patterns for .svelte files",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "fe-angular-components",
+      "name": "Angular Components",
+      "type": "fileExt",
+      "value": ["*.component.ts"],
+      "patterns": ["frontend/angular", "universal/typescript"],
+      "description": "Auto-loads Angular patterns for component files",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "fe-css-styles",
+      "name": "CSS Stylesheets",
+      "type": "fileExt",
+      "value": ["*.css"],
+      "patterns": ["frontend/styling"],
+      "description": "Auto-loads CSS patterns",
+      "priority": 90,
+      "enabled": true
+    },
+    {
+      "id": "fe-scss-styles",
+      "name": "SCSS Stylesheets",
+      "type": "fileExt",
+      "value": ["*.scss", "*.sass"],
+      "patterns": ["frontend/styling", "frontend/scss"],
+      "description": "Auto-loads SCSS/Sass patterns",
+      "priority": 90,
+      "enabled": true
+    },
+    {
+      "id": "fe-tailwind",
+      "name": "Tailwind CSS",
+      "type": "import",
+      "value": ["tailwindcss", "tailwind.config"],
+      "patterns": ["frontend/tailwind"],
+      "description": "Auto-loads Tailwind patterns when detected",
+      "priority": 85,
+      "enabled": true
+    },
+    {
+      "id": "fe-nextjs-pages",
+      "name": "Next.js Pages",
+      "type": "path",
+      "value": ["pages/**/*.tsx", "pages/**/*.ts", "app/**/*.tsx"],
+      "patterns": ["frontend/nextjs", "frontend/react"],
+      "description": "Auto-loads Next.js patterns for pages directory",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "fe-nextjs-api",
+      "name": "Next.js API Routes",
+      "type": "path",
+      "value": ["pages/api/**/*.ts", "app/api/**/*.ts"],
+      "patterns": ["frontend/nextjs", "backend/rest-api"],
+      "description": "Auto-loads Next.js API patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "fe-remix",
+      "name": "Remix Routes",
+      "type": "path",
+      "value": ["app/routes/**/*.tsx"],
+      "patterns": ["frontend/remix", "frontend/react"],
+      "description": "Auto-loads Remix patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "fe-astro",
+      "name": "Astro Components",
+      "type": "fileExt",
+      "value": ["*.astro"],
+      "patterns": ["frontend/astro"],
+      "description": "Auto-loads Astro patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "fe-components-dir",
+      "name": "Component Directory",
+      "type": "path",
+      "value": ["src/components/**/*", "components/**/*"],
+      "patterns": ["frontend/components"],
+      "description": "Auto-loads component patterns for component directories",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "fe-hooks-dir",
+      "name": "React Hooks Directory",
+      "type": "path",
+      "value": ["src/hooks/**/*", "hooks/**/*"],
+      "patterns": ["frontend/react/hooks"],
+      "description": "Auto-loads React hooks patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "fe-react-hooks-import",
+      "name": "React Hooks Usage",
+      "type": "import",
+      "value": ["import.*use(State|Effect|Context|Reducer|Memo|Callback|Ref)"],
+      "patterns": ["frontend/react/hooks"],
+      "description": "Auto-loads hooks patterns when using React hooks",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-react-query",
+      "name": "React Query / TanStack Query",
+      "type": "import",
+      "value": ["@tanstack/react-query", "react-query"],
+      "patterns": ["frontend/react-query"],
+      "description": "Auto-loads React Query patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-redux",
+      "name": "Redux State Management",
+      "type": "import",
+      "value": ["@reduxjs/toolkit", "redux", "react-redux"],
+      "patterns": ["frontend/redux"],
+      "description": "Auto-loads Redux patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-zustand",
+      "name": "Zustand State Management",
+      "type": "import",
+      "value": ["zustand"],
+      "patterns": ["frontend/zustand"],
+      "description": "Auto-loads Zustand patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-jotai",
+      "name": "Jotai State Management",
+      "type": "import",
+      "value": ["jotai"],
+      "patterns": ["frontend/jotai"],
+      "description": "Auto-loads Jotai patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-shadcn",
+      "name": "shadcn/ui Components",
+      "type": "import",
+      "value": ["@/components/ui", "from.*shadcn"],
+      "patterns": ["frontend/shadcn"],
+      "description": "Auto-loads shadcn/ui patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-radix",
+      "name": "Radix UI Components",
+      "type": "import",
+      "value": ["@radix-ui"],
+      "patterns": ["frontend/radix"],
+      "description": "Auto-loads Radix UI patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-mui",
+      "name": "Material UI Components",
+      "type": "import",
+      "value": ["@mui/material", "@material-ui"],
+      "patterns": ["frontend/mui"],
+      "description": "Auto-loads MUI patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-chakra",
+      "name": "Chakra UI Components",
+      "type": "import",
+      "value": ["@chakra-ui"],
+      "patterns": ["frontend/chakra"],
+      "description": "Auto-loads Chakra UI patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-framer-motion",
+      "name": "Framer Motion Animations",
+      "type": "import",
+      "value": ["framer-motion"],
+      "patterns": ["frontend/animations"],
+      "description": "Auto-loads animation patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-express-routes",
+      "name": "Express Routes",
+      "type": "fileExt",
+      "value": ["*.routes.ts", "*.routes.js", "*.router.ts"],
+      "patterns": ["backend/express", "universal/rest-api"],
+      "description": "Auto-loads Express patterns for route files",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-express-import",
+      "name": "Express Framework",
+      "type": "import",
+      "value": ["from.*express", "require.*express"],
+      "patterns": ["backend/express"],
+      "description": "Auto-loads Express patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-fastify",
+      "name": "Fastify Framework",
+      "type": "import",
+      "value": ["fastify"],
+      "patterns": ["backend/fastify"],
+      "description": "Auto-loads Fastify patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-hono",
+      "name": "Hono Framework",
+      "type": "import",
+      "value": ["hono"],
+      "patterns": ["backend/hono"],
+      "description": "Auto-loads Hono patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-nestjs",
+      "name": "NestJS Framework",
+      "type": "import",
+      "value": ["@nestjs"],
+      "patterns": ["backend/nestjs", "universal/typescript"],
+      "description": "Auto-loads NestJS patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-python",
+      "name": "Python Files",
+      "type": "fileExt",
+      "value": ["*.py"],
+      "patterns": ["backend/python"],
+      "description": "Auto-loads Python patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-fastapi",
+      "name": "FastAPI Framework",
+      "type": "import",
+      "value": ["from fastapi", "import fastapi"],
+      "patterns": ["backend/fastapi", "backend/python"],
+      "description": "Auto-loads FastAPI patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-django",
+      "name": "Django Framework",
+      "type": "import",
+      "value": ["from django", "import django"],
+      "patterns": ["backend/django", "backend/python"],
+      "description": "Auto-loads Django patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-flask",
+      "name": "Flask Framework",
+      "type": "import",
+      "value": ["from flask", "import flask"],
+      "patterns": ["backend/flask", "backend/python"],
+      "description": "Auto-loads Flask patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-go",
+      "name": "Go Files",
+      "type": "fileExt",
+      "value": ["*.go"],
+      "patterns": ["backend/go"],
+      "description": "Auto-loads Go patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-rust",
+      "name": "Rust Files",
+      "type": "fileExt",
+      "value": ["*.rs"],
+      "patterns": ["backend/rust"],
+      "description": "Auto-loads Rust patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-java",
+      "name": "Java Files",
+      "type": "fileExt",
+      "value": ["*.java"],
+      "patterns": ["backend/java"],
+      "description": "Auto-loads Java patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-kotlin",
+      "name": "Kotlin Files",
+      "type": "fileExt",
+      "value": ["*.kt"],
+      "patterns": ["backend/kotlin"],
+      "description": "Auto-loads Kotlin patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-spring",
+      "name": "Spring Framework",
+      "type": "import",
+      "value": ["org.springframework"],
+      "patterns": ["backend/spring", "backend/java"],
+      "description": "Auto-loads Spring patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-prisma",
+      "name": "Prisma ORM",
+      "type": "import",
+      "value": ["@prisma/client", "from.*prisma"],
+      "patterns": ["backend/prisma", "backend/database"],
+      "description": "Auto-loads Prisma patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-prisma-schema",
+      "name": "Prisma Schema",
+      "type": "fileExt",
+      "value": ["*.prisma"],
+      "patterns": ["backend/prisma"],
+      "description": "Auto-loads Prisma schema patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-drizzle",
+      "name": "Drizzle ORM",
+      "type": "import",
+      "value": ["drizzle-orm"],
+      "patterns": ["backend/drizzle", "backend/database"],
+      "description": "Auto-loads Drizzle patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-typeorm",
+      "name": "TypeORM",
+      "type": "import",
+      "value": ["typeorm"],
+      "patterns": ["backend/typeorm", "backend/database"],
+      "description": "Auto-loads TypeORM patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-sequelize",
+      "name": "Sequelize ORM",
+      "type": "import",
+      "value": ["sequelize"],
+      "patterns": ["backend/sequelize", "backend/database"],
+      "description": "Auto-loads Sequelize patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-knex",
+      "name": "Knex Query Builder",
+      "type": "import",
+      "value": ["knex"],
+      "patterns": ["backend/knex", "backend/database"],
+      "description": "Auto-loads Knex patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-mongoose",
+      "name": "Mongoose ODM",
+      "type": "import",
+      "value": ["mongoose"],
+      "patterns": ["backend/mongoose", "backend/mongodb"],
+      "description": "Auto-loads Mongoose patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-graphql",
+      "name": "GraphQL",
+      "type": "fileExt",
+      "value": ["*.graphql", "*.gql"],
+      "patterns": ["backend/graphql"],
+      "description": "Auto-loads GraphQL patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-graphql-import",
+      "name": "GraphQL Libraries",
+      "type": "import",
+      "value": ["graphql", "@apollo", "apollo-server"],
+      "patterns": ["backend/graphql"],
+      "description": "Auto-loads GraphQL patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-trpc",
+      "name": "tRPC",
+      "type": "import",
+      "value": ["@trpc"],
+      "patterns": ["backend/trpc"],
+      "description": "Auto-loads tRPC patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-grpc",
+      "name": "gRPC",
+      "type": "fileExt",
+      "value": ["*.proto"],
+      "patterns": ["backend/grpc"],
+      "description": "Auto-loads gRPC patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "be-auth-jwt",
+      "name": "JWT Authentication",
+      "type": "import",
+      "value": ["jsonwebtoken", "jose"],
+      "patterns": ["backend/auth", "backend/jwt"],
+      "description": "Auto-loads JWT auth patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-auth-passport",
+      "name": "Passport.js Authentication",
+      "type": "import",
+      "value": ["passport"],
+      "patterns": ["backend/auth", "backend/passport"],
+      "description": "Auto-loads Passport.js patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-auth-nextauth",
+      "name": "NextAuth.js",
+      "type": "import",
+      "value": ["next-auth"],
+      "patterns": ["backend/auth", "frontend/nextjs"],
+      "description": "Auto-loads NextAuth patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-auth-clerk",
+      "name": "Clerk Authentication",
+      "type": "import",
+      "value": ["@clerk"],
+      "patterns": ["backend/auth"],
+      "description": "Auto-loads Clerk patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-auth-supabase",
+      "name": "Supabase",
+      "type": "import",
+      "value": ["@supabase"],
+      "patterns": ["backend/supabase", "backend/database"],
+      "description": "Auto-loads Supabase patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-auth-firebase",
+      "name": "Firebase",
+      "type": "import",
+      "value": ["firebase", "@firebase"],
+      "patterns": ["backend/firebase"],
+      "description": "Auto-loads Firebase patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-redis",
+      "name": "Redis",
+      "type": "import",
+      "value": ["redis", "ioredis"],
+      "patterns": ["backend/redis", "backend/caching"],
+      "description": "Auto-loads Redis patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-queue-bull",
+      "name": "Bull Queue",
+      "type": "import",
+      "value": ["bull", "bullmq"],
+      "patterns": ["backend/queues"],
+      "description": "Auto-loads queue patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "be-websocket",
+      "name": "WebSocket",
+      "type": "import",
+      "value": ["ws", "socket.io"],
+      "patterns": ["backend/websocket"],
+      "description": "Auto-loads WebSocket patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "uni-typescript",
+      "name": "TypeScript Files",
+      "type": "fileExt",
+      "value": ["*.ts"],
+      "patterns": ["universal/typescript"],
+      "description": "Auto-loads TypeScript patterns",
+      "priority": 90,
+      "enabled": true
+    },
+    {
+      "id": "uni-typescript-config",
+      "name": "TypeScript Config",
+      "type": "fileExt",
+      "value": ["tsconfig.json", "tsconfig.*.json"],
+      "patterns": ["universal/typescript/config"],
+      "description": "Auto-loads TypeScript config patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "uni-jest-tests",
+      "name": "Jest Tests",
+      "type": "fileExt",
+      "value": ["*.test.ts", "*.test.tsx", "*.test.js", "*.spec.ts", "*.spec.tsx"],
+      "patterns": ["universal/testing/jest"],
+      "description": "Auto-loads Jest patterns for test files",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "uni-vitest-tests",
+      "name": "Vitest Tests",
+      "type": "import",
+      "value": ["vitest", "from.*vitest"],
+      "patterns": ["universal/testing/vitest"],
+      "description": "Auto-loads Vitest patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "uni-testing-library",
+      "name": "Testing Library",
+      "type": "import",
+      "value": ["@testing-library"],
+      "patterns": ["universal/testing/testing-library"],
+      "description": "Auto-loads Testing Library patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "uni-cypress",
+      "name": "Cypress E2E",
+      "type": "path",
+      "value": ["cypress/**/*", "*.cy.ts", "*.cy.tsx"],
+      "patterns": ["universal/testing/cypress"],
+      "description": "Auto-loads Cypress patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-playwright",
+      "name": "Playwright E2E",
+      "type": "path",
+      "value": ["playwright/**/*", "*.spec.ts"],
+      "patterns": ["universal/testing/playwright"],
+      "description": "Auto-loads Playwright patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-storybook",
+      "name": "Storybook Stories",
+      "type": "fileExt",
+      "value": ["*.stories.tsx", "*.stories.ts", "*.stories.jsx"],
+      "patterns": ["universal/storybook"],
+      "description": "Auto-loads Storybook patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "uni-eslint",
+      "name": "ESLint Config",
+      "type": "fileExt",
+      "value": [".eslintrc.*", "eslint.config.*"],
+      "patterns": ["universal/linting"],
+      "description": "Auto-loads ESLint patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "uni-prettier",
+      "name": "Prettier Config",
+      "type": "fileExt",
+      "value": [".prettierrc*", "prettier.config.*"],
+      "patterns": ["universal/formatting"],
+      "description": "Auto-loads Prettier patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "uni-docker",
+      "name": "Docker Files",
+      "type": "fileExt",
+      "value": ["Dockerfile*", "docker-compose*.yml", "docker-compose*.yaml"],
+      "patterns": ["universal/docker"],
+      "description": "Auto-loads Docker patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "uni-kubernetes",
+      "name": "Kubernetes Manifests",
+      "type": "path",
+      "value": ["k8s/**/*.yaml", "k8s/**/*.yml", "kubernetes/**/*"],
+      "patterns": ["universal/kubernetes"],
+      "description": "Auto-loads Kubernetes patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-terraform",
+      "name": "Terraform Files",
+      "type": "fileExt",
+      "value": ["*.tf", "*.tfvars"],
+      "patterns": ["universal/terraform"],
+      "description": "Auto-loads Terraform patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "uni-github-actions",
+      "name": "GitHub Actions",
+      "type": "path",
+      "value": [".github/workflows/**/*.yml", ".github/workflows/**/*.yaml"],
+      "patterns": ["universal/ci-cd/github-actions"],
+      "description": "Auto-loads GitHub Actions patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-gitlab-ci",
+      "name": "GitLab CI",
+      "type": "fileExt",
+      "value": [".gitlab-ci.yml"],
+      "patterns": ["universal/ci-cd/gitlab"],
+      "description": "Auto-loads GitLab CI patterns",
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "id": "uni-package-json",
+      "name": "Package.json",
+      "type": "fileExt",
+      "value": ["package.json"],
+      "patterns": ["universal/npm"],
+      "description": "Auto-loads npm/package patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "uni-markdown",
+      "name": "Markdown Files",
+      "type": "fileExt",
+      "value": ["*.md", "*.mdx"],
+      "patterns": ["universal/documentation"],
+      "description": "Auto-loads documentation patterns",
+      "priority": 85,
+      "enabled": true
+    },
+    {
+      "id": "uni-json-config",
+      "name": "JSON Config Files",
+      "type": "fileExt",
+      "value": ["*.config.json", ".*.json"],
+      "patterns": ["universal/config"],
+      "description": "Auto-loads config file patterns",
+      "priority": 85,
+      "enabled": true
+    },
+    {
+      "id": "uni-yaml-config",
+      "name": "YAML Config Files",
+      "type": "fileExt",
+      "value": ["*.yml", "*.yaml"],
+      "patterns": ["universal/config"],
+      "description": "Auto-loads YAML config patterns",
+      "priority": 85,
+      "enabled": true
+    },
+    {
+      "id": "uni-env-files",
+      "name": "Environment Files",
+      "type": "fileExt",
+      "value": [".env*"],
+      "patterns": ["universal/env-config"],
+      "description": "Auto-loads environment config patterns",
+      "priority": 90,
+      "enabled": true
+    },
+    {
+      "id": "uni-migrations",
+      "name": "Database Migrations",
+      "type": "path",
+      "value": ["migrations/**/*", "db/migrations/**/*"],
+      "patterns": ["backend/database", "backend/migrations"],
+      "description": "Auto-loads migration patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-seeds",
+      "name": "Database Seeds",
+      "type": "path",
+      "value": ["seeds/**/*", "db/seeds/**/*"],
+      "patterns": ["backend/database"],
+      "description": "Auto-loads seed patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-api-routes",
+      "name": "API Routes Directory",
+      "type": "path",
+      "value": ["api/**/*", "src/api/**/*"],
+      "patterns": ["backend/rest-api"],
+      "description": "Auto-loads REST API patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-middleware",
+      "name": "Middleware Directory",
+      "type": "path",
+      "value": ["middleware/**/*", "src/middleware/**/*"],
+      "patterns": ["backend/middleware"],
+      "description": "Auto-loads middleware patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-utils",
+      "name": "Utilities Directory",
+      "type": "path",
+      "value": ["utils/**/*", "src/utils/**/*", "lib/**/*"],
+      "patterns": ["universal/utilities"],
+      "description": "Auto-loads utility patterns",
+      "priority": 75,
+      "enabled": true
+    },
+    {
+      "id": "uni-types",
+      "name": "Type Definitions",
+      "type": "path",
+      "value": ["types/**/*", "src/types/**/*", "@types/**/*"],
+      "patterns": ["universal/typescript/types"],
+      "description": "Auto-loads type definition patterns",
+      "priority": 80,
+      "enabled": true
+    },
+    {
+      "id": "uni-dts",
+      "name": "Declaration Files",
+      "type": "fileExt",
+      "value": ["*.d.ts"],
+      "patterns": ["universal/typescript/declarations"],
+      "description": "Auto-loads TypeScript declaration patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "cmd-npm-test",
+      "name": "NPM Test Command",
+      "type": "command",
+      "value": ["npm test", "pnpm test", "yarn test", "bun test"],
+      "patterns": ["universal/testing"],
+      "description": "Auto-loads testing patterns when running tests",
+      "priority": 20,
+      "enabled": true
+    },
+    {
+      "id": "cmd-npm-build",
+      "name": "Build Commands",
+      "type": "command",
+      "value": ["npm run build", "pnpm build", "yarn build", "bun run build"],
+      "patterns": ["universal/build"],
+      "description": "Auto-loads build patterns",
+      "priority": 20,
+      "enabled": true
+    },
+    {
+      "id": "cmd-npm-dev",
+      "name": "Dev Server Commands",
+      "type": "command",
+      "value": ["npm run dev", "pnpm dev", "yarn dev"],
+      "patterns": ["universal/development"],
+      "description": "Auto-loads development patterns",
+      "priority": 20,
+      "enabled": true
+    },
+    {
+      "id": "cmd-lint",
+      "name": "Lint Commands",
+      "type": "command",
+      "value": ["npm run lint", "eslint", "pnpm lint"],
+      "patterns": ["universal/linting"],
+      "description": "Auto-loads linting patterns",
+      "priority": 20,
+      "enabled": true
+    },
+    {
+      "id": "cmd-git",
+      "name": "Git Commands",
+      "type": "command",
+      "value": ["git commit", "git push", "git pull", "git merge"],
+      "patterns": ["universal/git"],
+      "description": "Auto-loads git workflow patterns",
+      "priority": 20,
+      "enabled": true
+    },
+    {
+      "id": "cmd-docker",
+      "name": "Docker Commands",
+      "type": "command",
+      "value": ["docker build", "docker-compose", "docker run"],
+      "patterns": ["universal/docker"],
+      "description": "Auto-loads Docker patterns",
+      "priority": 20,
+      "enabled": true
+    },
+    {
+      "id": "cmd-kubectl",
+      "name": "Kubectl Commands",
+      "type": "command",
+      "value": ["kubectl"],
+      "patterns": ["universal/kubernetes"],
+      "description": "Auto-loads Kubernetes patterns",
+      "priority": 20,
+      "enabled": true
+    },
+    {
+      "id": "kw-interface",
+      "name": "TypeScript Interface",
+      "type": "keyword",
+      "value": ["interface\\s+\\w+"],
+      "patterns": ["universal/typescript/interfaces"],
+      "description": "Auto-loads interface patterns",
+      "priority": 40,
+      "enabled": true
+    },
+    {
+      "id": "kw-class",
+      "name": "Class Definition",
+      "type": "keyword",
+      "value": ["class\\s+\\w+"],
+      "patterns": ["universal/oop"],
+      "description": "Auto-loads OOP patterns",
+      "priority": 40,
+      "enabled": true
+    },
+    {
+      "id": "kw-async-await",
+      "name": "Async/Await",
+      "type": "keyword",
+      "value": ["async\\s+function", "await\\s+"],
+      "patterns": ["universal/async"],
+      "description": "Auto-loads async patterns",
+      "priority": 40,
+      "enabled": true
+    },
+    {
+      "id": "kw-try-catch",
+      "name": "Error Handling",
+      "type": "keyword",
+      "value": ["try\\s*\\{", "catch\\s*\\(", "throw\\s+new"],
+      "patterns": ["universal/error-handling"],
+      "description": "Auto-loads error handling patterns",
+      "priority": 40,
+      "enabled": true
+    },
+    {
+      "id": "kw-fetch-api",
+      "name": "Fetch API",
+      "type": "keyword",
+      "value": ["fetch\\(", "axios\\.", "ky\\."],
+      "patterns": ["universal/http-client"],
+      "description": "Auto-loads HTTP client patterns",
+      "priority": 40,
+      "enabled": true
+    },
+    {
+      "id": "kw-regex",
+      "name": "Regular Expressions",
+      "type": "keyword",
+      "value": ["new RegExp\\(", "/.*?/[gimsuy]*"],
+      "patterns": ["universal/regex"],
+      "description": "Auto-loads regex patterns",
+      "priority": 35,
+      "enabled": true
+    },
+    {
+      "id": "kw-zod",
+      "name": "Zod Validation",
+      "type": "import",
+      "value": ["from.*zod", "import.*zod"],
+      "patterns": ["universal/validation/zod"],
+      "description": "Auto-loads Zod patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "kw-yup",
+      "name": "Yup Validation",
+      "type": "import",
+      "value": ["from.*yup", "import.*yup"],
+      "patterns": ["universal/validation/yup"],
+      "description": "Auto-loads Yup patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "fe-i18n",
+      "name": "Internationalization",
+      "type": "import",
+      "value": ["react-i18next", "next-intl", "i18next"],
+      "patterns": ["universal/i18n"],
+      "description": "Auto-loads i18n patterns",
+      "priority": 55,
+      "enabled": true
+    },
+    {
+      "id": "uni-monorepo",
+      "name": "Monorepo Config",
+      "type": "fileExt",
+      "value": ["pnpm-workspace.yaml", "lerna.json", "turbo.json", "nx.json"],
+      "patterns": ["universal/monorepo"],
+      "description": "Auto-loads monorepo patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "uni-vite-config",
+      "name": "Vite Config",
+      "type": "fileExt",
+      "value": ["vite.config.*"],
+      "patterns": ["universal/vite"],
+      "description": "Auto-loads Vite patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "uni-webpack-config",
+      "name": "Webpack Config",
+      "type": "fileExt",
+      "value": ["webpack.config.*"],
+      "patterns": ["universal/webpack"],
+      "description": "Auto-loads Webpack patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "be-serverless",
+      "name": "Serverless Framework",
+      "type": "fileExt",
+      "value": ["serverless.yml", "serverless.yaml"],
+      "patterns": ["backend/serverless"],
+      "description": "Auto-loads Serverless patterns",
+      "priority": 95,
+      "enabled": true
+    },
+    {
+      "id": "be-aws-cdk",
+      "name": "AWS CDK",
+      "type": "import",
+      "value": ["aws-cdk-lib", "@aws-cdk"],
+      "patterns": ["backend/aws-cdk"],
+      "description": "Auto-loads AWS CDK patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-aws-lambda",
+      "name": "AWS Lambda",
+      "type": "import",
+      "value": ["@aws-sdk", "aws-lambda"],
+      "patterns": ["backend/aws-lambda"],
+      "description": "Auto-loads AWS Lambda patterns",
+      "priority": 60,
+      "enabled": true
+    },
+    {
+      "id": "be-openapi",
+      "name": "OpenAPI Spec",
+      "type": "path",
+      "value": ["openapi.yaml", "openapi.yml", "swagger.yaml", "swagger.json"],
+      "patterns": ["backend/openapi"],
+      "description": "Auto-loads OpenAPI patterns",
+      "priority": 95,
+      "enabled": true
+    }
+  ]
+}
