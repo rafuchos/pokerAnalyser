@@ -25,3 +25,20 @@
 
 === US-002 completed at 2026-02-28T19:27:57.592Z ===
 - All quality gates passed
+
+=== US-003 completed at 2026-02-28 ===
+- All 179 tests passing (53 new + 126 existing)
+- Pattern: get_all_action_sequences() fetches ALL streets in one query (preflop+postflop) for postflop analysis
+- Pattern: _analyze_postflop_hand() is a static method that analyzes both preflop (for PFA detection) and postflop actions
+- Pattern: Showdown detection via set difference: flop_players - folded_players >= 2 means showdown
+- Pattern: CBet detection: hero was PFA AND hero has 'bet' action_type on flop (first money action)
+- Pattern: Fold-to-CBet: opponent was PFA, opponent bet on flop, hero's response was 'fold'
+- Pattern: Check-raise detection: sequential scan (hero check → opp bet → hero raise) within a street
+- Pattern: POSTFLOP_HEALTHY_RANGES / POSTFLOP_WARNING_RANGES separate from preflop ranges
+- Pattern: _get_week() for ISO week grouping using datetime.isocalendar()
+- Pattern: _render_postflop_stats() follows same stat_card/badge pattern as preflop section
+- Limitation: all-in preflop hands with no postflop actions don't count as "saw flop"
+- Limitation: all-in action counted as aggressive for AF (can't distinguish raise-all-in vs call-all-in)
+
+=== US-003 completed at 2026-02-28T19:45:32.028Z ===
+- All quality gates passed

@@ -243,7 +243,8 @@
         "src/db/schema.py",
         "src/db/repository.py",
         "src/reports/cash_report.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-004",
