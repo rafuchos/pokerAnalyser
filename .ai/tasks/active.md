@@ -65,10 +65,22 @@ Update this section weekly with sprint goals and dates.
 ## Today's Focus
 
 - [x] US-000: Reestruturação do Projeto + Banco SQLite com Import Pipeline (2026-02-28)
+- [x] US-001: Parser de Ações Detalhadas por Street (2026-02-28)
 
 ---
 
 ## Completed
+
+- [x] US-001: Parser de Ações Detalhadas por Street (2026-02-28)
+  - Parse every player action (fold, call, raise, check, bet, all-in) with amounts
+  - Separate actions by street: preflop, flop, turn, river
+  - Identify table positions (BTN, SB, BB, UTG, MP, CO) for each player
+  - Extract board cards per street (flop 3 cards, turn 1, river 1)
+  - Detect VPIP (voluntary pot entry excluding forced blinds)
+  - Works for both GGPoker and PokerStars hand histories
+  - Persist actions in hand_actions SQLite table with schema migration
+  - Backward compatible with existing financial parser and reports
+  - 61 new tests (83 total passing)
 
 - [x] US-000: Reestruturação do Projeto + Banco SQLite com Import Pipeline (2026-02-28)
   - Reorganized project structure under src/ with parsers/, db/, analyzers/, reports/

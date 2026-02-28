@@ -1,3 +1,11 @@
 
 === US-000 completed at 2026-02-28T18:35:14.151Z ===
 - All quality gates passed
+
+=== US-001 completed at 2026-02-28 ===
+- All 83 tests passing (61 new + 22 existing)
+- Pattern: parse_actions() returns tuple(list[ActionData], BoardData, dict[str,str])
+- Pattern: _map_positions() is a static method reusable by both parsers (PokerStars imports from GGPoker)
+- Pattern: Schema migration via _run_migrations() using PRAGMA table_info for safe ALTER TABLE
+- Pattern: Importer calls parse_actions() per hand_text block alongside parse_single_hand()
+- Lesson: Previous attempt timed out—focus on core criteria first, tests second
