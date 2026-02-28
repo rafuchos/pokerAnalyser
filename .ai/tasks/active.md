@@ -68,10 +68,24 @@ Update this section weekly with sprint goals and dates.
 - [x] US-001: Parser de Ações Detalhadas por Street (2026-02-28)
 - [x] US-002: Cálculo de VPIP, PFR e Estatísticas Preflop do Hero (2026-02-28)
 - [x] US-003: Estatísticas Postflop: AF, WTSD, W$SD, CBet (2026-02-28)
+- [x] US-004: Análise de Expected Value (EV) e All-In Equity (2026-02-28)
 
 ---
 
 ## Completed
+
+- [x] US-004: Análise de Expected Value (EV) e All-In Equity (2026-02-28)
+  - Detect all-in situations with showdown (revealed opponent cards)
+  - Calculate equity using Monte Carlo simulation + exact enumeration
+  - Full 5-card hand evaluator (high card through straight flush)
+  - EV-adjusted results: equity * pot - invested per all-in hand
+  - Cumulative EV line vs Real line chart data (SVG inline)
+  - bb/100 real and EV-adjusted calculation
+  - Luck factor: real net - EV net (how much above/below EV)
+  - Breakdown by stakes (different blind levels)
+  - EV Analysis section in HTML report with SVG chart
+  - Schema migration for pot_total, opponent_cards, has_allin, allin_street
+  - 78 new tests (257 total)
 
 - [x] US-003: Estatísticas Postflop: AF, WTSD, W$SD, CBet (2026-02-28)
   - AF (Aggression Factor): (bets + raises) / calls per street and overall
