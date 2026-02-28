@@ -1,7 +1,7 @@
 {
   "id": "US-003",
   "title": "Estatísticas Postflop: AF, WTSD, W$SD, CBet",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -30,7 +30,7 @@
     "tests/test_actions.py"
   ],
   "created_at": "2026-02-28T19:29:47.982Z",
-  "completed_at": null,
+  "completed_at": "2026-02-28T19:45:33.671Z",
   "failure_reason": null,
   "branch": "feat/US-003"
 }
