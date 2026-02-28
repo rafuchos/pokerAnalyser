@@ -328,6 +328,30 @@ class Repository:
         row = self.conn.execute(query, params).fetchone()
         return dict(row) if row else {}
 
+    # ── Preflop Stats Queries ─────────────────────────────────────
+
+    def get_preflop_action_sequences(self, year: Optional[str] = None) -> list[dict]:
+        """Get all preflop actions for cash hands, ordered by hand and sequence.
+
+        Joins with hands table to include hero_position and date info.
+        Used by CashAnalyzer to compute VPIP, PFR, 3-Bet%, Fold-to-3-Bet%, ATS%.
+        """
+        query = """
+            SELECT ha.hand_id, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position, ha.is_voluntary,
+                   h.hero_position, substr(h.date, 1, 10) as day
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE ha.street = 'preflop' AND h.game_type = 'cash'
+        """
+        params = []
+        if year:
+            query += " AND h.date LIKE ?"
+            params.append(f"{year}%")
+        query += " ORDER BY ha.hand_id, ha.sequence_order"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
     def get_imported_files_count(self) -> int:
         """Get count of imported files."""
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM imported_files").fetchone()

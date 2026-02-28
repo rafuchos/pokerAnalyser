@@ -66,10 +66,21 @@ Update this section weekly with sprint goals and dates.
 
 - [x] US-000: Reestruturação do Projeto + Banco SQLite com Import Pipeline (2026-02-28)
 - [x] US-001: Parser de Ações Detalhadas por Street (2026-02-28)
+- [x] US-002: Cálculo de VPIP, PFR e Estatísticas Preflop do Hero (2026-02-28)
 
 ---
 
 ## Completed
+
+- [x] US-002: Cálculo de VPIP, PFR e Estatísticas Preflop do Hero (2026-02-28)
+  - VPIP: % de mãos com entrada voluntária preflop (excluindo blinds)
+  - PFR: % de mãos com raise preflop
+  - 3-Bet%: % de re-raise preflop após raise de oponente
+  - Fold to 3-Bet%: % de fold após receber 3-bet
+  - ATS: % de steal attempts de CO/BTN/SB quando folda até o jogador
+  - Stats agregadas: overall, por posição, por dia
+  - Seção 'Player Stats' no HTML report com badges de saúde (verde/amarelo/vermelho)
+  - 43 novos testes (126 total)
 
 - [x] US-001: Parser de Ações Detalhadas por Street (2026-02-28)
   - Parse every player action (fold, call, raise, check, bet, all-in) with amounts

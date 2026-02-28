@@ -14,6 +14,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     """Generate the cash game HTML report."""
     summary = analyzer.get_summary()
     daily_reports = analyzer.get_daily_reports()
+    preflop_stats = analyzer.get_preflop_stats()
 
     total_hands = summary['total_hands']
     total_net = summary['total_net']
@@ -207,6 +208,75 @@ def generate_cash_report(analyzer: CashAnalyzer,
             color: #a0a0a0;
             font-size: 0.9em;
         }
+
+        .player-stats {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .player-stats h2 {
+            color: #00ff88;
+            margin-bottom: 15px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7em;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-top: 5px;
+        }
+
+        .badge-good {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .badge-warning {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+
+        .badge-danger {
+            background: rgba(255, 68, 68, 0.2);
+            color: #ff4444;
+        }
+
+        .stat-detail {
+            font-size: 0.75em;
+            color: #888;
+            margin-top: 3px;
+        }
+
+        .position-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .position-table th, .position-table td {
+            padding: 10px 12px;
+            text-align: center;
+        }
+
+        .section-subtitle {
+            color: #a0a0a0;
+            font-size: 1em;
+            margin: 20px 0 10px 0;
+        }
     </style>
 </head>
 <body>
@@ -248,6 +318,13 @@ def generate_cash_report(analyzer: CashAnalyzer,
             </div>
         </div>
 """
+
+    # ── Player Stats Section ──────────────────────────────────────
+    overall = preflop_stats.get('overall', {})
+    by_position = preflop_stats.get('by_position', {})
+
+    if overall.get('total_hands', 0) > 0:
+        html += _render_player_stats(overall, by_position)
 
     for report in daily_reports:
         date_obj = datetime.strptime(report['date'], '%Y-%m-%d')
@@ -354,3 +431,83 @@ def generate_cash_report(analyzer: CashAnalyzer,
 
     print(f"Report generated: {output_file}")
     return output_file
+
+
+def _render_player_stats(overall: dict, by_position: dict) -> str:
+    """Render the Player Stats HTML section."""
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    def stat_card(label: str, value: float, health: str, detail: str = '') -> str:
+        detail_html = f'<div class="stat-detail">{detail}</div>' if detail else ''
+        return (
+            f'<div class="stat-card">'
+            f'<div class="stat-label">{label}</div>'
+            f'<div class="stat-value">{value:.1f}%</div>'
+            f'{badge_html(health)}'
+            f'{detail_html}'
+            f'</div>'
+        )
+
+    vpip_detail = f'{overall["vpip_hands"]}/{overall["total_hands"]} m\u00e3os'
+    pfr_detail = f'{overall["pfr_hands"]}/{overall["total_hands"]} m\u00e3os'
+    three_bet_detail = f'{overall["three_bet_hands"]}/{overall["three_bet_opps"]} opps'
+    fold_3bet_detail = f'{overall["fold_to_3bet_hands"]}/{overall["fold_to_3bet_opps"]} opps'
+    ats_detail = f'{overall["ats_hands"]}/{overall["ats_opps"]} opps'
+
+    html = f"""
+        <div class="player-stats">
+            <h2>Player Stats (Preflop)</h2>
+            <div class="stats-grid">
+                {stat_card('VPIP', overall['vpip'], overall['vpip_health'], vpip_detail)}
+                {stat_card('PFR', overall['pfr'], overall['pfr_health'], pfr_detail)}
+                {stat_card('3-Bet', overall['three_bet'], overall['three_bet_health'], three_bet_detail)}
+                {stat_card('Fold to 3-Bet', overall['fold_to_3bet'], overall['fold_to_3bet_health'], fold_3bet_detail)}
+                {stat_card('ATS (Steal)', overall['ats'], overall['ats_health'], ats_detail)}
+            </div>
+"""
+
+    # Position breakdown table
+    position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+    positions_present = [p for p in position_order if p in by_position]
+
+    if positions_present:
+        html += """
+            <h3 class="section-subtitle">Stats por Posi\u00e7\u00e3o</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Posi\u00e7\u00e3o</th>
+                        <th>M\u00e3os</th>
+                        <th>VPIP</th>
+                        <th>PFR</th>
+                        <th>3-Bet</th>
+                        <th>ATS</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        for pos in positions_present:
+            ps = by_position[pos]
+            ats_val = f'{ps["ats"]:.1f}%' if pos in ('CO', 'BTN', 'SB') else '-'
+            html += f"""
+                    <tr>
+                        <td><strong>{pos}</strong></td>
+                        <td>{ps['total_hands']}</td>
+                        <td>{ps['vpip']:.1f}%</td>
+                        <td>{ps['pfr']:.1f}%</td>
+                        <td>{ps['three_bet']:.1f}%</td>
+                        <td>{ats_val}</td>
+                    </tr>
+"""
+        html += """
+                </tbody>
+            </table>
+"""
+
+    html += """
+        </div>
+"""
+    return html
