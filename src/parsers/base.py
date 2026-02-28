@@ -30,6 +30,27 @@ class TournamentSummaryData:
             setattr(self, slot, kwargs.get(slot))
 
 
+class ActionData:
+    """Parsed data for a single player action within a hand."""
+    __slots__ = (
+        'hand_id', 'street', 'player', 'action_type', 'amount',
+        'is_hero', 'sequence_order', 'position', 'is_voluntary',
+    )
+
+    def __init__(self, **kwargs):
+        for slot in self.__slots__:
+            setattr(self, slot, kwargs.get(slot))
+
+
+class BoardData:
+    """Parsed board cards by street."""
+    __slots__ = ('flop', 'turn', 'river')
+
+    def __init__(self, **kwargs):
+        for slot in self.__slots__:
+            setattr(self, slot, kwargs.get(slot))
+
+
 class BaseParser(ABC):
     """Abstract base class for poker hand history parsers."""
 

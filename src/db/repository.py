@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional
 
-from src.parsers.base import HandData, TournamentSummaryData
+from src.parsers.base import ActionData, HandData, TournamentSummaryData
 
 
 class Repository:
@@ -63,6 +63,61 @@ class Repository:
                 inserted += 1
         self.conn.commit()
         return inserted
+
+    # ── Hand Actions ────────────────────────────────────────────────
+
+    def insert_actions_batch(self, actions: list[ActionData]) -> int:
+        """Insert multiple hand actions, returning count inserted."""
+        if not actions:
+            return 0
+        self.conn.executemany(
+            "INSERT INTO hand_actions (hand_id, street, player, action_type, amount, "
+            "is_hero, sequence_order, position, is_voluntary) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (a.hand_id, a.street, a.player, a.action_type, a.amount or 0,
+                 a.is_hero or 0, a.sequence_order or 0, a.position, a.is_voluntary or 0)
+                for a in actions
+            ]
+        )
+        self.conn.commit()
+        return len(actions)
+
+    def update_hand_board(self, hand_id: str, board_flop: str = None,
+                          board_turn: str = None, board_river: str = None):
+        """Update board cards for a hand."""
+        self.conn.execute(
+            "UPDATE hands SET board_flop = ?, board_turn = ?, board_river = ? "
+            "WHERE hand_id = ?",
+            (board_flop, board_turn, board_river, hand_id)
+        )
+
+    def update_hand_position(self, hand_id: str, hero_position: str):
+        """Update hero position for a hand."""
+        self.conn.execute(
+            "UPDATE hands SET hero_position = ? WHERE hand_id = ?",
+            (hero_position, hand_id)
+        )
+
+    def get_hand_actions(self, hand_id: str) -> list[dict]:
+        """Get all actions for a hand, ordered by street and sequence."""
+        rows = self.conn.execute(
+            "SELECT * FROM hand_actions WHERE hand_id = ? "
+            "ORDER BY CASE street "
+            "  WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2 "
+            "  WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END, "
+            "sequence_order",
+            (hand_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def has_actions_for_hand(self, hand_id: str) -> bool:
+        """Check if actions already exist for a hand."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM hand_actions WHERE hand_id = ?",
+            (hand_id,)
+        ).fetchone()
+        return row['cnt'] > 0
 
     # ── Sessions ─────────────────────────────────────────────────────
 

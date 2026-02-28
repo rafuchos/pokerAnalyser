@@ -104,6 +104,7 @@ class Importer:
 
         print(f"Importing {len(files)} cash hand file(s)...")
         total_inserted = 0
+        total_actions = 0
         skipped_files = 0
 
         for filepath in files:
@@ -114,15 +115,48 @@ class Importer:
                 skipped_files += 1
                 continue
 
-            hands = self.gg_parser.parse_hand_file(fpath_str)
+            with open(fpath_str, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            hand_texts = content.split('\n\n\n')
+            hands = []
+            all_actions = []
+
+            for hand_text in hand_texts:
+                if not hand_text.strip():
+                    continue
+                hand = self.gg_parser.parse_single_hand(hand_text)
+                if not hand:
+                    continue
+                hands.append(hand)
+
+                # Parse actions, board, and positions
+                actions, board, positions = self.gg_parser.parse_actions(
+                    hand_text, hand.hand_id
+                )
+                all_actions.append((hand.hand_id, actions, board, positions))
+
             inserted = self.repo.insert_hands_batch(hands)
+
+            # Persist actions, board cards, and hero positions
+            for hand_id, actions, board, positions in all_actions:
+                if actions:
+                    self.repo.insert_actions_batch(actions)
+                if board.flop or board.turn or board.river:
+                    self.repo.update_hand_board(hand_id, board.flop, board.turn, board.river)
+                hero_pos = positions.get('Hero')
+                if hero_pos:
+                    self.repo.update_hand_position(hand_id, hero_pos)
+
+            self.conn.commit()
             self.repo.mark_file_imported(fpath_str, fhash, inserted)
             total_inserted += inserted
-            print(f"  {filepath.name}: {inserted} hands imported")
+            total_actions += sum(len(a[1]) for a in all_actions)
+            print(f"  {filepath.name}: {inserted} hands, {sum(len(a[1]) for a in all_actions)} actions imported")
 
         if skipped_files:
             print(f"  {skipped_files} file(s) already imported (skipped)")
-        print(f"  Total: {total_inserted} new cash hands imported")
+        print(f"  Total: {total_inserted} new cash hands, {total_actions} actions imported")
 
     def _import_tournament_summaries(self, force: bool):
         """Import tournament summary files."""
