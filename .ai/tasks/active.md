@@ -69,10 +69,25 @@ Update this section weekly with sprint goals and dates.
 - [x] US-002: Cálculo de VPIP, PFR e Estatísticas Preflop do Hero (2026-02-28)
 - [x] US-003: Estatísticas Postflop: AF, WTSD, W$SD, CBet (2026-02-28)
 - [x] US-004: Análise de Expected Value (EV) e All-In Equity (2026-02-28)
+- [x] US-005: Relatório Diário com Breakdown por Sessão e Stats de Jogo (2026-02-28)
 
 ---
 
 ## Completed
+
+- [x] US-005: Relatório Diário com Breakdown por Sessão e Stats de Jogo (2026-02-28)
+  - Expandable accordion session cards within each daily report
+  - Session info: start/end time, duration, buy-in, cash-out, profit, hands played, min stack
+  - Per-session game stats: VPIP%, PFR%, 3-Bet%, AF, WTSD%, W$SD%, CBet% with health badges
+  - Inline SVG sparkline showing session profit evolution (stack over hands)
+  - Notable hands (biggest win/loss) moved into corresponding session cards
+  - Day summary with weighted average stats from all sessions
+  - Session comparison table (best/worst per stat highlighted green/red)
+  - Responsive layout with CSS media queries (desktop/tablet/mobile)
+  - JavaScript accordion toggle for expandable session cards
+  - Repository methods: get_hands_for_session, get_actions_for_session
+  - 48 new tests (305 total)
+
 
 - [x] US-004: Análise de Expected Value (EV) e All-In Equity (2026-02-28)
   - Detect all-in situations with showdown (revealed opponent cards)

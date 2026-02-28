@@ -414,6 +414,38 @@ class Repository:
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    def get_hands_for_session(self, session: dict) -> list[dict]:
+        """Get all cash hands that fall within a session's time range."""
+        rows = self.conn.execute(
+            "SELECT * FROM hands WHERE game_type = 'cash' "
+            "AND date >= ? AND date <= ? ORDER BY date",
+            (session['start_time'], session['end_time'])
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_actions_for_session(self, session: dict) -> list[dict]:
+        """Get all actions for hands within a session's time range.
+
+        Returns all streets (preflop + postflop) for stat calculation.
+        """
+        query = """
+            SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position, ha.is_voluntary,
+                   h.hero_position, h.net as hero_net, substr(h.date, 1, 10) as day
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE h.game_type = 'cash'
+              AND h.date >= ? AND h.date <= ?
+            ORDER BY ha.hand_id,
+                CASE ha.street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
+                WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
+                ha.sequence_order
+        """
+        rows = self.conn.execute(
+            query, (session['start_time'], session['end_time'])
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_imported_files_count(self) -> int:
         """Get count of imported files."""
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM imported_files").fetchone()

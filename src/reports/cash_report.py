@@ -15,7 +15,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
                          ev_analyzer: EVAnalyzer = None) -> str:
     """Generate the cash game HTML report."""
     summary = analyzer.get_summary()
-    daily_reports = analyzer.get_daily_reports()
+    daily_reports = analyzer.get_daily_reports_with_sessions()
     preflop_stats = analyzer.get_preflop_stats()
     postflop_stats = analyzer.get_postflop_stats()
     ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
@@ -145,7 +145,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
         }
 
         .notable-hands {
-            margin-top: 20px;
+            margin-top: 15px;
         }
 
         .notable-hands h4 {
@@ -281,6 +281,204 @@ def generate_cash_report(analyzer: CashAnalyzer,
             font-size: 1em;
             margin: 20px 0 10px 0;
         }
+
+        /* ── Session Accordion ──────────────────────────────── */
+        .session-accordion {
+            margin-top: 15px;
+        }
+
+        .session-card {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+        }
+
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        .session-header:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .session-header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .session-header-left .session-num {
+            color: #00ff88;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .session-header-left .session-time {
+            color: #a0a0a0;
+            font-size: 0.85em;
+        }
+
+        .session-header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .session-header-right .session-hands {
+            color: #a0a0a0;
+            font-size: 0.85em;
+        }
+
+        .session-header-right .session-profit {
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .session-toggle {
+            color: #a0a0a0;
+            font-size: 0.8em;
+            transition: transform 0.3s;
+        }
+
+        .session-card.open .session-toggle {
+            transform: rotate(180deg);
+        }
+
+        .session-body {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .session-card.open .session-body {
+            max-height: 2000px;
+            transition: max-height 0.5s ease-in;
+        }
+
+        .session-content {
+            padding: 0 16px 16px 16px;
+        }
+
+        .session-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .session-info-item {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .session-info-item .stat-label {
+            font-size: 0.75em;
+        }
+
+        .session-info-item .stat-value {
+            font-size: 1.2em;
+        }
+
+        .session-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .session-stat-card {
+            background: rgba(0, 255, 136, 0.05);
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .session-stat-card .stat-label {
+            font-size: 0.7em;
+        }
+
+        .session-stat-card .stat-value {
+            font-size: 1em;
+        }
+
+        .session-stat-card .badge {
+            font-size: 0.6em;
+            padding: 1px 5px;
+        }
+
+        /* ── Day Summary Stats ──────────────────────────────── */
+        .day-summary-stats {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .day-summary-stats h4 {
+            color: #a0a0a0;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+
+        .day-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 8px;
+        }
+
+        /* ── Session Comparison ──────────────────────────────── */
+        .session-comparison {
+            margin-top: 15px;
+        }
+
+        .session-comparison table {
+            margin-top: 5px;
+        }
+
+        /* ── Responsive ──────────────────────────────── */
+        @media (max-width: 768px) {
+            .summary-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .session-info-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .session-stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .daily-header {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+            .hand-details {
+                flex-direction: column;
+            }
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            .summary-grid {
+                grid-template-columns: 1fr;
+            }
+            h1 {
+                font-size: 1.8em;
+            }
+        }
     </style>
 </head>
 <body>
@@ -347,15 +545,45 @@ def generate_cash_report(analyzer: CashAnalyzer,
             ev_stats.get('chart_data', []),
         )
 
+    # ── Daily Reports with Session Breakdown ────────────────────────
     for report in daily_reports:
-        date_obj = datetime.strptime(report['date'], '%Y-%m-%d')
-        date_formatted = date_obj.strftime('%d/%m/%Y (%A)')
-        net = report['net']
-        net_class = 'positive' if net >= 0 else 'negative'
-        num_sessions = report['num_sessions']
-        total_invested = report['total_invested']
+        html += _render_daily_report(report)
 
-        html += f"""
+    html += """
+        <div class="footer">
+            <p>Relat\u00f3rio gerado automaticamente</p>
+        </div>
+    </div>
+    <script>
+    document.querySelectorAll('.session-header').forEach(function(header) {
+        header.addEventListener('click', function() {
+            this.parentElement.classList.toggle('open');
+        });
+    });
+    </script>
+</body>
+</html>
+"""
+
+    from pathlib import Path
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html)
+
+    print(f"Report generated: {output_file}")
+    return output_file
+
+
+def _render_daily_report(report: dict) -> str:
+    """Render a single day's report with session breakdown."""
+    date_obj = datetime.strptime(report['date'], '%Y-%m-%d')
+    date_formatted = date_obj.strftime('%d/%m/%Y (%A)')
+    net = report['net']
+    net_class = 'positive' if net >= 0 else 'negative'
+    num_sessions = report['num_sessions']
+    total_invested = report['total_invested']
+
+    html = f"""
         <div class="daily-report">
             <div class="daily-header">
                 <h3>{date_formatted}</h3>
@@ -380,78 +608,318 @@ def generate_cash_report(analyzer: CashAnalyzer,
                     <div class="stat-value {net_class}">${net:.2f}</div>
                 </div>
             </div>
-
-            <div class="notable-hands">
-                <h4>M\u00e3os Not\u00e1veis</h4>
 """
 
-        bw = report.get('biggest_win')
-        if bw:
-            cards = bw.get('hero_cards') or 'N/A'
-            invested = bw.get('invested', 0) or 0
-            won = bw.get('won', 0) or 0
-            bw_net = bw.get('net', 0) or 0
-            blinds = f"${bw.get('blinds_sb', 0):.2f}/${bw.get('blinds_bb', 0):.2f}" if bw.get('blinds_sb') else 'N/A'
-            html += f"""
-                <div class="hand-card win">
-                    <div class="hand-details">
-                        <div class="hand-info">
-                            <span class="cards">Cards: {cards}</span> |
-                            Blinds: {blinds}
-                        </div>
-                        <div class="hand-info">
-                            Investido: ${invested:.2f} |
-                            Ganho: ${won:.2f} |
-                            <strong class="positive">Lucro: ${bw_net:.2f}</strong>
-                        </div>
-                    </div>
-                </div>
-"""
+    # Session accordion
+    sessions = report.get('sessions', [])
+    if sessions:
+        html += '            <div class="session-accordion">\n'
+        for i, sd in enumerate(sessions):
+            html += _render_session_card(sd, i + 1)
+        html += '            </div>\n'
 
-        bl = report.get('biggest_loss')
-        if bl:
-            cards = bl.get('hero_cards') or 'N/A'
-            invested = bl.get('invested', 0) or 0
-            won = bl.get('won', 0) or 0
-            bl_net = bl.get('net', 0) or 0
-            blinds = f"${bl.get('blinds_sb', 0):.2f}/${bl.get('blinds_bb', 0):.2f}" if bl.get('blinds_sb') else 'N/A'
-            html += f"""
-                <div class="hand-card loss">
-                    <div class="hand-details">
-                        <div class="hand-info">
-                            <span class="cards">Cards: {cards}</span> |
-                            Blinds: {blinds}
-                        </div>
-                        <div class="hand-info">
-                            Investido: ${invested:.2f} |
-                            Ganho: ${won:.2f} |
-                            <strong class="negative">Perda: ${bl_net:.2f}</strong>
-                        </div>
-                    </div>
-                </div>
-"""
+    # Day summary stats (weighted average from sessions)
+    day_stats = report.get('day_stats', {})
+    if day_stats and day_stats.get('total_hands', 0) > 0:
+        html += _render_day_summary_stats(day_stats)
 
-        html += """
-            </div>
-        </div>
-"""
+    # Session comparison
+    comparison = report.get('comparison', {})
+    if comparison and len(sessions) >= 2:
+        html += _render_session_comparison(comparison, sessions)
 
     html += """
-        <div class="footer">
-            <p>Relat\u00f3rio gerado automaticamente</p>
         </div>
-    </div>
-</body>
-</html>
+"""
+    return html
+
+
+def _render_session_card(sd: dict, session_num: int) -> str:
+    """Render a single session accordion card."""
+    profit = sd.get('profit', 0)
+    profit_class = 'positive' if profit >= 0 else 'negative'
+    hands_count = sd.get('hands_count', 0)
+    duration = sd.get('duration_minutes', 0)
+
+    # Parse time display
+    start_time = sd.get('start_time', '')
+    end_time = sd.get('end_time', '')
+    try:
+        start_display = datetime.fromisoformat(start_time).strftime('%H:%M')
+        end_display = datetime.fromisoformat(end_time).strftime('%H:%M')
+        time_display = f'{start_display} - {end_display}'
+    except (ValueError, TypeError):
+        time_display = 'N/A'
+
+    # Duration display
+    if duration > 0:
+        hours = duration // 60
+        mins = duration % 60
+        dur_display = f'{hours}h{mins:02d}' if hours > 0 else f'{mins}min'
+    else:
+        dur_display = 'N/A'
+
+    html = f"""
+                <div class="session-card">
+                    <div class="session-header">
+                        <div class="session-header-left">
+                            <span class="session-num">Sess\u00e3o {session_num}</span>
+                            <span class="session-time">{time_display}</span>
+                        </div>
+                        <div class="session-header-right">
+                            <span class="session-hands">{hands_count} m\u00e3os</span>
+                            <span class="session-profit {profit_class}">${profit:.2f}</span>
+                            <span class="session-toggle">\u25bc</span>
+                        </div>
+                    </div>
+                    <div class="session-body">
+                        <div class="session-content">
+                            <div class="session-info-grid">
+                                <div class="session-info-item">
+                                    <div class="stat-label">Dura\u00e7\u00e3o</div>
+                                    <div class="stat-value">{dur_display}</div>
+                                </div>
+                                <div class="session-info-item">
+                                    <div class="stat-label">Buy-in</div>
+                                    <div class="stat-value">${sd.get('buy_in', 0):.2f}</div>
+                                </div>
+                                <div class="session-info-item">
+                                    <div class="stat-label">Cash-out</div>
+                                    <div class="stat-value">${sd.get('cash_out', 0):.2f}</div>
+                                </div>
+                                <div class="session-info-item">
+                                    <div class="stat-label">Profit</div>
+                                    <div class="stat-value {profit_class}">${profit:.2f}</div>
+                                </div>
+                                <div class="session-info-item">
+                                    <div class="stat-label">M\u00e3os</div>
+                                    <div class="stat-value">{hands_count}</div>
+                                </div>
+                                <div class="session-info-item">
+                                    <div class="stat-label">Min Stack</div>
+                                    <div class="stat-value">${sd.get('min_stack', 0):.2f}</div>
+                                </div>
+                            </div>
 """
 
-    from pathlib import Path
-    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(html)
+    # Session stats with badges
+    stats = sd.get('stats', {})
+    if stats and stats.get('total_hands', 0) > 0:
+        html += _render_session_stats(stats)
 
-    print(f"Report generated: {output_file}")
-    return output_file
+    # Sparkline
+    sparkline = sd.get('sparkline', [])
+    if sparkline and len(sparkline) >= 2:
+        html += _render_sparkline(sparkline)
+
+    # Notable hands within session
+    bw = sd.get('biggest_win')
+    bl = sd.get('biggest_loss')
+    if bw or bl:
+        html += '                            <div class="notable-hands">\n'
+        html += '                                <h4>M\u00e3os Not\u00e1veis</h4>\n'
+        if bw:
+            html += _render_hand_card(bw, is_win=True)
+        if bl:
+            html += _render_hand_card(bl, is_win=False)
+        html += '                            </div>\n'
+
+    html += """
+                        </div>
+                    </div>
+                </div>
+"""
+    return html
+
+
+def _render_session_stats(stats: dict) -> str:
+    """Render session-level stats with health badges."""
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    def mini_stat(label: str, value: float, health: str, fmt: str = '{:.1f}%') -> str:
+        return (
+            f'<div class="session-stat-card">'
+            f'<div class="stat-label">{label}</div>'
+            f'<div class="stat-value">{fmt.format(value)}</div>'
+            f'{badge_html(health)}'
+            f'</div>'
+        )
+
+    html = '                            <div class="session-stats-grid">\n'
+    html += f'                                {mini_stat("VPIP", stats["vpip"], stats["vpip_health"])}\n'
+    html += f'                                {mini_stat("PFR", stats["pfr"], stats["pfr_health"])}\n'
+    html += f'                                {mini_stat("3-Bet", stats["three_bet"], stats["three_bet_health"])}\n'
+    html += f'                                {mini_stat("AF", stats["af"], stats["af_health"], "{:.2f}")}\n'
+    html += f'                                {mini_stat("WTSD%", stats["wtsd"], stats["wtsd_health"])}\n'
+    html += f'                                {mini_stat("W$SD%", stats["wsd"], stats["wsd_health"])}\n'
+    html += f'                                {mini_stat("CBet%", stats["cbet"], stats["cbet_health"])}\n'
+    html += '                            </div>\n'
+    return html
+
+
+def _render_sparkline(data: list[dict]) -> str:
+    """Render inline SVG sparkline for session profit evolution."""
+    width = 300
+    height = 60
+    margin = 5
+    plot_w = width - 2 * margin
+    plot_h = height - 2 * margin
+
+    values = [d['profit'] for d in data]
+    y_min = min(values)
+    y_max = max(values)
+    y_range = y_max - y_min if y_max != y_min else 1.0
+    x_max = len(values) - 1
+    if x_max == 0:
+        x_max = 1
+
+    def sx(i):
+        return margin + (i / x_max) * plot_w
+
+    def sy(v):
+        return margin + plot_h - ((v - y_min) / y_range) * plot_h
+
+    points = ' '.join(f'{sx(i):.1f},{sy(v):.1f}' for i, v in enumerate(values))
+
+    final_val = values[-1]
+    line_color = '#00ff88' if final_val >= 0 else '#ff4444'
+
+    # Zero line
+    zero_line = ''
+    if y_min < 0 < y_max:
+        zy = sy(0)
+        zero_line = (
+            f'<line x1="{margin}" y1="{zy:.1f}" '
+            f'x2="{width - margin}" y2="{zy:.1f}" '
+            f'stroke="rgba(255,255,255,0.2)" stroke-width="0.5" '
+            f'stroke-dasharray="2,2"/>'
+        )
+
+    svg = f"""                            <div style="margin:10px 0;">
+                                <svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"
+                                     style="width:100%;max-width:{width}px;background:rgba(0,0,0,0.15);border-radius:6px;">
+                                    {zero_line}
+                                    <polyline points="{points}"
+                                              fill="none" stroke="{line_color}" stroke-width="1.5"
+                                              stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+"""
+    return svg
+
+
+def _render_hand_card(hand: dict, is_win: bool) -> str:
+    """Render a notable hand card (biggest win or loss)."""
+    cards = hand.get('hero_cards') or 'N/A'
+    invested = hand.get('invested', 0) or 0
+    won = hand.get('won', 0) or 0
+    net = hand.get('net', 0) or 0
+    blinds = (f"${hand.get('blinds_sb', 0):.2f}/${hand.get('blinds_bb', 0):.2f}"
+              if hand.get('blinds_sb') else 'N/A')
+
+    css_class = 'win' if is_win else 'loss'
+    result_class = 'positive' if is_win else 'negative'
+    result_label = 'Lucro' if is_win else 'Perda'
+
+    return f"""                                <div class="hand-card {css_class}">
+                                    <div class="hand-details">
+                                        <div class="hand-info">
+                                            <span class="cards">Cards: {cards}</span> |
+                                            Blinds: {blinds}
+                                        </div>
+                                        <div class="hand-info">
+                                            Investido: ${invested:.2f} |
+                                            Ganho: ${won:.2f} |
+                                            <strong class="{result_class}">{result_label}: ${net:.2f}</strong>
+                                        </div>
+                                    </div>
+                                </div>
+"""
+
+
+def _render_day_summary_stats(day_stats: dict) -> str:
+    """Render day-level aggregated stats (weighted average from sessions)."""
+    html = """
+            <div class="day-summary-stats">
+                <h4>Resumo do Dia (m\u00e9dia ponderada)</h4>
+                <div class="day-stats-grid">
+"""
+    stats_items = [
+        ('VPIP', day_stats.get('vpip', 0), '{:.1f}%'),
+        ('PFR', day_stats.get('pfr', 0), '{:.1f}%'),
+        ('3-Bet', day_stats.get('three_bet', 0), '{:.1f}%'),
+        ('AF', day_stats.get('af', 0), '{:.2f}'),
+        ('WTSD%', day_stats.get('wtsd', 0), '{:.1f}%'),
+        ('W$SD%', day_stats.get('wsd', 0), '{:.1f}%'),
+        ('CBet%', day_stats.get('cbet', 0), '{:.1f}%'),
+    ]
+    for label, value, fmt in stats_items:
+        html += f"""                    <div class="daily-stat">
+                        <div class="stat-label">{label}</div>
+                        <div class="stat-value">{fmt.format(value)}</div>
+                    </div>
+"""
+    html += """                </div>
+            </div>
+"""
+    return html
+
+
+def _render_session_comparison(comparison: dict, sessions: list[dict]) -> str:
+    """Render visual comparison table between sessions of the day."""
+    html = """
+            <div class="session-comparison">
+                <h4 class="section-subtitle">Comparativo entre Sess\u00f5es</h4>
+                <table class="position-table">
+                    <thead>
+                        <tr>
+                            <th>Stat</th>
+"""
+    for i, sd in enumerate(sessions):
+        html += f'                            <th>S{i + 1}</th>\n'
+    html += """                        </tr>
+                    </thead>
+                    <tbody>
+"""
+
+    stat_labels = {
+        'vpip': ('VPIP', '{:.1f}%'),
+        'pfr': ('PFR', '{:.1f}%'),
+        'af': ('AF', '{:.2f}'),
+        'wtsd': ('WTSD%', '{:.1f}%'),
+        'wsd': ('W$SD%', '{:.1f}%'),
+        'cbet': ('CBet%', '{:.1f}%'),
+        'profit': ('Profit', '${:.2f}'),
+    }
+
+    for key, (label, fmt) in stat_labels.items():
+        comp = comparison.get(key, {})
+        best_idx = comp.get('best', -1)
+        worst_idx = comp.get('worst', -1)
+        html += f'                        <tr><td><strong>{label}</strong></td>\n'
+        for i, sd in enumerate(sessions):
+            if key == 'profit':
+                val = sd.get('profit', 0)
+            else:
+                val = sd.get('stats', {}).get(key, 0)
+            val_str = fmt.format(val)
+
+            cell_style = ''
+            if i == best_idx:
+                cell_style = ' class="positive"'
+            elif i == worst_idx:
+                cell_style = ' class="negative"'
+            html += f'                            <td{cell_style}>{val_str}</td>\n'
+        html += '                        </tr>\n'
+
+    html += """                    </tbody>
+                </table>
+            </div>
+"""
+    return html
 
 
 def _render_player_stats(overall: dict, by_position: dict) -> str:

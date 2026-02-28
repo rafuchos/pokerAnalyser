@@ -723,6 +723,274 @@ class CashAnalyzer:
         iso_year, iso_week, _ = d.isocalendar()
         return f"{iso_year}-W{iso_week:02d}"
 
+    def get_session_stats(self, session: dict) -> dict:
+        """Calculate preflop + postflop stats for a single session.
+
+        Returns a dict with VPIP%, PFR%, 3-Bet%, AF, WTSD%, W$SD%, CBet%,
+        each with a health classification badge.
+        """
+        actions = self.repo.get_actions_for_session(session)
+        if not actions:
+            return {}
+
+        hands_actions = defaultdict(list)
+        hand_meta = {}
+        for action in actions:
+            hand_id = action['hand_id']
+            hands_actions[hand_id].append(action)
+            if hand_id not in hand_meta:
+                hand_meta[hand_id] = {
+                    'hero_position': action.get('hero_position'),
+                    'hero_net': action.get('hero_net', 0) or 0,
+                    'day': action.get('day'),
+                }
+
+        total_hands = 0
+        vpip_count = 0
+        pfr_count = 0
+        three_bet_opps = 0
+        three_bet_count = 0
+
+        # Postflop counters
+        saw_flop_count = 0
+        wtsd_count = 0
+        wsd_count = 0
+        cbet_opps = 0
+        cbet_count = 0
+        agg_br = 0
+        agg_calls = 0
+
+        for hand_id, hand_actions in hands_actions.items():
+            if not any(a['is_hero'] for a in hand_actions):
+                continue
+            total_hands += 1
+            meta = hand_meta[hand_id]
+
+            # Preflop analysis
+            preflop_voluntary = [
+                a for a in hand_actions
+                if a['street'] == 'preflop'
+                and a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')
+            ]
+            pre_result = self._analyze_preflop_hand(preflop_voluntary)
+            if pre_result['vpip']:
+                vpip_count += 1
+            if pre_result['pfr']:
+                pfr_count += 1
+            if pre_result['three_bet_opp']:
+                three_bet_opps += 1
+                if pre_result['three_bet']:
+                    three_bet_count += 1
+
+            # Postflop analysis
+            post_result = self._analyze_postflop_hand(hand_actions, meta['hero_net'])
+            if post_result['saw_flop']:
+                saw_flop_count += 1
+            if post_result['went_to_showdown']:
+                wtsd_count += 1
+            if post_result['won_at_showdown']:
+                wsd_count += 1
+            if post_result['cbet_opp']:
+                cbet_opps += 1
+                if post_result['cbet']:
+                    cbet_count += 1
+            for street in ('flop', 'turn', 'river'):
+                if street in post_result['hero_aggression']:
+                    ha = post_result['hero_aggression'][street]
+                    agg_br += ha['bets'] + ha['raises']
+                    agg_calls += ha['calls']
+
+        if total_hands == 0:
+            return {}
+
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        vpip = pct(vpip_count, total_hands)
+        pfr = pct(pfr_count, total_hands)
+        three_bet = pct(three_bet_count, three_bet_opps)
+        af = agg_br / agg_calls if agg_calls > 0 else 0.0
+        wtsd = pct(wtsd_count, saw_flop_count)
+        wsd = pct(wsd_count, wtsd_count)
+        cbet = pct(cbet_count, cbet_opps)
+
+        return {
+            'total_hands': total_hands,
+            'vpip': vpip,
+            'vpip_health': self._classify_health('vpip', vpip),
+            'pfr': pfr,
+            'pfr_health': self._classify_health('pfr', pfr),
+            'three_bet': three_bet,
+            'three_bet_health': self._classify_health('three_bet', three_bet),
+            'af': af,
+            'af_health': self._classify_postflop_health('af', af),
+            'wtsd': wtsd,
+            'wtsd_health': self._classify_postflop_health('wtsd', wtsd),
+            'wsd': wsd,
+            'wsd_health': self._classify_postflop_health('wsd', wsd),
+            'cbet': cbet,
+            'cbet_health': self._classify_postflop_health('cbet', cbet),
+        }
+
+    def get_session_sparkline(self, session: dict) -> list[dict]:
+        """Generate sparkline data for a session's stack evolution.
+
+        Returns a list of dicts with 'hand' (1-indexed) and 'profit' (cumulative net).
+        """
+        hands = self.repo.get_hands_for_session(session)
+        if not hands:
+            return []
+        cumulative = 0.0
+        points = []
+        for i, h in enumerate(hands, 1):
+            cumulative += (h.get('net') or 0)
+            points.append({'hand': i, 'profit': cumulative})
+        return points
+
+    def get_session_details(self, session: dict) -> dict:
+        """Build full session detail: info, stats, sparkline, notable hands."""
+        hands = self.repo.get_hands_for_session(session)
+        stats = self.get_session_stats(session)
+        sparkline = self.get_session_sparkline(session)
+
+        # Notable hands within session
+        biggest_win = None
+        biggest_loss = None
+        for h in hands:
+            net = h.get('net') or 0
+            if net > 0 and (biggest_win is None or net > biggest_win['net']):
+                biggest_win = h
+            if net < 0 and (biggest_loss is None or net < biggest_loss['net']):
+                biggest_loss = h
+
+        # Parse times for duration
+        start = session.get('start_time', '')
+        end = session.get('end_time', '')
+        duration_minutes = 0
+        try:
+            st = datetime.fromisoformat(start)
+            et = datetime.fromisoformat(end)
+            duration_minutes = int((et - st).total_seconds() / 60)
+        except (ValueError, TypeError):
+            pass
+
+        return {
+            'session_id': session.get('session_id'),
+            'start_time': start,
+            'end_time': end,
+            'duration_minutes': duration_minutes,
+            'buy_in': session.get('buy_in', 0) or 0,
+            'cash_out': session.get('cash_out', 0) or 0,
+            'profit': session.get('profit', 0) or 0,
+            'hands_count': session.get('hands_count', 0) or 0,
+            'min_stack': session.get('min_stack', 0) or 0,
+            'stats': stats,
+            'sparkline': sparkline,
+            'biggest_win': biggest_win,
+            'biggest_loss': biggest_loss,
+        }
+
+    def get_daily_reports_with_sessions(self) -> list[dict]:
+        """Build daily report data with session breakdown.
+
+        Each day contains session details with stats, sparkline, and notable hands.
+        Day-level stats are weighted averages of session stats (by hands count).
+        """
+        daily_stats = self.repo.get_cash_daily_stats(self.year)
+        reports = []
+
+        for day_stat in daily_stats:
+            day = day_stat['day']
+            sessions_raw = self.repo.get_sessions_for_day(day)
+
+            # Build session details
+            session_details = []
+            for s in sessions_raw:
+                detail = self.get_session_details(s)
+                session_details.append(detail)
+
+            # Weighted average day stats from sessions
+            day_stats_agg = self._aggregate_session_stats(session_details)
+
+            # Total invested
+            total_invested = self._compute_total_invested(sessions_raw)
+
+            # Session comparison data
+            comparison = self._build_session_comparison(session_details)
+
+            reports.append({
+                'date': day,
+                'hands_count': day_stat['hands'],
+                'total_won': day_stat['total_won'] or 0,
+                'total_lost': day_stat['total_lost'] or 0,
+                'net': day_stat['net'] or 0,
+                'sessions': session_details,
+                'num_sessions': len(session_details),
+                'total_invested': total_invested,
+                'day_stats': day_stats_agg,
+                'comparison': comparison,
+            })
+
+        return reports
+
+    @staticmethod
+    def _aggregate_session_stats(session_details: list[dict]) -> dict:
+        """Compute weighted average stats across sessions (weighted by hands count)."""
+        stats_keys = ['vpip', 'pfr', 'three_bet', 'af', 'wtsd', 'wsd', 'cbet']
+        total_hands = 0
+        weighted = {k: 0.0 for k in stats_keys}
+
+        for sd in session_details:
+            st = sd.get('stats', {})
+            h = st.get('total_hands', 0)
+            if h == 0:
+                continue
+            total_hands += h
+            for k in stats_keys:
+                weighted[k] += st.get(k, 0) * h
+
+        if total_hands == 0:
+            return {}
+
+        result = {'total_hands': total_hands}
+        for k in stats_keys:
+            result[k] = weighted[k] / total_hands
+        return result
+
+    @staticmethod
+    def _build_session_comparison(session_details: list[dict]) -> dict:
+        """Build comparison data identifying best/worst sessions per stat."""
+        if len(session_details) < 2:
+            return {}
+
+        stats_keys = ['vpip', 'pfr', 'af', 'wtsd', 'wsd', 'cbet']
+        comparison = {}
+
+        for key in stats_keys:
+            sessions_with_stat = [
+                (i, sd['stats'].get(key, 0))
+                for i, sd in enumerate(session_details)
+                if sd.get('stats', {}).get('total_hands', 0) > 0
+            ]
+            if len(sessions_with_stat) < 2:
+                continue
+            best_idx = max(sessions_with_stat, key=lambda x: x[1])[0]
+            worst_idx = min(sessions_with_stat, key=lambda x: x[1])[0]
+            comparison[key] = {'best': best_idx, 'worst': worst_idx}
+
+        # Profit comparison
+        profit_sessions = [
+            (i, sd.get('profit', 0))
+            for i, sd in enumerate(session_details)
+        ]
+        if len(profit_sessions) >= 2:
+            comparison['profit'] = {
+                'best': max(profit_sessions, key=lambda x: x[1])[0],
+                'worst': min(profit_sessions, key=lambda x: x[1])[0],
+            }
+
+        return comparison
+
     def _compute_total_invested(self, sessions: list[dict]) -> float:
         """Compute total buy-in for a day's sessions."""
         total = 0.0
