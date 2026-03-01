@@ -179,6 +179,135 @@ class PokerStarsParser(BaseParser):
             'collected': hero_collected,
         }
 
+    def parse_tournament_single_hand(self, hand_text: str, tournament_id: str,
+                                     tournament_name: str) -> Optional[HandData]:
+        """Parse a single PokerStars tournament hand into a HandData object.
+
+        Returns HandData with game_type='tournament' and tournament_id set.
+        """
+        lines = hand_text.strip().split('\n')
+        if not lines:
+            return None
+
+        header_match = re.search(
+            r"PokerStars Hand #(\d+): Tournament #(\d+),.+?"
+            r"Level\s*(\w+)\s*\((\d+)/(\d+)\)\s*-\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})",
+            lines[0]
+        )
+        if not header_match:
+            return None
+
+        hand_id_raw = 'PS' + header_match.group(1)
+        level_str = header_match.group(3)
+        try:
+            level = int(level_str)
+        except ValueError:
+            roman_map = {
+                'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
+                'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12,
+                'XIII': 13, 'XIV': 14, 'XV': 15, 'XVI': 16, 'XVII': 17,
+                'XVIII': 18, 'XIX': 19, 'XX': 20, 'XXI': 21, 'XXII': 22,
+                'XXIII': 23, 'XXIV': 24, 'XXV': 25, 'XXVI': 26, 'XXVII': 27,
+                'XXVIII': 28, 'XXIX': 29, 'XXX': 30,
+            }
+            level = roman_map.get(level_str, 1)
+
+        small_blind = int(header_match.group(4))
+        big_blind = int(header_match.group(5))
+        date_str = header_match.group(6)
+        hand_date = datetime.strptime(date_str, '%Y/%m/%d %H:%M:%S')
+
+        table_match = re.search(r"Table '(.+?)'", hand_text)
+        table_name_val = table_match.group(1) if table_match else None
+
+        hero_pattern = re.escape(self.hero_name)
+        hero_cards = None
+        hero_starting_stack = 0
+        hero_collected = 0
+        returned_to_hero = 0
+        num_players = 0
+
+        for line in lines:
+            if re.match(r'Seat \d+:', line):
+                num_players += 1
+            if re.search(rf'Seat \d+: {hero_pattern} \((\d+[\d,]*) in chips', line):
+                stack_match = re.search(rf'{hero_pattern} \((\d+[\d,]*) in chips', line)
+                if stack_match:
+                    hero_starting_stack = int(stack_match.group(1).replace(',', ''))
+
+        for line in lines:
+            if f'Dealt to {self.hero_name} [' in line:
+                cards_match = re.search(rf'Dealt to {hero_pattern} \[(.+?)\]', line)
+                if cards_match:
+                    hero_cards = cards_match.group(1)
+                break
+
+        for line in lines:
+            if f'{self.hero_name} collected' in line:
+                collected_match = re.search(rf'{hero_pattern} collected ([\d,]+)', line)
+                if collected_match:
+                    hero_collected = int(collected_match.group(1).replace(',', ''))
+                    break
+
+        # Track investment
+        hero_total_invested = 0
+        current_street_total = 0
+
+        for line in lines:
+            if '*** FLOP ***' in line or '*** TURN ***' in line or '*** RIVER ***' in line:
+                hero_total_invested += current_street_total
+                current_street_total = 0
+
+            if 'Uncalled bet' in line and f'returned to {self.hero_name}' in line:
+                uncalled_match = re.search(r'Uncalled bet \(([\d,]+)\)', line)
+                if uncalled_match:
+                    returned_to_hero = int(uncalled_match.group(1).replace(',', ''))
+
+            if line.startswith(f'{self.hero_name}:'):
+                action_str = line.split(':', 1)[1].strip()
+                if 'posts small blind' in action_str:
+                    current_street_total = small_blind
+                elif 'posts big blind' in action_str or 'posts the big blind' in action_str:
+                    current_street_total = big_blind
+                elif 'posts the ante' in action_str:
+                    ante_match = re.search(r'posts the ante ([\d,]+)', action_str)
+                    if ante_match:
+                        current_street_total += int(ante_match.group(1).replace(',', ''))
+                elif 'raises' in action_str:
+                    raise_match = re.search(r'raises ([\d,]+) to ([\d,]+)', action_str)
+                    if raise_match:
+                        current_street_total = int(raise_match.group(2).replace(',', ''))
+                elif 'bets' in action_str:
+                    bet_match = re.search(r'bets ([\d,]+)', action_str)
+                    if bet_match:
+                        current_street_total += int(bet_match.group(1).replace(',', ''))
+                elif 'calls' in action_str:
+                    call_match = re.search(r'calls ([\d,]+)', action_str)
+                    if call_match:
+                        current_street_total += int(call_match.group(1).replace(',', ''))
+
+        hero_total_invested += current_street_total
+        hero_invested = hero_total_invested - returned_to_hero
+        net_result = hero_collected - hero_invested
+
+        return HandData(
+            hand_id=hand_id_raw,
+            platform='PokerStars',
+            game_type='tournament',
+            date=hand_date,
+            blinds_sb=small_blind,
+            blinds_bb=big_blind,
+            hero_cards=hero_cards,
+            hero_position=None,
+            invested=hero_invested,
+            won=hero_collected,
+            net=net_result,
+            rake=0.0,
+            table_name=table_name_val,
+            num_players=num_players,
+            tournament_id=tournament_id,
+        )
+
     def parse_actions(self, hand_text: str, hand_id: str) -> tuple[list[ActionData], BoardData, dict[str, str]]:
         """Parse all player actions, board cards, and positions from a PokerStars hand.
 

@@ -41,14 +41,16 @@ class Repository:
         try:
             self.conn.execute(
                 "INSERT INTO hands (hand_id, platform, game_type, date, blinds_sb, blinds_bb, "
-                "hero_cards, hero_position, invested, won, net, rake, table_name, num_players) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "hero_cards, hero_position, invested, won, net, rake, table_name, num_players, "
+                "tournament_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     hand.hand_id, hand.platform, hand.game_type,
                     hand.date.isoformat() if isinstance(hand.date, datetime) else hand.date,
                     hand.blinds_sb, hand.blinds_bb, hand.hero_cards, hand.hero_position,
                     hand.invested, hand.won, hand.net, hand.rake,
                     hand.table_name, hand.num_players,
+                    getattr(hand, 'tournament_id', None),
                 )
             )
             return True
@@ -445,6 +447,103 @@ class Repository:
             query, (session['start_time'], session['end_time'])
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Tournament Hand Queries ─────────────────────────────────────
+
+    def get_tournament_hands(self, year: Optional[str] = None,
+                             tournament_id: Optional[str] = None) -> list[dict]:
+        """Get tournament hands, optionally filtered by year and/or tournament_id."""
+        query = "SELECT * FROM hands WHERE game_type = 'tournament'"
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND tournament_id = ?"
+            params.append(tournament_id)
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_preflop_actions(self, year: Optional[str] = None,
+                                       tournament_id: Optional[str] = None) -> list[dict]:
+        """Get preflop actions for tournament hands."""
+        query = """
+            SELECT ha.hand_id, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position, ha.is_voluntary,
+                   h.hero_position, substr(h.date, 1, 10) as day,
+                   h.tournament_id
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE ha.street = 'preflop' AND h.game_type = 'tournament'
+        """
+        params = []
+        if year:
+            query += " AND h.date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND h.tournament_id = ?"
+            params.append(tournament_id)
+        query += " ORDER BY ha.hand_id, ha.sequence_order"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_all_actions(self, year: Optional[str] = None,
+                                    tournament_id: Optional[str] = None) -> list[dict]:
+        """Get all actions across all streets for tournament hands."""
+        query = """
+            SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position,
+                   h.hero_position, h.net as hero_net, substr(h.date, 1, 10) as day,
+                   h.tournament_id, h.blinds_bb
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE h.game_type = 'tournament'
+        """
+        params = []
+        if year:
+            query += " AND h.date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND h.tournament_id = ?"
+            params.append(tournament_id)
+        query += """ ORDER BY ha.hand_id,
+            CASE ha.street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
+            WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
+            ha.sequence_order"""
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_allin_hands(self, year: Optional[str] = None,
+                                    tournament_id: Optional[str] = None) -> list[dict]:
+        """Get tournament all-in hands with showdown."""
+        query = """
+            SELECT * FROM hands
+            WHERE game_type = 'tournament'
+              AND has_allin = 1
+              AND opponent_cards IS NOT NULL
+              AND hero_cards IS NOT NULL
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND tournament_id = ?"
+            params.append(tournament_id)
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_hand_count(self, year: Optional[str] = None) -> int:
+        """Get count of tournament hands."""
+        query = "SELECT COUNT(*) as cnt FROM hands WHERE game_type = 'tournament'"
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        row = self.conn.execute(query, params).fetchone()
+        return row['cnt']
 
     def get_imported_files_count(self) -> int:
         """Get count of imported files."""

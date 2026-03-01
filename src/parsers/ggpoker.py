@@ -629,6 +629,122 @@ class GGPokerParser(BaseParser):
             'collected': hero_collected,
         }
 
+    def parse_tournament_single_hand(self, hand_text: str) -> Optional[HandData]:
+        """Parse a single GGPoker tournament hand into a HandData object.
+
+        Returns HandData with game_type='tournament' and tournament_id set,
+        suitable for insertion into the hands table.
+        """
+        lines = hand_text.strip().split('\n')
+        if not lines:
+            return None
+
+        header_match = re.search(
+            r"Poker Hand #([\w\d]+): Tournament #([\w\d]+),\s*(.+?)\s+Hold'em.+?"
+            r"Level(\d+)\((\d+)/(\d+)\)\s*-\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})",
+            lines[0]
+        )
+        if not header_match:
+            return None
+
+        hand_id = header_match.group(1)
+        tournament_id = header_match.group(2)
+        level = int(header_match.group(4))
+        small_blind = int(header_match.group(5))
+        big_blind = int(header_match.group(6))
+        date_str = header_match.group(7)
+        hand_date = datetime.strptime(date_str, '%Y/%m/%d %H:%M:%S')
+
+        # Table name
+        table_match = re.search(r"Table '(.+?)'", hand_text)
+        table_name = table_match.group(1) if table_match else None
+
+        hero_cards = None
+        num_players = 0
+        hero_starting_stack = 0
+        hero_collected = 0
+        returned_to_hero = 0
+
+        for line in lines:
+            if re.match(r'Seat \d+:', line):
+                num_players += 1
+            if re.search(r'Seat \d+: Hero \((\d+[\d,]*) in chips\)', line):
+                stack_match = re.search(r'Hero \((\d+[\d,]*) in chips\)', line)
+                if stack_match:
+                    hero_starting_stack = int(stack_match.group(1).replace(',', ''))
+
+        for line in lines:
+            if 'Dealt to Hero [' in line:
+                cards_match = re.search(r'Dealt to Hero \[(.+?)\]', line)
+                if cards_match:
+                    hero_cards = cards_match.group(1)
+                break
+
+        for line in lines:
+            if 'Hero collected' in line or 'Hero (big blind) collected' in line or 'Hero (small blind) collected' in line:
+                collected_match = re.search(r'collected ([\d,]+)', line)
+                if collected_match:
+                    hero_collected = int(collected_match.group(1).replace(',', ''))
+                    break
+
+        # Track total invested across all streets (chip amounts, no $)
+        hero_total_invested = 0
+        current_street_total = 0
+
+        for line in lines:
+            if '*** FLOP ***' in line or '*** TURN ***' in line or '*** RIVER ***' in line:
+                hero_total_invested += current_street_total
+                current_street_total = 0
+
+            if 'Uncalled bet' in line and 'returned to Hero' in line:
+                uncalled_match = re.search(r'Uncalled bet \(([\d,]+)\)', line)
+                if uncalled_match:
+                    returned_to_hero = int(uncalled_match.group(1).replace(',', ''))
+
+            if line.startswith('Hero:'):
+                if 'posts small blind' in line:
+                    current_street_total = small_blind
+                elif 'posts big blind' in line:
+                    current_street_total = big_blind
+                elif 'posts the ante' in line:
+                    ante_match = re.search(r'posts the ante ([\d,]+)', line)
+                    if ante_match:
+                        current_street_total += int(ante_match.group(1).replace(',', ''))
+                elif 'raises' in line:
+                    raise_match = re.search(r'raises ([\d,]+) to ([\d,]+)', line)
+                    if raise_match:
+                        current_street_total = int(raise_match.group(2).replace(',', ''))
+                elif 'bets' in line:
+                    bet_match = re.search(r'bets ([\d,]+)', line)
+                    if bet_match:
+                        current_street_total += int(bet_match.group(1).replace(',', ''))
+                elif 'calls' in line:
+                    call_match = re.search(r'calls ([\d,]+)', line)
+                    if call_match:
+                        current_street_total += int(call_match.group(1).replace(',', ''))
+
+        hero_total_invested += current_street_total
+        hero_invested = hero_total_invested - returned_to_hero
+        net_result = hero_collected - hero_invested
+
+        return HandData(
+            hand_id=hand_id,
+            platform='GGPoker',
+            game_type='tournament',
+            date=hand_date,
+            blinds_sb=small_blind,
+            blinds_bb=big_blind,
+            hero_cards=hero_cards,
+            hero_position=None,
+            invested=hero_invested,
+            won=hero_collected,
+            net=net_result,
+            rake=0.0,
+            table_name=table_name,
+            num_players=num_players,
+            tournament_id=tournament_id,
+        )
+
     def parse_tournament_file(self, filepath: str) -> list[dict]:
         """Parse a GGPoker tournament hand history file."""
         with open(filepath, 'r', encoding='utf-8') as f:

@@ -5,11 +5,11 @@ from typing import Optional
 
 
 class HandData:
-    """Parsed data for a single cash game hand."""
+    """Parsed data for a single hand (cash or tournament)."""
     __slots__ = (
         'hand_id', 'platform', 'game_type', 'date', 'blinds_sb', 'blinds_bb',
         'hero_cards', 'hero_position', 'invested', 'won', 'net', 'rake',
-        'table_name', 'num_players',
+        'table_name', 'num_players', 'tournament_id',
     )
 
     def __init__(self, **kwargs):

@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS hands (
     pot_total REAL,
     opponent_cards TEXT,
     has_allin INTEGER DEFAULT 0,
-    allin_street TEXT
+    allin_street TEXT,
+    tournament_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS hand_actions (
@@ -147,4 +148,9 @@ def _run_migrations(conn):
         conn.execute("ALTER TABLE hands ADD COLUMN opponent_cards TEXT")
         conn.execute("ALTER TABLE hands ADD COLUMN has_allin INTEGER DEFAULT 0")
         conn.execute("ALTER TABLE hands ADD COLUMN allin_street TEXT")
+        conn.commit()
+
+    # US-006: Add tournament_id column to hands table
+    if 'tournament_id' not in hand_cols:
+        conn.execute("ALTER TABLE hands ADD COLUMN tournament_id TEXT")
         conn.commit()
