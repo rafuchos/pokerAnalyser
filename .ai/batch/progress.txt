@@ -93,3 +93,6 @@
 - Pattern: Orange theme (#ff8800) distinguishes tournament reports from cash reports
 - Lesson: GGPoker parser raise "to" semantics overwrites current_street_total (ante not accumulated with raise)
 - Lesson: Previous attempt timed out; this attempt continued from partial backend work already done
+
+=== US-006 completed at 2026-03-01T22:56:58.216Z ===
+- All quality gates passed
