@@ -1,7 +1,7 @@
 {
   "id": "US-006",
   "title": "Poker Stats Completas para Torneios (VPIP, PFR, AF, EV, bb/100)",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 1800,
   "timeout_seconds": 1890,
   "plan": [
@@ -42,7 +42,7 @@
     "main.py"
   ],
   "created_at": "2026-03-01T22:25:57.322Z",
-  "completed_at": null,
+  "completed_at": "2026-03-01T22:56:58.744Z",
   "failure_reason": null,
   "branch": "feat/US-006",
   "replanned_at": "2026-03-01T22:41:42.802Z",
