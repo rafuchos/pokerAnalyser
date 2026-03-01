@@ -31,3 +31,7 @@ __pycache__/
 
 # Logs
 logs/
+
+# Claude plugins (symlink artifact)
+CUsersRafael.claudepluginsmarketplacesclaude-plugins-official/
+C*/
