@@ -70,10 +70,24 @@ Update this section weekly with sprint goals and dates.
 - [x] US-003: Estatísticas Postflop: AF, WTSD, W$SD, CBet (2026-02-28)
 - [x] US-004: Análise de Expected Value (EV) e All-In Equity (2026-02-28)
 - [x] US-005: Relatório Diário com Breakdown por Sessão e Stats de Jogo (2026-02-28)
+- [x] US-006: Poker Stats Completas para Torneios (2026-03-01)
 
 ---
 
 ## Completed
+
+- [x] US-006: Poker Stats Completas para Torneios (2026-03-01)
+  - Schema: tournament_id column on hands table with migration
+  - Parsers: parse_tournament_single_hand() for GGPoker and PokerStars
+  - Repository: tournament hand queries (hands, preflop/all actions, allin, count)
+  - Importer: tournament hand import pipeline with actions, board, positions, showdown
+  - Analyzer: TournamentAnalyzer with VPIP/PFR/3Bet/AF/WTSD/CBet stats, health badges
+  - EV analysis with variable BB normalization (bb/100 per-hand blind levels)
+  - Daily reports with per-tournament breakdown, weighted averages, comparison table
+  - Report: full HTML rendering with global stats, inline SVG EV chart, chip sparklines
+  - Per-tournament stats with health badges, notable hands, tournament comparison
+  - Orange theme (#ff8800) for tournament reports
+  - 57 new tests (362 total)
 
 - [x] US-005: Relatório Diário com Breakdown por Sessão e Stats de Jogo (2026-02-28)
   - Expandable accordion session cards within each daily report

@@ -366,7 +366,7 @@
       "title": "Poker Stats Completas para Torneios (VPIP, PFR, AF, EV, bb/100)",
       "phase": "phase-2",
       "priority": "high",
-      "status": "backlog",
+      "status": "done",
       "story": "Como jogador, quero ver as mesmas estatísticas de jogo que existem para cash (VPIP, PFR, 3-Bet, AF, WTSD, CBet, EV, bb/100) no relatório de torneios, com visão global no topo e breakdown por sessão (torneio) dentro de cada dia, para analisar meu jogo em torneios com a mesma profundidade do cash.",
       "acceptance_criteria": [
         "Importar mãos de torneio completas na tabela hands (game_type='tournament') com invested/won/net e actions na hand_actions",

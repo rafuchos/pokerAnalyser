@@ -78,3 +78,18 @@
 
 === US-005 completed at 2026-02-28T20:21:20.130Z ===
 - All quality gates passed
+
+=== US-006 completed at 2026-03-01 ===
+- All 362 tests passing (57 new + 305 existing)
+- Pattern: parse_tournament_single_hand() reuses same HandData with game_type='tournament' and tournament_id
+- Pattern: TournamentAnalyzer reuses CashAnalyzer._analyze_preflop_hand() and _analyze_postflop_hand() static methods
+- Pattern: Variable BB normalization: each hand's bb/100 contribution uses its own blinds_bb value
+- Pattern: get_tournament_game_stats() returns per-tournament stats dict keyed by tournament_id
+- Pattern: get_ev_analysis() adapted for tournaments: chip-based EV, variable blind normalization
+- Pattern: _render_ev_chart() generates inline SVG with Real (#ff8800) vs EV (#00aaff) polylines
+- Pattern: _render_chip_sparkline() generates compact SVG sparkline for chip stack evolution
+- Pattern: _render_tournament_comparison() highlights best/worst per stat across tournaments
+- Pattern: _render_day_summary_stats() computes weighted average stats across tournaments
+- Pattern: Orange theme (#ff8800) distinguishes tournament reports from cash reports
+- Lesson: GGPoker parser raise "to" semantics overwrites current_street_total (ante not accumulated with raise)
+- Lesson: Previous attempt timed out; this attempt continued from partial backend work already done
