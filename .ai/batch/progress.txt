@@ -179,3 +179,16 @@
 
 === US-011 completed at 2026-03-02T03:40:22.424Z ===
 - All quality gates passed
+
+=== US-012 completed at 2026-03-02 ===
+- All 764 tests passing (98 new + 666 existing)
+- Pattern: _hand_went_to_showdown() is a static method that takes list[dict] (from repo), not ActionData objects
+- Pattern: Module-level helpers (_downsample_redline, _generate_redline_diagnostics) imported by both CashAnalyzer and TournamentAnalyzer
+- Pattern: TournamentAnalyzer.get_redline_blueline() groups by_session by date prefix (day) not session_id
+- Pattern: Unit tests for static methods use plain dicts that mirror repo output, not ActionData/HandData objects
+- Pattern: CashAnalyzer(self.repo, year=...) - takes Repository not Connection; same for TournamentAnalyzer
+- Lesson: opponent_cards field on hand dict is the primary showdown indicator (set by parser for explicit showdown hands)
+- Lesson: Fallback showdown detection uses postflop presence + 2+ remaining players (handles hands without explicit showdown)
+
+=== US-012 completed at 2026-03-02T06:36:48.842Z ===
+- All quality gates passed
