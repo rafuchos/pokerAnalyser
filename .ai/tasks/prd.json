@@ -557,7 +557,8 @@
         "src/reports/cash_report.py",
         "src/reports/tournament_report.py",
         "src/db/repository.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-009",

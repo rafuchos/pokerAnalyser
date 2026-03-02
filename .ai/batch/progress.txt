@@ -125,3 +125,6 @@
 - Pattern: Cash mini EV uses green (#00ff88) Real + orange (#ffa500) EV; Tournament uses orange (#ff8800) Real + blue (#00aaff) EV
 - Pattern: Chart downsampled to max 100 points for session-level (vs 500 for global)
 - Lesson: Format string ${luck:+.2f} produces "$+20.00" not "+$20.00" - test assertions must match actual format
+
+=== US-008 completed at 2026-03-02T02:46:07.705Z ===
+- All quality gates passed
