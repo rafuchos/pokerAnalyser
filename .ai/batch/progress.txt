@@ -232,3 +232,16 @@
 
 === US-017 completed at 2026-03-02T12:58:10.858Z ===
 - All quality gates passed
+
+---
+US-018 (2026-03-02): VPIP Drill-Down Modal com Breakdown por Posição e Stack Depth
+- Added _render_vpip_modal(positional_stats, stack_depth_data) – static modal HTML with two tab panels;
+  no JSON data-* attributes needed since Python renders the tables directly.
+- VPIP stat card made clickable via vpip-clickable CSS class + openVpipModal() onclick;
+  _render_player_stats() remains backwards-compatible with 2-arg signature.
+- Modal JS (open/close/tab-switch/ESC) appended to the existing <script> block in generate_cash_report().
+- Pattern: Repository.insert_actions_batch([action]) – no insert_action single-item method.
+- 47 new tests (1215 total). All quality gates passed.
+
+=== US-018 completed at 2026-03-02T13:09:44.998Z ===
+- All quality gates passed

@@ -1,0 +1,25 @@
+{
+  "id": "US-018",
+  "title": "VPIP Drill-Down Modal com Breakdown por Posição e Stack Depth",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Add modal HTML template with two panels (Position view and Stack Depth view) to cash_report.py, including toggle buttons following existing range-tab pattern",
+    "Add CSS for modal overlay backdrop with fade animation, modal container with slide-up animation, toggle button styling, and responsive layout matching existing dark/glassmorphism theme",
+    "Add JavaScript handlers for: opening modal on VPIP stat card click, closing on X/ESC/backdrop click, toggling between Position and Stack Depth views, dynamically populating tables from data-* attributes",
+    "Embed positional stats and stack depth stats as JSON in data-* attributes on VPIP stat cards in cash_report.py (data already available from US-010 and US-017 analyzers)",
+    "Replicate the same modal implementation in tournament_report.py for tournament VPIP cards",
+    "Test modal open/close behavior, view toggle, data population, health badges, ESC key handling, and responsive layout"
+  ],
+  "complexity": "high",
+  "recommended_model": "sonnet",
+  "files_likely_affected": [
+    "src/reports/cash_report.py",
+    "src/reports/tournament_report.py"
+  ],
+  "created_at": "2026-03-02T13:00:11.355Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-018"
+}

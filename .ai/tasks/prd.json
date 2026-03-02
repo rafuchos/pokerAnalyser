@@ -1247,7 +1247,8 @@
       "files_affected": [
         "src/reports/cash_report.py",
         "src/reports/tournament_report.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-019",
