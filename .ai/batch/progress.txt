@@ -192,3 +192,15 @@
 
 === US-012 completed at 2026-03-02T06:36:48.842Z ===
 - All quality gates passed
+
+=== US-013 completed at 2026-03-02 ===
+- All 848 tests passing (84 new)
+- Pattern: Pot-type classification via _classify_pot_type() counts raise/bet/all-in actions in preflop (excluding posts)
+- Pattern: Accumulator pattern (_empty_pt_acc / _accumulate_pt / _format_pt_stats) cleanly separates per-segment accumulation from formatting
+- Pattern: Postflop bet sizing uses running_pot accumulator - add each action's amount BEFORE checking hero's bet, so pot_before_bet is correct
+- Pattern: HU detection uses flop players set if available; falls back to _count_active_players() for preflop-only hands
+- Pattern: bb/100 win rate = (sum of net/bb per hand) / total_hands * 100 - avoids needing separate total_bb accumulator
+- Pattern: Sizing distribution uses 5 preflop buckets (<2x, 2-2.5x, 2.5-3x, 3-4x, >4x) and 5 postflop buckets (<25%, 25-50%, 50-75%, 75-100%, >100%)
+- Pattern: Sizing uniformity diagnostic uses coefficient of variation (CV = std/mean) with threshold 0.15
+- Lesson: Report render function uses inline f-strings for table rows (avoids long heredocs); keeps conditional rendering via has_sizing guard
+- Lesson: Only first hero bet per postflop street is tracked (not raises) for clean sizing semantics
