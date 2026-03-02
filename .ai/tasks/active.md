@@ -75,6 +75,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-008: EV Analysis por Sessão (Cash e Torneio) (2026-03-02)
 - [x] US-009: EV Completo para Todas as Decisões (Decision-Tree EV) (2026-03-02)
 - [x] US-010: Análise Posicional Completa (Stats + Win Rate por Posição) (2026-03-02)
+- [x] US-013: Análise de Bet Sizing e Pot-Type Segmentation (2026-03-02)
 - [x] US-012: Red Line / Blue Line (Non-Showdown vs Showdown Winnings) (2026-03-02)
 - [x] US-011: Leak Finder Automatizado com Spots de Estudo Priorizados (2026-03-02)
 

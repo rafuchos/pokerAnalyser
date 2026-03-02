@@ -1401,6 +1401,106 @@ class CashAnalyzer:
         finder = LeakFinder(self, self.repo, self.year)
         return finder.find_leaks()
 
+    # ── Bet Sizing & Pot-Type Segmentation ───────────────────────────
+
+    def get_bet_sizing_analysis(self) -> dict:
+        """Compute bet sizing and pot-type segmentation statistics.
+
+        Classifies each hand by pot type (limped, SRP, 3-bet, 4-bet+) and
+        computes per-type stats: VPIP, PFR, AF, CBet, WTSD, W$SD, win rate.
+        Also tracks bet sizing distributions by street and separates
+        heads-up vs multiway results.
+
+        Returns dict with pot_types, sizing, hu_vs_multiway, diagnostics.
+        """
+        hands = self.repo.get_cash_hands(self.year)
+        actions_list = self.repo.get_all_action_sequences(self.year)
+
+        # Build per-hand lookup
+        hand_meta = {h['hand_id']: h for h in hands}
+        hand_acts = defaultdict(list)
+        for a in actions_list:
+            hand_acts[a['hand_id']].append(a)
+
+        pot_type_keys = ('limped', 'srp', '3bet', '4bet_plus')
+        pt_data = {k: _empty_pt_acc() for k in pot_type_keys}
+        hu_data = _empty_pt_acc()
+        mw_data = _empty_pt_acc()
+
+        preflop_sizes: list[float] = []
+        flop_sizes: list[float] = []
+        turn_sizes: list[float] = []
+        river_sizes: list[float] = []
+
+        total_hands = 0
+
+        for hand_id, actions in hand_acts.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+            meta = hand_meta.get(hand_id)
+            if not meta:
+                continue
+
+            total_hands += 1
+            net = meta['net'] or 0.0
+            blinds_bb = meta['blinds_bb'] or 0.5
+
+            preflop = [a for a in actions if a['street'] == 'preflop']
+            pot_type = _classify_pot_type(preflop)
+
+            # Determine HU vs multiway based on players who saw the flop
+            flop_players = {a['player'] for a in actions if a['street'] == 'flop'}
+            if flop_players:
+                is_hu = len(flop_players) <= 2
+            else:
+                # Preflop-only hand: use non-folded preflop players
+                is_hu = _count_active_players(preflop) <= 2
+
+            # Preflop analysis (exclude blind posts)
+            voluntary = [a for a in preflop
+                         if a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')]
+            pf_pre = self._analyze_preflop_hand(voluntary)
+
+            # Postflop analysis
+            hero_net = (actions[0].get('hero_net') or 0.0) if actions else 0.0
+            pf_post = self._analyze_postflop_hand(actions, hero_net)
+
+            # Accumulate pot-type stats
+            _accumulate_pt(pt_data[pot_type], net, blinds_bb, is_hu, pf_pre, pf_post)
+
+            # Accumulate HU / multiway
+            if is_hu:
+                _accumulate_pt(hu_data, net, blinds_bb, True, pf_pre, pf_post)
+            else:
+                _accumulate_pt(mw_data, net, blinds_bb, False, pf_pre, pf_post)
+
+            # Collect sizing data
+            sizing = _compute_bet_sizing(actions, blinds_bb)
+            if sizing['preflop_raise_bb'] is not None:
+                preflop_sizes.append(sizing['preflop_raise_bb'])
+            for street, lst in (('flop', flop_sizes), ('turn', turn_sizes), ('river', river_sizes)):
+                val = sizing.get(f'{street}_bet_pct')
+                if val is not None:
+                    lst.append(val)
+
+        pot_types_fmt = {k: _format_pt_stats(pt_data[k]) for k in pot_type_keys}
+
+        return {
+            'total_hands': total_hands,
+            'pot_types': pot_types_fmt,
+            'sizing': {
+                'preflop': _format_sizing_data(preflop_sizes, _PREFLOP_BUCKETS),
+                'flop': _format_sizing_data(flop_sizes, _POSTFLOP_BUCKETS),
+                'turn': _format_sizing_data(turn_sizes, _POSTFLOP_BUCKETS),
+                'river': _format_sizing_data(river_sizes, _POSTFLOP_BUCKETS),
+            },
+            'hu_vs_multiway': {
+                'heads_up': _format_pt_stats(hu_data),
+                'multiway': _format_pt_stats(mw_data),
+            },
+            'diagnostics': _generate_bet_sizing_diagnostics(pot_types_fmt, preflop_sizes, total_hands),
+        }
+
     # ── Red Line / Blue Line ──────────────────────────────────────────
 
     def get_redline_blueline(self) -> dict:
@@ -1623,6 +1723,285 @@ def _generate_redline_diagnostics(showdown_net: float, nonshowdown_net: float,
                     f'Indo ao showdown em {sd_pct:.1f}% das mãos. '
                     'Considere foldar mais mãos fracas antes do showdown.'
                 ),
+            })
+
+    return diagnostics
+
+
+# ── Module-level helpers for Bet Sizing & Pot-Type Segmentation ──────────────
+
+_PREFLOP_BUCKETS = [
+    ('<2x', 0, 2),
+    ('2-2.5x', 2, 2.5),
+    ('2.5-3x', 2.5, 3),
+    ('3-4x', 3, 4),
+    ('>4x', 4, float('inf')),
+]
+
+_POSTFLOP_BUCKETS = [
+    ('<25%', 0, 25),
+    ('25-50%', 25, 50),
+    ('50-75%', 50, 75),
+    ('75-100%', 75, 100),
+    ('>100%', 100, float('inf')),
+]
+
+
+def _classify_pot_type(preflop_actions: list) -> str:
+    """Classify pot type based on number of preflop raises (all players)."""
+    n_raises = sum(
+        1 for a in preflop_actions
+        if a['action_type'] in ('raise', 'bet', 'all-in')
+    )
+    if n_raises == 0:
+        return 'limped'
+    if n_raises == 1:
+        return 'srp'
+    if n_raises == 2:
+        return '3bet'
+    return '4bet_plus'
+
+
+def _count_active_players(preflop_actions: list) -> int:
+    """Count players who did not fold preflop."""
+    players: set = set()
+    folded: set = set()
+    for a in preflop_actions:
+        players.add(a['player'])
+        if a['action_type'] == 'fold':
+            folded.add(a['player'])
+    return len(players - folded)
+
+
+def _compute_bet_sizing(actions: list, blinds_bb: float) -> dict:
+    """Extract hero's first bet sizes per street.
+
+    Preflop: raise size in units of BB.
+    Postflop: first hero bet as % of pot accumulated before that action.
+    """
+    result: dict = {
+        'preflop_raise_bb': None,
+        'flop_bet_pct': None,
+        'turn_bet_pct': None,
+        'river_bet_pct': None,
+    }
+    street_seen: dict = {'flop': False, 'turn': False, 'river': False}
+    running_pot = 0.0
+
+    for a in actions:
+        amt = a.get('amount') or 0.0
+        street = a.get('street', '')
+        atype = a.get('action_type', '')
+
+        # Preflop: first hero raise
+        if (street == 'preflop'
+                and a.get('is_hero')
+                and atype in ('raise', 'bet')
+                and result['preflop_raise_bb'] is None
+                and blinds_bb > 0
+                and amt > 0):
+            result['preflop_raise_bb'] = round(amt / blinds_bb, 2)
+
+        # Postflop: first hero bet per street
+        if (street in ('flop', 'turn', 'river')
+                and a.get('is_hero')
+                and atype == 'bet'
+                and not street_seen[street]
+                and running_pot > 0
+                and amt > 0):
+            result[f'{street}_bet_pct'] = round(amt / running_pot * 100, 1)
+            street_seen[street] = True
+
+        running_pot += amt
+
+    return result
+
+
+def _empty_pt_acc() -> dict:
+    """Return a zeroed pot-type/segment accumulator."""
+    return {
+        'hands': 0,
+        'hu_hands': 0,
+        'multiway_hands': 0,
+        'net': 0.0,
+        'net_bb': 0.0,
+        'vpip': 0,
+        'pfr': 0,
+        'saw_flop': 0,
+        'cbet_opps': 0,
+        'cbet': 0,
+        'wtsd': 0,
+        'wsd': 0,
+        'agg_br': 0,
+        'agg_calls': 0,
+    }
+
+
+def _accumulate_pt(acc: dict, net: float, blinds_bb: float,
+                   is_hu: bool, pf_pre: dict, pf_post: dict) -> None:
+    """Update a pot-type accumulator in-place."""
+    acc['hands'] += 1
+    acc['net'] += net
+    if blinds_bb > 0:
+        acc['net_bb'] += net / blinds_bb
+    if is_hu:
+        acc['hu_hands'] += 1
+    else:
+        acc['multiway_hands'] += 1
+    if pf_pre.get('vpip'):
+        acc['vpip'] += 1
+    if pf_pre.get('pfr'):
+        acc['pfr'] += 1
+    if pf_post.get('saw_flop'):
+        acc['saw_flop'] += 1
+    if pf_post.get('cbet_opp'):
+        acc['cbet_opps'] += 1
+        if pf_post.get('cbet'):
+            acc['cbet'] += 1
+    if pf_post.get('went_to_showdown'):
+        acc['wtsd'] += 1
+        if pf_post.get('won_at_showdown'):
+            acc['wsd'] += 1
+    for street in ('flop', 'turn', 'river'):
+        ha = pf_post.get('hero_aggression', {}).get(street)
+        if ha:
+            acc['agg_br'] += ha['bets'] + ha['raises']
+            acc['agg_calls'] += ha['calls']
+
+
+def _format_pt_stats(acc: dict) -> dict:
+    """Format a pot-type accumulator into output stats dict."""
+    h = acc['hands']
+    if h == 0:
+        return {
+            'hands': 0, 'hu_hands': 0, 'multiway_hands': 0,
+            'vpip': 0.0, 'pfr': 0.0, 'af': 0.0,
+            'cbet': 0.0, 'wtsd': 0.0, 'wsd': 0.0,
+            'net': 0.0, 'win_rate_bb100': 0.0, 'health': 'good',
+        }
+    af = (acc['agg_br'] / acc['agg_calls'] if acc['agg_calls'] > 0
+          else float(acc['agg_br']))
+    wr = acc['net_bb'] / h * 100
+    return {
+        'hands': h,
+        'hu_hands': acc['hu_hands'],
+        'multiway_hands': acc['multiway_hands'],
+        'vpip': round(acc['vpip'] / h * 100, 1),
+        'pfr': round(acc['pfr'] / h * 100, 1),
+        'af': round(af, 2),
+        'cbet': round(acc['cbet'] / acc['cbet_opps'] * 100, 1) if acc['cbet_opps'] else 0.0,
+        'wtsd': round(acc['wtsd'] / acc['saw_flop'] * 100, 1) if acc['saw_flop'] else 0.0,
+        'wsd': round(acc['wsd'] / acc['wtsd'] * 100, 1) if acc['wtsd'] else 0.0,
+        'net': round(acc['net'], 2),
+        'win_rate_bb100': round(wr, 1),
+        'health': _classify_winrate_health(wr),
+    }
+
+
+def _classify_winrate_health(win_rate_bb100: float) -> str:
+    """Classify win rate (bb/100) as good, warning, or danger."""
+    if win_rate_bb100 >= 0:
+        return 'good'
+    if win_rate_bb100 >= -5:
+        return 'warning'
+    return 'danger'
+
+
+def _median(lst: list) -> float:
+    """Compute median of a non-empty list."""
+    s = sorted(lst)
+    n = len(s)
+    mid = n // 2
+    return (s[mid - 1] + s[mid]) / 2 if n % 2 == 0 else s[mid]
+
+
+def _size_distribution(sizes: list, buckets: list) -> list:
+    """Bucket sizes into ranges and return distribution."""
+    counts = [0] * len(buckets)
+    for s in sizes:
+        placed = False
+        for i, (_, lo, hi) in enumerate(buckets):
+            if lo <= s < hi:
+                counts[i] += 1
+                placed = True
+                break
+        if not placed:
+            counts[-1] += 1
+    total = sum(counts)
+    return [
+        {'label': buckets[i][0], 'count': counts[i],
+         'pct': round(counts[i] / total * 100, 1) if total > 0 else 0.0}
+        for i in range(len(buckets))
+    ]
+
+
+def _format_sizing_data(sizes: list, buckets: list) -> dict:
+    """Format raw sizing samples into stats + distribution dict."""
+    if not sizes:
+        return {'samples': 0, 'avg': 0.0, 'median': 0.0, 'distribution': []}
+    avg = sum(sizes) / len(sizes)
+    return {
+        'samples': len(sizes),
+        'avg': round(avg, 2),
+        'median': round(_median(sizes), 2),
+        'distribution': _size_distribution(sizes, buckets),
+    }
+
+
+def _generate_bet_sizing_diagnostics(pot_types: dict, preflop_sizes: list,
+                                      total_hands: int) -> list[dict]:
+    """Generate diagnostic messages for bet sizing & pot-type analysis."""
+    diagnostics = []
+    if total_hands < 20:
+        return diagnostics
+
+    # Sizing uniformity check
+    if len(preflop_sizes) >= 10:
+        avg = sum(preflop_sizes) / len(preflop_sizes)
+        variance = sum((x - avg) ** 2 for x in preflop_sizes) / len(preflop_sizes)
+        std = variance ** 0.5
+        cv = std / avg if avg > 0 else 0
+        if cv < 0.15:
+            diagnostics.append({
+                'type': 'warning',
+                'title': 'Sizing preflop uniforme',
+                'message': (
+                    f'Raise size médio de {avg:.1f}x BB com baixa variação. '
+                    'Variar o sizing por posição/board dificulta a leitura pelos adversários.'
+                ),
+            })
+
+    # Win rate per pot type
+    labels = {
+        'limped': 'Limped', 'srp': 'SRP',
+        '3bet': '3-bet', '4bet_plus': '4-bet+',
+    }
+    for key, label in labels.items():
+        pt = pot_types.get(key, {})
+        h = pt.get('hands', 0)
+        if h < 20:
+            continue
+        wr = pt.get('win_rate_bb100', 0)
+        if wr < -15:
+            diagnostics.append({
+                'type': 'danger',
+                'title': f'Perda significativa em potes {label}',
+                'message': (
+                    f'Win rate de {wr:.1f} bb/100 em {h} potes {label}. '
+                    'Spot crítico para revisão de estratégia.'
+                ),
+            })
+        elif wr < -5:
+            diagnostics.append({
+                'type': 'warning',
+                'title': f'Win rate negativo em potes {label}',
+                'message': f'Win rate de {wr:.1f} bb/100 em {h} potes {label}. Monitorar evolução.',
+            })
+        elif wr > 20:
+            diagnostics.append({
+                'type': 'good',
+                'title': f'Forte em potes {label}',
+                'message': f'Win rate de +{wr:.1f} bb/100 em {h} potes {label}. Ponto forte do jogo.',
             })
 
     return diagnostics

@@ -21,6 +21,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     positional_stats = analyzer.get_positional_stats()
     leak_analysis = analyzer.get_leak_analysis()
     redline_data = analyzer.get_redline_blueline()
+    bet_sizing_data = analyzer.get_bet_sizing_analysis()
     ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
     decision_ev_stats = ev_analyzer.get_decision_ev_analysis() if ev_analyzer else None
 
@@ -612,6 +613,10 @@ def generate_cash_report(analyzer: CashAnalyzer,
     # ── Red Line / Blue Line Section ──────────────────────────────────
     if redline_data and redline_data.get('total_hands', 0) >= 2:
         html += _render_redline_blueline(redline_data)
+
+    # ── Bet Sizing & Pot-Type Segmentation Section ─────────────────────
+    if bet_sizing_data and bet_sizing_data.get('total_hands', 0) >= 5:
+        html += _render_bet_sizing_analysis(bet_sizing_data)
 
     # ── Decision-Tree EV Analysis Section ───────────────────────────
     _total_decisions = 0
@@ -2480,6 +2485,207 @@ def _render_redline_blueline(data: dict) -> str:
                 </table>
             </div>
 """
+
+    html += """        </div>
+"""
+    return html
+
+
+# ── Bet Sizing & Pot-Type Segmentation ───────────────────────────────────────
+
+def _render_bet_sizing_analysis(data: dict) -> str:
+    """Render the Bet Sizing & Pot-Type Segmentation HTML section."""
+    if not data or data.get('total_hands', 0) < 5:
+        return ''
+
+    total_hands = data['total_hands']
+    pot_types = data.get('pot_types', {})
+    sizing = data.get('sizing', {})
+    hum = data.get('hu_vs_multiway', {})
+    diagnostics = data.get('diagnostics', [])
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    def wr_class(val: float) -> str:
+        return 'positive' if val >= 0 else 'negative'
+
+    html = f"""
+        <div class="summary" style="margin-bottom:20px;">
+            <h2 style="color:#00ff88;margin-bottom:15px;">Bet Sizing & Pot-Type Segmentation</h2>
+            <p style="color:#a0a0a0;font-size:0.9em;margin-bottom:15px;">
+                Classifica\u00e7\u00e3o por tipo de pote e an\u00e1lise de sizing.
+                Total de <strong>{total_hands}</strong> m\u00e3os analisadas.
+            </p>
+"""
+
+    # ── Pot-type stats table ──
+    pt_labels = [
+        ('limped', 'Limped'),
+        ('srp', 'SRP'),
+        ('3bet', '3-bet'),
+        ('4bet_plus', '4-bet+'),
+    ]
+    html += """            <h3 style="color:#00ff88;margin-bottom:10px;">Stats por Tipo de Pote</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tipo</th>
+                        <th>M\u00e3os</th>
+                        <th>HU</th>
+                        <th>Multi</th>
+                        <th>VPIP%</th>
+                        <th>PFR%</th>
+                        <th>AF</th>
+                        <th>CBet%</th>
+                        <th>WTSD%</th>
+                        <th>W$SD%</th>
+                        <th>Win Rate</th>
+                        <th>Sa\u00fade</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+    for key, label in pt_labels:
+        pt = pot_types.get(key, {})
+        h = pt.get('hands', 0)
+        if h == 0:
+            html += f"""                    <tr>
+                        <td><strong>{label}</strong></td>
+                        <td colspan="11" style="color:#666;">Sem dados</td>
+                    </tr>
+"""
+            continue
+        wr = pt.get('win_rate_bb100', 0)
+        wrc = wr_class(wr)
+        health = pt.get('health', 'good')
+        html += (
+            f'                    <tr>\n'
+            f'                        <td><strong>{label}</strong></td>\n'
+            f'                        <td>{h}</td>\n'
+            f'                        <td>{pt.get("hu_hands", 0)}</td>\n'
+            f'                        <td>{pt.get("multiway_hands", 0)}</td>\n'
+            f'                        <td>{pt.get("vpip", 0):.1f}%</td>\n'
+            f'                        <td>{pt.get("pfr", 0):.1f}%</td>\n'
+            f'                        <td>{pt.get("af", 0):.2f}</td>\n'
+            f'                        <td>{pt.get("cbet", 0):.1f}%</td>\n'
+            f'                        <td>{pt.get("wtsd", 0):.1f}%</td>\n'
+            f'                        <td>{pt.get("wsd", 0):.1f}%</td>\n'
+            f'                        <td class="{wrc}">{wr:+.1f} bb/100</td>\n'
+            f'                        <td>{badge_html(health)}</td>\n'
+            f'                    </tr>\n'
+        )
+    html += """                </tbody>
+            </table>
+"""
+
+    # ── HU vs Multiway ──
+    hu = hum.get('heads_up', {})
+    mw = hum.get('multiway', {})
+    if hu.get('hands', 0) > 0 or mw.get('hands', 0) > 0:
+        html += """            <h3 style="color:#00ff88;margin:20px 0 10px;">Heads-Up vs Multiway</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tipo</th>
+                        <th>M\u00e3os</th>
+                        <th>VPIP%</th>
+                        <th>PFR%</th>
+                        <th>AF</th>
+                        <th>WTSD%</th>
+                        <th>W$SD%</th>
+                        <th>Win Rate</th>
+                        <th>Sa\u00fade</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        for seg_label, seg in [('Heads-Up', hu), ('Multiway', mw)]:
+            h = seg.get('hands', 0)
+            if h == 0:
+                continue
+            wr = seg.get('win_rate_bb100', 0)
+            wrc = wr_class(wr)
+            health = seg.get('health', 'good')
+            html += (
+                f'                    <tr>\n'
+                f'                        <td><strong>{seg_label}</strong></td>\n'
+                f'                        <td>{h}</td>\n'
+                f'                        <td>{seg.get("vpip", 0):.1f}%</td>\n'
+                f'                        <td>{seg.get("pfr", 0):.1f}%</td>\n'
+                f'                        <td>{seg.get("af", 0):.2f}</td>\n'
+                f'                        <td>{seg.get("wtsd", 0):.1f}%</td>\n'
+                f'                        <td>{seg.get("wsd", 0):.1f}%</td>\n'
+                f'                        <td class="{wrc}">{wr:+.1f} bb/100</td>\n'
+                f'                        <td>{badge_html(health)}</td>\n'
+                f'                    </tr>\n'
+            )
+        html += """                </tbody>
+            </table>
+"""
+
+    # ── Sizing distributions ──
+    sizing_sections = [
+        ('preflop', 'Preflop Raise Size (múltiplos de BB)'),
+        ('flop', 'Flop Bet Size (% do pote)'),
+        ('turn', 'Turn Bet Size (% do pote)'),
+        ('river', 'River Bet Size (% do pote)'),
+    ]
+    has_sizing = any(sizing.get(s, {}).get('samples', 0) > 0 for s, _ in sizing_sections)
+    if has_sizing:
+        html += '            <h3 style="color:#00ff88;margin:20px 0 10px;">Distribui\u00e7\u00e3o de Bet Sizing</h3>\n'
+        html += '            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:15px;">\n'
+        for street_key, street_label in sizing_sections:
+            sd = sizing.get(street_key, {})
+            samples = sd.get('samples', 0)
+            if samples == 0:
+                continue
+            avg = sd.get('avg', 0)
+            median = sd.get('median', 0)
+            unit = 'x BB' if street_key == 'preflop' else '%'
+            html += (
+                f'                <div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:15px;">\n'
+                f'                    <h4 style="color:#00ff88;margin-bottom:8px;font-size:0.95em;">{street_label}</h4>\n'
+                f'                    <div style="color:#a0a0a0;font-size:0.85em;margin-bottom:8px;">'
+                f'{samples} amostras &bull; M\u00e9dia: {avg:.2f}{unit} &bull; Mediana: {median:.2f}{unit}</div>\n'
+            )
+            dist = sd.get('distribution', [])
+            for bucket in dist:
+                count = bucket.get('count', 0)
+                pct = bucket.get('pct', 0)
+                bar_w = max(1, int(pct))
+                html += (
+                    f'                    <div style="display:flex;align-items:center;margin-bottom:4px;font-size:0.82em;">\n'
+                    f'                        <span style="width:55px;color:#c0c0c0;">{bucket["label"]}</span>\n'
+                    f'                        <div style="flex:1;background:rgba(255,255,255,0.05);border-radius:3px;height:12px;margin:0 8px;">\n'
+                    f'                            <div style="width:{bar_w}%;background:#00ff88;height:100%;border-radius:3px;"></div>\n'
+                    f'                        </div>\n'
+                    f'                        <span style="color:#a0a0a0;width:45px;text-align:right;">{count} ({pct:.0f}%)</span>\n'
+                    f'                    </div>\n'
+                )
+            html += '                </div>\n'
+        html += '            </div>\n'
+
+    # ── Diagnostics ──
+    if diagnostics:
+        html += '            <div style="margin-top:15px;">\n'
+        html += '                <h4 style="color:#00ff88;margin-bottom:10px;">Diagn\u00f3stico Autom\u00e1tico</h4>\n'
+        for d in diagnostics:
+            if d['type'] == 'good':
+                color, bg = '#00ff88', 'rgba(0,255,136,0.1)'
+            elif d['type'] == 'warning':
+                color, bg = '#ffa500', 'rgba(255,165,0,0.1)'
+            else:
+                color, bg = '#ff4444', 'rgba(255,68,68,0.1)'
+            html += (
+                f'                <div style="background:{bg};border:1px solid {color};'
+                f'border-radius:8px;padding:10px;margin-bottom:8px;">\n'
+                f'                    <strong style="color:{color};">{d["title"]}</strong>\n'
+                f'                    <p style="color:#c0c0c0;font-size:0.9em;margin-top:4px;">{d["message"]}</p>\n'
+                f'                </div>\n'
+            )
+        html += '            </div>\n'
 
     html += """        </div>
 """
