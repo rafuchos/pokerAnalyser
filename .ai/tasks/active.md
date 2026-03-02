@@ -83,10 +83,22 @@ Update this section weekly with sprint goals and dates.
 - [x] US-016: Sistema de Configuração Externo para Targets de Stats (2026-03-02)
 - [x] US-017: Stats Segmentadas por Stack Depth (BB Count) e Posição (2026-03-02)
 - [x] US-018: VPIP Drill-Down Modal com Breakdown por Posição e Stack Depth (2026-03-02)
+- [x] US-019: PFR/3Bet Positional Matrix com Drill-Down (Posição vs Posição) (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-019: PFR/3Bet Positional Matrix com Drill-Down (Posição vs Posição) (2026-03-02)
+  - _analyze_preflop_hand(): returns raiser_position and three_bettor_position (new fields, US-019)
+  - CashAnalyzer._format_three_bet_matrix(): formats pos_vs_pos counters into pct-based matrix
+  - get_positional_stats(): builds pos_vs_pos matrix; returns three_bet_matrix key
+  - _render_pfr_3bet_modal(): hidden modal (reuses vpip-modal-overlay CSS); Tab 1=PFR por Posição; Tab 2=3-Bet vs Posição matrix
+  - 3-Bet matrix: heat-map table (hero_pos rows × raiser_pos cols) with % + hand count per cell
+  - _render_player_stats(): 3-Bet card becomes clickable (three-bet-clickable + openPfrModal()) when data available
+  - JS: openPfrModal(), closePfrModal(), closePfrModalOverlay(), switchPfrTab(), ESC closes both modals
+  - CSS: .three-bet-clickable, .three-bet-hint, .pfr-matrix-table, .matrix-cell-hot/.warm/.empty
+  - 73 new tests (1288 total). All quality gates passed.
 
 - [x] US-018: VPIP Drill-Down Modal com Breakdown por Posição e Stack Depth (2026-03-02)
   - _render_vpip_modal(): hidden modal overlay with two tab panels (Por Posição, Por Stack Depth)

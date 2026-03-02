@@ -245,3 +245,20 @@ US-018 (2026-03-02): VPIP Drill-Down Modal com Breakdown por Posição e Stack D
 
 === US-018 completed at 2026-03-02T13:09:44.998Z ===
 - All quality gates passed
+
+---
+US-019 (2026-03-02): PFR/3Bet Positional Matrix com Drill-Down (Posição vs Posição)
+- Extended _analyze_preflop_hand() to return raiser_position (last opp raiser before hero)
+  and three_bettor_position (opp who 3-bet hero's open); backwards-compatible new fields.
+- pos_vs_pos defaultdict tracks (hero_pos × raiser_pos) 3-bet opps/count in get_positional_stats().
+- _format_three_bet_matrix() static method: skips 0-opp cells, preserves canonical position order.
+- three_bet_matrix returned as new key in get_positional_stats() result.
+- _render_pfr_3bet_modal() reuses vpip-modal-overlay CSS class for the overlay (DRY);
+  PFR tab shows by_position table; matrix tab shows heat-map with hot/warm/empty cells.
+- 3-Bet stat card (not PFR) made clickable to open the modal (US-019 pattern like US-018 VPIP card).
+- Pattern: reuse vpip-modal-overlay / vpip-modal CSS classes for new modals, just use new IDs with pfr- prefix.
+- Pattern: switchPfrTab() uses explicit panel ID list instead of querySelectorAll to avoid interfering with VPIP tab switching.
+- 73 new tests (1288 total). All quality gates passed.
+
+=== US-019 completed at 2026-03-02T13:40:00.000Z ===
+- All quality gates passed
