@@ -159,3 +159,6 @@
 - Pattern: SVG radar chart: grid polygons always present even for empty data; test for position colors not <polygon>
 - Lesson: ATS opportunity counts even when hero folds (BTN folds after all fold = missed steal opp)
 - Lesson: blinds defense 'all_others_folded' ≠ 'all_fold_before_hero'; raise is allowed (it IS the steal)
+
+=== US-010 completed at 2026-03-02T03:26:00.501Z ===
+- All quality gates passed
