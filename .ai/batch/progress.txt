@@ -176,3 +176,6 @@
 - Pattern: Reuses existing .leak-card/.leak-header CSS classes from US-009 for consistent styling
 - Pattern: _insert_hand_with_actions() helper (from test_positional.py) is the standard for DB integration tests
 - Lesson: Importer requires db_path (not conn); use repo.insert_hand() + repo.insert_actions_batch() for in-memory test DBs
+
+=== US-011 completed at 2026-03-02T03:40:22.424Z ===
+- All quality gates passed
