@@ -162,3 +162,17 @@
 
 === US-010 completed at 2026-03-02T03:26:00.501Z ===
 - All quality gates passed
+
+=== US-011 completed at 2026-03-02 ===
+- All 666 tests passing (79 new + 587 existing)
+- Pattern: LeakFinder is a separate module (leak_finder.py) instantiated by CashAnalyzer.get_leak_analysis()
+- Pattern: Leak dataclass holds all leak info: name, category, stat_name, current_value, healthy range, cost_bb100, direction, suggestion
+- Pattern: _check_deviation() computes cost as (deviation × weight), returns None if within healthy range
+- Pattern: PREFLOP_WEIGHTS/POSTFLOP_WEIGHTS/POSITIONAL_WEIGHTS dicts map stat names to bb/100-per-point weight factors
+- Pattern: Health score = max(0, 100 - total_cost × 10); capped at 0-100
+- Pattern: Period comparison uses date filtering on existing repo queries (get_preflop_action_sequences + get_all_action_sequences)
+- Pattern: Study spots generated per leak with deduplication by title; max 10 spots
+- Pattern: _hex_to_rgb() converts hex color to CSS rgb() values for dynamic badge coloring
+- Pattern: Reuses existing .leak-card/.leak-header CSS classes from US-009 for consistent styling
+- Pattern: _insert_hand_with_actions() helper (from test_positional.py) is the standard for DB integration tests
+- Lesson: Importer requires db_path (not conn); use repo.insert_hand() + repo.insert_actions_batch() for in-memory test DBs
