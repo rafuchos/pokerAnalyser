@@ -216,3 +216,16 @@
 
 === US-016 completed at 2026-03-02T12:35:01.645Z ===
 - All quality gates passed
+
+=== US-017 completed at 2026-03-02 ===
+- All 1168 tests passing (79 new)
+- Pattern: hero_stack REAL column + migration via _run_migrations() PRAGMA table_info check
+- Pattern: _classify_stack_tier() static function for tier classification (deep≥50, medium≥25, shallow≥15, shove<15)
+- Pattern: _classify_stack_depth_health() uses config stack_depth_{stat}_{healthy|warning} dicts
+- Pattern: get_stack_depth_stats() reuses get_cash_hands_with_position() + get_all_action_sequences() for per-tier analysis
+- Pattern: by_position_tier cross-table builds 9 positions × 4 tiers matrix with min 5 hands per cell
+- Pattern: LeakFinder._detect_stack_depth_leaks() checks VPIP/PFR/3-Bet per tier against tier-specific ranges
+- Pattern: _render_stack_depth_analysis() uses position-table CSS class with badge_html() inner function
+- Pattern: TargetsConfig._default_data() stack_depth section with tiers + per-tier stat ranges
+- Lesson: Previous attempt timed out; this attempt fixed 4 test issues: wrong assertion, HTML-escape mismatch, missing danger badge in test data
+- Lesson: Test HTML assertions should match actual output (raw '<15 BB' not '&lt;15 BB')

@@ -81,10 +81,25 @@ Update this section weekly with sprint goals and dates.
 - [x] US-014: Detecção de Tilt e Análise de Performance por Horário/Duração (2026-03-02)
 - [x] US-015: Preflop Range Visualization (Hand Matrix por Posição) (2026-03-02)
 - [x] US-016: Sistema de Configuração Externo para Targets de Stats (2026-03-02)
+- [x] US-017: Stats Segmentadas por Stack Depth (BB Count) e Posição (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-017: Stats Segmentadas por Stack Depth (BB Count) e Posição (2026-03-02)
+  - Schema: hero_stack REAL column on hands table with migration
+  - Parser: GGPoker extracts hero starting stack from hand history
+  - HandData: hero_stack field in __slots__
+  - Config: stack_depth section with tiers (deep/medium/shallow/shove), per-tier VPIP/PFR/3-Bet ranges
+  - CashAnalyzer._classify_stack_tier(): classifies stacks into 4 configurable tiers
+  - CashAnalyzer._classify_stack_depth_health(): tier-specific health badge classification
+  - CashAnalyzer.get_stack_depth_stats(): full stats per tier + position×tier cross-table
+  - Stats per tier: VPIP, PFR, 3-Bet, AF, CBet, WTSD, W$SD, net, bb/100, health badges
+  - by_position_tier: 9 positions × 4 tiers matrix with VPIP, PFR, bb/100
+  - LeakFinder._detect_stack_depth_leaks(): tier-specific leak detection with Portuguese messages
+  - _render_stack_depth_analysis(): HTML section with tier table, position cross-table, coverage
+  - 79 new tests (1168 total)
 
 - [x] US-016: Sistema de Configuração Externo para Targets de Stats (2026-03-02)
   - New module: src/config.py with TargetsConfig class
