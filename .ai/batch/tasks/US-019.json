@@ -1,7 +1,7 @@
 {
   "id": "US-019",
   "title": "PFR/3Bet Positional Matrix com Drill-Down (Posição vs Posição)",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 900,
   "plan": [
@@ -11,7 +11,7 @@
   "recommended_model": "sonnet",
   "files_likely_affected": [],
   "created_at": "2026-03-02T13:11:52.170Z",
-  "completed_at": null,
+  "completed_at": "2026-03-02T13:24:09.441Z",
   "failure_reason": null,
   "branch": "feat/US-019"
 }
