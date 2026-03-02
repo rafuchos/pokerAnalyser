@@ -79,10 +79,25 @@ Update this section weekly with sprint goals and dates.
 - [x] US-012: Red Line / Blue Line (Non-Showdown vs Showdown Winnings) (2026-03-02)
 - [x] US-011: Leak Finder Automatizado com Spots de Estudo Priorizados (2026-03-02)
 - [x] US-014: Detecção de Tilt e Análise de Performance por Horário/Duração (2026-03-02)
+- [x] US-015: Preflop Range Visualization (Hand Matrix por Posição) (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-015: Preflop Range Visualization (Hand Matrix por Posição) (2026-03-02)
+  - Module helpers: _categorize_hand() converts 'Ah Kd' → 'AKo', _classify_preflop_action() → open_raise/call/three_bet
+  - CashAnalyzer.get_hand_matrix(): per-hand frequency (dealt/played), action breakdown, win rate (bb/100)
+  - Repository.get_cash_hands_with_cards(): fetches hands with hero_cards, position, net, blinds_bb
+  - by_position breakdown: separate matrix data per position (UTG, MP, CO, BTN, SB, BB)
+  - Top 10 most profitable and top 10 most deficit hands (minimum 3 dealt filter)
+  - _render_hand_matrix_svg(): 13x13 inline SVG with color-coded cells (blue=open raise, yellow=call, red=3-bet)
+  - Intensity scaling by play frequency; rank labels on axes
+  - Ideal range overlay: green dashed border for reference ranges per position
+  - _render_range_analysis(): full HTML section with position filter tabs + JavaScript switching
+  - Profit/deficit tables with net $ and win rate bb/100
+  - Integrated into generate_cash_report() after tilt section
+  - 71 new tests (1029 total)
 
 - [x] US-014: Detecção de Tilt e Análise de Performance por Horário/Duração (2026-03-02)
   - New module: src/analyzers/tilt.py with TiltAnalyzer class (593 lines)
