@@ -468,6 +468,25 @@ class Repository:
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    def get_cash_hands_with_cards(self, year: Optional[str] = None) -> list[dict]:
+        """Get cash hands with hero cards, position, and financial data.
+
+        Returns hand_id, hero_cards, hero_position, net, blinds_bb for each
+        cash hand where hero_cards is known. Used by hand matrix analysis.
+        """
+        query = """
+            SELECT hand_id, hero_cards, hero_position, net, blinds_bb
+            FROM hands
+            WHERE game_type = 'cash' AND hero_cards IS NOT NULL
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
     # ── Tournament Hand Queries ─────────────────────────────────────
 
     def get_tournament_hands(self, year: Optional[str] = None,

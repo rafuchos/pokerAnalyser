@@ -23,6 +23,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     redline_data = analyzer.get_redline_blueline()
     bet_sizing_data = analyzer.get_bet_sizing_analysis()
     tilt_data = analyzer.get_tilt_analysis()
+    hand_matrix_data = analyzer.get_hand_matrix()
     ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
     decision_ev_stats = ev_analyzer.get_decision_ev_analysis() if ev_analyzer else None
 
@@ -622,6 +623,10 @@ def generate_cash_report(analyzer: CashAnalyzer,
     # ── Tilt Detection & Time/Duration Performance Section ─────────────
     if tilt_data:
         html += _render_tilt_analysis(tilt_data)
+
+    # ── Preflop Range Visualization Section ─────────────────────────
+    if hand_matrix_data and hand_matrix_data.get('total_hands', 0) >= 5:
+        html += _render_range_analysis(hand_matrix_data)
 
     # ── Decision-Tree EV Analysis Section ───────────────────────────
     _total_decisions = 0
@@ -3014,4 +3019,318 @@ def _render_hourly_heatmap(hourly_data: list[dict]) -> str:
         )
 
     html += '            </div>\n'
+    return html
+
+
+# ── Hand Matrix (Preflop Range Visualization) ────────────────────────────
+
+_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
+
+# Default ideal opening ranges (% frequency) by position for overlay
+_IDEAL_RANGES = {
+    'UTG': {
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88',
+        'AKs', 'AQs', 'AJs', 'ATs', 'KQs',
+        'AKo', 'AQo',
+    },
+    'MP': {
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77',
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'KQs', 'KJs', 'QJs',
+        'AKo', 'AQo', 'AJo', 'KQo',
+    },
+    'CO': {
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66',
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s',
+        'KQs', 'KJs', 'KTs', 'QJs', 'QTs', 'JTs', 'T9s',
+        'AKo', 'AQo', 'AJo', 'ATo', 'KQo', 'KJo', 'QJo',
+    },
+    'BTN': {
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44',
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        'KQs', 'KJs', 'KTs', 'K9s', 'QJs', 'QTs', 'Q9s', 'JTs', 'J9s', 'T9s', 'T8s', '98s', '87s', '76s',
+        'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'KQo', 'KJo', 'KTo', 'QJo', 'QTo', 'JTo',
+    },
+    'SB': {
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55',
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s',
+        'KQs', 'KJs', 'KTs', 'K9s', 'QJs', 'QTs', 'JTs', 'J9s', 'T9s', '98s', '87s',
+        'AKo', 'AQo', 'AJo', 'ATo', 'KQo', 'KJo', 'QJo',
+    },
+    'BB': set(),  # BB defends vs raises, no standard "open" range
+}
+
+
+def _render_hand_matrix_svg(matrix_data: dict, position: str = 'overall',
+                             show_overlay: bool = True) -> str:
+    """Generate 13x13 SVG hand matrix with color-coded cells.
+
+    Cell color by dominant action:
+    - Blue: open raise dominant
+    - Yellow: call dominant
+    - Red: 3-bet dominant
+    Color intensity scales with play frequency.
+    Overlay border shows ideal range hands for comparison.
+    """
+    cell_size = 36
+    gap = 2
+    margin = 30
+    total = 13 * (cell_size + gap) - gap + margin
+    width = total + margin
+    height = total + margin
+
+    ideal = _IDEAL_RANGES.get(position, set()) if show_overlay else set()
+
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+    svg += f'viewBox="0 0 {width} {height}" style="max-width:100%;">\n'
+
+    # Background
+    svg += f'  <rect width="{width}" height="{height}" fill="#1a1a2e" rx="8"/>\n'
+
+    # Find max frequency for intensity scaling
+    max_freq = 1.0
+    for r1 in _RANKS:
+        for r2 in _RANKS:
+            ri = _RANKS.index(r1)
+            ci = _RANKS.index(r2)
+            if ri == ci:
+                cat = f'{r1}{r2}'
+            elif ri < ci:
+                cat = f'{r1}{r2}s'  # suited: above diagonal
+            else:
+                cat = f'{r2}{r1}o'  # offsuit: below diagonal
+            stats = matrix_data.get(cat)
+            if stats and stats['frequency'] > max_freq:
+                max_freq = stats['frequency']
+
+    # Draw cells
+    for row_idx, r1 in enumerate(_RANKS):
+        # Row label
+        y_pos = margin + row_idx * (cell_size + gap) + cell_size // 2 + 4
+        svg += (f'  <text x="{margin - 6}" y="{y_pos}" fill="#a0a0a0" '
+                f'font-size="10" text-anchor="end" font-family="monospace">{r1}</text>\n')
+
+        for col_idx, r2 in enumerate(_RANKS):
+            x = margin + col_idx * (cell_size + gap)
+            y = margin + row_idx * (cell_size + gap)
+
+            # Column label (top row only)
+            if row_idx == 0:
+                svg += (f'  <text x="{x + cell_size // 2}" y="{margin - 6}" fill="#a0a0a0" '
+                        f'font-size="10" text-anchor="middle" font-family="monospace">{r2}</text>\n')
+
+            # Determine hand category for this cell
+            if row_idx == col_idx:
+                cat = f'{r1}{r2}'
+            elif row_idx < col_idx:
+                cat = f'{r1}{r2}s'
+            else:
+                cat = f'{r2}{r1}o'
+
+            stats = matrix_data.get(cat)
+
+            if stats and stats['dealt'] > 0 and stats['played'] > 0:
+                freq = stats['frequency']
+                intensity = min(1.0, freq / max_freq) if max_freq > 0 else 0
+
+                # Color by dominant action
+                or_cnt = stats.get('open_raise', 0)
+                call_cnt = stats.get('call', 0)
+                tb_cnt = stats.get('three_bet', 0)
+
+                max_action = max(or_cnt, call_cnt, tb_cnt)
+                if max_action == 0:
+                    r_c, g_c, b_c = 80, 80, 80
+                elif or_cnt >= call_cnt and or_cnt >= tb_cnt:
+                    # Blue for open raise
+                    r_c = int(30 + 20 * (1 - intensity))
+                    g_c = int(100 + 80 * intensity)
+                    b_c = int(180 + 75 * intensity)
+                elif tb_cnt >= or_cnt and tb_cnt >= call_cnt:
+                    # Red for 3-bet
+                    r_c = int(180 + 75 * intensity)
+                    g_c = int(30 + 20 * (1 - intensity))
+                    b_c = int(30 + 20 * (1 - intensity))
+                else:
+                    # Yellow for call
+                    r_c = int(180 + 75 * intensity)
+                    g_c = int(160 + 60 * intensity)
+                    b_c = int(20 + 10 * (1 - intensity))
+
+                alpha = 0.3 + 0.7 * intensity
+                fill = f'rgba({r_c},{g_c},{b_c},{alpha:.2f})'
+            else:
+                fill = 'rgba(255,255,255,0.03)'
+
+            svg += f'  <rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" '
+            svg += f'fill="{fill}" rx="3"/>\n'
+
+            # Ideal range overlay border
+            if cat in ideal:
+                svg += (f'  <rect x="{x+1}" y="{y+1}" width="{cell_size-2}" '
+                        f'height="{cell_size-2}" fill="none" stroke="#00ff88" '
+                        f'stroke-width="1.5" rx="3" stroke-dasharray="3,2"/>\n')
+
+            # Text label
+            font_size = 8 if len(cat) > 2 else 9
+            text_color = '#e0e0e0' if stats and stats.get('dealt', 0) > 0 else '#555'
+            svg += (f'  <text x="{x + cell_size // 2}" y="{y + cell_size // 2 + 3}" '
+                    f'fill="{text_color}" font-size="{font_size}" text-anchor="middle" '
+                    f'font-family="monospace">{cat}</text>\n')
+
+            # Frequency subtext
+            if stats and stats.get('dealt', 0) > 0 and stats.get('played', 0) > 0:
+                svg += (f'  <text x="{x + cell_size // 2}" y="{y + cell_size // 2 + 13}" '
+                        f'fill="#a0a0a0" font-size="6" text-anchor="middle" '
+                        f'font-family="monospace">{stats["frequency"]:.0f}%</text>\n')
+
+    svg += '</svg>\n'
+    return svg
+
+
+def _render_range_analysis(matrix_data: dict) -> str:
+    """Render the full Preflop Range Visualization section.
+
+    Includes:
+    - Position filter tabs (Overall, UTG, MP, CO, BTN, SB, BB)
+    - 13x13 SVG matrix per position
+    - Legend for action colors + ideal range overlay
+    - Top 10 most profitable hands table
+    - Top 10 most deficit hands table
+    """
+    if not matrix_data or matrix_data.get('total_hands', 0) < 5:
+        return ''
+
+    overall = matrix_data.get('overall', {})
+    by_position = matrix_data.get('by_position', {})
+    top_profitable = matrix_data.get('top_profitable', [])
+    top_deficit = matrix_data.get('top_deficit', [])
+
+    positions = ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB']
+    available_positions = [p for p in positions if p in by_position]
+
+    html = """
+        <div class="summary">
+            <h2>Preflop Range Visualization</h2>
+            <p style="color:#a0a0a0;margin-bottom:15px;">
+                Matriz 13x13 de starting hands colorida por frequência e tipo de ação.
+                Borda verde tracejada = range ideal de referência.
+            </p>
+
+            <!-- Legend -->
+            <div style="display:flex;gap:15px;flex-wrap:wrap;margin-bottom:15px;align-items:center;">
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <span style="display:inline-block;width:14px;height:14px;background:rgba(50,180,255,0.8);border-radius:3px;"></span>
+                    <span style="color:#a0a0a0;font-size:0.85em;">Open Raise</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <span style="display:inline-block;width:14px;height:14px;background:rgba(255,220,30,0.8);border-radius:3px;"></span>
+                    <span style="color:#a0a0a0;font-size:0.85em;">Call</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <span style="display:inline-block;width:14px;height:14px;background:rgba(255,50,50,0.8);border-radius:3px;"></span>
+                    <span style="color:#a0a0a0;font-size:0.85em;">3-Bet</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <span style="display:inline-block;width:14px;height:14px;border:1.5px dashed #00ff88;border-radius:3px;"></span>
+                    <span style="color:#a0a0a0;font-size:0.85em;">Range Ideal</span>
+                </div>
+            </div>
+"""
+
+    # Position tabs
+    tab_ids = ['overall'] + available_positions
+    tab_labels = ['Geral'] + available_positions
+
+    html += '            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:15px;">\n'
+    for i, (tab_id, label) in enumerate(zip(tab_ids, tab_labels)):
+        active = 'background:rgba(0,255,136,0.2);color:#00ff88;' if i == 0 else 'background:rgba(255,255,255,0.05);color:#a0a0a0;'
+        html += (f'                <button class="range-tab" data-target="range-{tab_id}" '
+                 f'style="{active}border:1px solid rgba(255,255,255,0.1);padding:6px 14px;'
+                 f'border-radius:6px;cursor:pointer;font-size:0.85em;">{label}</button>\n')
+    html += '            </div>\n'
+
+    # Matrix panels
+    # Overall panel
+    html += '            <div class="range-panel" id="range-overall" style="display:block;">\n'
+    html += '                ' + _render_hand_matrix_svg(overall, 'overall', False).replace('\n', '\n                ')
+    html += '            </div>\n'
+
+    # Per-position panels
+    for pos in available_positions:
+        html += f'            <div class="range-panel" id="range-{pos}" style="display:none;">\n'
+        html += '                ' + _render_hand_matrix_svg(by_position.get(pos, {}), pos, True).replace('\n', '\n                ')
+        html += '            </div>\n'
+
+    # Top 10 Most Profitable Hands
+    if top_profitable:
+        html += """
+            <h3 style="color:#00ff88;margin:20px 0 10px 0;">Top 10 Mãos Mais Lucrativas</h3>
+            <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                    <th style="padding:8px;text-align:left;color:#a0a0a0;">#</th>
+                    <th style="padding:8px;text-align:left;color:#a0a0a0;">Mão</th>
+                    <th style="padding:8px;text-align:center;color:#a0a0a0;">Vezes</th>
+                    <th style="padding:8px;text-align:center;color:#a0a0a0;">Freq%</th>
+                    <th style="padding:8px;text-align:right;color:#a0a0a0;">Net ($)</th>
+                    <th style="padding:8px;text-align:right;color:#a0a0a0;">Win Rate</th>
+                </tr>
+"""
+        for i, h in enumerate(top_profitable):
+            net_class = 'color:#00ff88;' if h['net'] >= 0 else 'color:#ff4444;'
+            html += (f'                <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">'
+                     f'<td style="padding:6px 8px;">{i+1}</td>'
+                     f'<td style="padding:6px 8px;font-weight:600;">{h["hand"]}</td>'
+                     f'<td style="padding:6px 8px;text-align:center;">{h["dealt"]}</td>'
+                     f'<td style="padding:6px 8px;text-align:center;">{h["frequency"]:.0f}%</td>'
+                     f'<td style="padding:6px 8px;text-align:right;{net_class}">${h["net"]:+.2f}</td>'
+                     f'<td style="padding:6px 8px;text-align:right;{net_class}">{h["win_rate"]:+.1f} bb/100</td>'
+                     f'</tr>\n')
+        html += '            </table>\n'
+
+    # Top 10 Most Deficit Hands
+    if top_deficit:
+        html += """
+            <h3 style="color:#ff4444;margin:20px 0 10px 0;">Top 10 Mãos Mais Deficitárias</h3>
+            <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                    <th style="padding:8px;text-align:left;color:#a0a0a0;">#</th>
+                    <th style="padding:8px;text-align:left;color:#a0a0a0;">Mão</th>
+                    <th style="padding:8px;text-align:center;color:#a0a0a0;">Vezes</th>
+                    <th style="padding:8px;text-align:center;color:#a0a0a0;">Freq%</th>
+                    <th style="padding:8px;text-align:right;color:#a0a0a0;">Net ($)</th>
+                    <th style="padding:8px;text-align:right;color:#a0a0a0;">Win Rate</th>
+                </tr>
+"""
+        for i, h in enumerate(top_deficit):
+            html += (f'                <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">'
+                     f'<td style="padding:6px 8px;">{i+1}</td>'
+                     f'<td style="padding:6px 8px;font-weight:600;">{h["hand"]}</td>'
+                     f'<td style="padding:6px 8px;text-align:center;">{h["dealt"]}</td>'
+                     f'<td style="padding:6px 8px;text-align:center;">{h["frequency"]:.0f}%</td>'
+                     f'<td style="padding:6px 8px;text-align:right;color:#ff4444;">${h["net"]:+.2f}</td>'
+                     f'<td style="padding:6px 8px;text-align:right;color:#ff4444;">{h["win_rate"]:+.1f} bb/100</td>'
+                     f'</tr>\n')
+        html += '            </table>\n'
+
+    # JavaScript for tab switching
+    html += """
+            <script>
+            document.querySelectorAll('.range-tab').forEach(function(tab) {
+                tab.addEventListener('click', function() {
+                    document.querySelectorAll('.range-panel').forEach(function(p) {
+                        p.style.display = 'none';
+                    });
+                    document.querySelectorAll('.range-tab').forEach(function(t) {
+                        t.style.background = 'rgba(255,255,255,0.05)';
+                        t.style.color = '#a0a0a0';
+                    });
+                    var target = this.getAttribute('data-target');
+                    document.getElementById(target).style.display = 'block';
+                    this.style.background = 'rgba(0,255,136,0.2)';
+                    this.style.color = '#00ff88';
+                });
+            });
+            </script>
+        </div>
+"""
     return html

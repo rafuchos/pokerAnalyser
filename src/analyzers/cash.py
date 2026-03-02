@@ -1389,6 +1389,131 @@ class CashAnalyzer:
 
         return radar
 
+    # ── Hand Matrix (Preflop Range Visualization) ──────────────────
+
+    def get_hand_matrix(self) -> dict:
+        """Build 13x13 hand matrix data grouped by position.
+
+        For each position and each hand category (e.g. 'AKs', 'AKo', 'AA'),
+        computes:
+        - times_dealt / times_played / frequency
+        - action breakdown: open_raise, call, three_bet counts
+        - net and win_rate (bb/100)
+
+        Returns dict with:
+        - by_position: {pos: {hand_cat: {...stats...}}}
+        - overall: {hand_cat: {...stats...}}
+        - top_profitable: list of top 10 most profitable hands
+        - top_deficit: list of top 10 most deficit hands
+        """
+        hands = self.repo.get_cash_hands_with_cards(self.year)
+        preflop_seqs = self.repo.get_preflop_action_sequences(self.year)
+
+        # Group preflop actions by hand_id
+        hand_preflop = defaultdict(list)
+        for a in preflop_seqs:
+            hand_preflop[a['hand_id']].append(a)
+
+        # Accumulators: overall and per-position
+        overall = defaultdict(lambda: {
+            'dealt': 0, 'played': 0,
+            'open_raise': 0, 'call': 0, 'three_bet': 0,
+            'net': 0.0, 'bb_net': 0.0,
+        })
+        by_position = defaultdict(lambda: defaultdict(lambda: {
+            'dealt': 0, 'played': 0,
+            'open_raise': 0, 'call': 0, 'three_bet': 0,
+            'net': 0.0, 'bb_net': 0.0,
+        }))
+
+        for hand in hands:
+            hero_cards = hand.get('hero_cards')
+            if not hero_cards:
+                continue
+            cat = _categorize_hand(hero_cards)
+            if not cat:
+                continue
+
+            pos = hand.get('hero_position') or 'Unknown'
+            net = hand.get('net') or 0.0
+            bb = hand.get('blinds_bb') or 0.50
+            bb_net = net / bb if bb > 0 else 0.0
+
+            # Count dealt
+            overall[cat]['dealt'] += 1
+            by_position[pos][cat]['dealt'] += 1
+
+            # Determine preflop action from action sequences
+            actions = hand_preflop.get(hand['hand_id'], [])
+            action_type = _classify_preflop_action(actions)
+
+            if action_type:
+                overall[cat]['played'] += 1
+                by_position[pos][cat]['played'] += 1
+                if action_type == 'open_raise':
+                    overall[cat]['open_raise'] += 1
+                    by_position[pos][cat]['open_raise'] += 1
+                elif action_type == 'call':
+                    overall[cat]['call'] += 1
+                    by_position[pos][cat]['call'] += 1
+                elif action_type == 'three_bet':
+                    overall[cat]['three_bet'] += 1
+                    by_position[pos][cat]['three_bet'] += 1
+
+            overall[cat]['net'] += net
+            overall[cat]['bb_net'] += bb_net
+            by_position[pos][cat]['net'] += net
+            by_position[pos][cat]['bb_net'] += bb_net
+
+        # Format results
+        def _format_matrix(data):
+            result = {}
+            for cat, d in data.items():
+                dealt = d['dealt']
+                played = d['played']
+                result[cat] = {
+                    'dealt': dealt,
+                    'played': played,
+                    'frequency': round(played / dealt * 100, 1) if dealt > 0 else 0.0,
+                    'open_raise': d['open_raise'],
+                    'call': d['call'],
+                    'three_bet': d['three_bet'],
+                    'net': round(d['net'], 2),
+                    'bb_net': round(d['bb_net'], 2),
+                    'win_rate': round(d['bb_net'] / dealt * 100, 2) if dealt > 0 else 0.0,
+                }
+            return result
+
+        overall_formatted = _format_matrix(overall)
+        by_pos_formatted = {}
+        for pos, cats in by_position.items():
+            by_pos_formatted[pos] = _format_matrix(cats)
+
+        # Top 10 most profitable and top 10 most deficit
+        sorted_by_winrate = sorted(
+            overall_formatted.items(),
+            key=lambda x: x[1]['win_rate'],
+            reverse=True,
+        )
+        top_profitable = [
+            {'hand': cat, **stats}
+            for cat, stats in sorted_by_winrate
+            if stats['dealt'] >= 3 and stats['win_rate'] > 0
+        ][:10]
+        top_deficit = [
+            {'hand': cat, **stats}
+            for cat, stats in reversed(sorted_by_winrate)
+            if stats['dealt'] >= 3 and stats['win_rate'] < 0
+        ][:10]
+
+        return {
+            'overall': overall_formatted,
+            'by_position': dict(by_pos_formatted),
+            'top_profitable': top_profitable,
+            'top_deficit': top_deficit,
+            'total_hands': sum(d['dealt'] for d in overall_formatted.values()),
+        }
+
     # ── Leak Finder ──────────────────────────────────────────────────
 
     def get_leak_analysis(self) -> dict:
@@ -2017,3 +2142,80 @@ def _generate_bet_sizing_diagnostics(pot_types: dict, preflop_sizes: list,
             })
 
     return diagnostics
+
+
+# ── Module-level helpers for Hand Matrix ─────────────────────────────────
+
+# Card rank order for 13x13 matrix (rows/columns)
+RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
+
+
+def _categorize_hand(hero_cards: str) -> str | None:
+    """Convert hero cards like 'Ah Kd' to standard category notation.
+
+    Returns e.g. 'AKs' (suited), 'AKo' (offsuit), 'AA' (pair), or None if invalid.
+    """
+    parts = hero_cards.strip().split()
+    if len(parts) != 2:
+        return None
+
+    card1, card2 = parts
+    if len(card1) < 2 or len(card2) < 2:
+        return None
+
+    rank1, suit1 = card1[0], card1[1]
+    rank2, suit2 = card2[0], card2[1]
+
+    if rank1 not in RANKS or rank2 not in RANKS:
+        return None
+
+    # Order by rank (higher first)
+    idx1 = RANKS.index(rank1)
+    idx2 = RANKS.index(rank2)
+    if idx1 > idx2:
+        rank1, rank2 = rank2, rank1
+        suit1, suit2 = suit2, suit1
+
+    if rank1 == rank2:
+        return f'{rank1}{rank2}'
+    elif suit1 == suit2:
+        return f'{rank1}{rank2}s'
+    else:
+        return f'{rank1}{rank2}o'
+
+
+def _classify_preflop_action(actions: list[dict]) -> str | None:
+    """Classify the hero's preflop action type.
+
+    Returns 'open_raise', 'call', 'three_bet', or None (hero folded/posted only).
+    """
+    hero_first_acted = False
+    raises_before_hero = 0
+
+    for a in actions:
+        atype = a.get('action_type', '')
+        if atype in ('post_sb', 'post_bb', 'post_ante'):
+            continue
+
+        if a.get('is_hero'):
+            if not hero_first_acted:
+                hero_first_acted = True
+                if atype in ('raise', 'bet'):
+                    if raises_before_hero == 0:
+                        return 'open_raise'
+                    else:
+                        return 'three_bet'
+                elif atype == 'call':
+                    return 'call'
+                elif atype == 'all-in':
+                    if raises_before_hero == 0:
+                        return 'open_raise'
+                    else:
+                        return 'three_bet'
+                else:
+                    return None  # fold or check
+        else:
+            if atype in ('raise', 'bet', 'all-in'):
+                raises_before_hero += 1
+
+    return None
