@@ -144,3 +144,18 @@
 
 === US-009 completed at 2026-03-02T03:10:36.437Z ===
 - All quality gates passed
+
+=== US-010 completed at 2026-03-02 ===
+- All 587 tests passing (65 new + 522 existing)
+- Pattern: get_cash_hands_with_position() fetches hand-level net+blinds_bb+hero_position for win rate computation
+- Pattern: get_all_action_sequences() must include ha.is_voluntary for VPIP detection (fixed missing field)
+- Pattern: _analyze_blinds_defense() uses all_others_folded (not all_fold_before_hero) since raise IS the steal
+- Pattern: POSITION_VPIP_HEALTHY/WARNING dicts with per-position ranges (UTG tight 12-18%, BTN loose 30-45%)
+- Pattern: _classify_positional_health() falls back to overall ranges for unsupported positions/stats
+- Pattern: ats_by_pos includes only positions with ats_opps > 0 (CO, BTN, SB)
+- Pattern: blinds_defense dict only includes positions (BB/SB) that had steal opportunities
+- Pattern: _build_radar_data() normalizes stats to 0-100 using max expected values per axis
+- Pattern: _render_radar_chart() uses grid polygons (fill=none) + position polygons (fill=rgba(...))
+- Pattern: SVG radar chart: grid polygons always present even for empty data; test for position colors not <polygon>
+- Lesson: ATS opportunity counts even when hero folds (BTN folds after all fold = missed steal opp)
+- Lesson: blinds defense 'all_others_folded' ≠ 'all_fold_before_hero'; raise is allowed (it IS the steal)
