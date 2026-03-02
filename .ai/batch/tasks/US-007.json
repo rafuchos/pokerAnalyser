@@ -1,0 +1,30 @@
+{
+  "id": "US-007",
+  "title": "Relatório de Torneios por Sessão (não por torneio individual)",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Refactor src/analyzers/tournament.py: add _get_session_sparkline() to aggregate cumulative net across all tournaments in a day, add _get_daily_notable_hands() to find biggest win/loss across all tournaments of each day, add session-level ROI calculation, and update get_daily_reports() to include these new fields in the daily report dict",
+    "Refactor src/reports/tournament_report.py _render_daily_report(): restructure layout so session summary is the primary view with aggregated stats (VPIP/PFR/AF) with health badges as headline, financial summary (invested/won/net/ROI/ITM), session sparkline, and day-level notable hands",
+    "Add new rendering functions in tournament_report.py: _render_session_header() for date+net+ROI+ITM, _render_session_summary_stats() for day-level stats with health badges, _render_session_sparkline() for aggregated sparkline, _render_session_notable_hands() for best/worst hands of the day",
+    "Demote individual tournament details into accordion: keep existing _render_tournament_card() but wrap in accordion that defaults to collapsed, adjust CSS to make accordion a secondary 'details' section",
+    "Add session-level EV analysis display in _render_daily_report() using existing EV data aggregated at the day level",
+    "Add session comparison section: identify best session of the month by net/ROI and render comparison badges",
+    "Create tests/test_tournament_session_report.py: test session sparkline aggregation, day-level ROI calculation, daily notable hands selection, and HTML rendering structure",
+    "Run quality gates: typecheck, lint, tests, build verification"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/tournament.py",
+    "src/reports/tournament_report.py",
+    "tests/test_tournament_session_report.py",
+    ".ai/tasks/prd.json",
+    ".ai/tasks/active.md"
+  ],
+  "created_at": "2026-03-02T02:25:13.965Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-007"
+}
