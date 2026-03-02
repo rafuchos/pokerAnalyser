@@ -1015,7 +1015,8 @@
         "src/db/repository.py",
         "src/reports/cash_report.py",
         "src/reports/tournament_report.py"
-      ]
+      ],
+      "passes": true
     }
   ]
 }
