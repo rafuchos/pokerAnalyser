@@ -15,7 +15,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
                          ev_analyzer: EVAnalyzer = None) -> str:
     """Generate the cash game HTML report."""
     summary = analyzer.get_summary()
-    daily_reports = analyzer.get_daily_reports_with_sessions()
+    daily_reports = analyzer.get_daily_reports_with_sessions(ev_analyzer=ev_analyzer)
     preflop_stats = analyzer.get_preflop_stats()
     postflop_stats = analyzer.get_postflop_stats()
     ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
@@ -712,6 +712,11 @@ def _render_session_card(sd: dict, session_num: int) -> str:
     if sparkline and len(sparkline) >= 2:
         html += _render_sparkline(sparkline)
 
+    # Session EV analysis
+    ev_data = sd.get('ev_data')
+    if ev_data:
+        html += _render_session_ev_summary(ev_data)
+
     # Notable hands within session
     bw = sd.get('biggest_win')
     bl = sd.get('biggest_loss')
@@ -807,6 +812,118 @@ def _render_sparkline(data: list[dict]) -> str:
                                               stroke-linejoin="round"/>
                                 </svg>
                             </div>
+"""
+    return svg
+
+
+def _render_session_ev_summary(ev_data: dict) -> str:
+    """Render session-level EV analysis summary with Lucky/Unlucky badge and mini chart."""
+    if not ev_data or ev_data.get('total_hands', 0) == 0:
+        return ''
+    if ev_data.get('allin_hands', 0) == 0:
+        return ''
+
+    luck = ev_data.get('luck_factor', 0)
+    luck_class = 'positive' if luck >= 0 else 'negative'
+    luck_label = 'acima do EV' if luck >= 0 else 'abaixo do EV'
+
+    # Lucky/Unlucky badge
+    if luck >= 0:
+        badge = '<span class="badge badge-good" style="font-size:0.85em;">Lucky</span>'
+    else:
+        badge = '<span class="badge badge-danger" style="font-size:0.85em;">Unlucky</span>'
+
+    html = f"""                            <div class="session-ev-summary" style="margin:10px 0;padding:10px;background:rgba(0,170,255,0.05);border:1px solid rgba(0,170,255,0.2);border-radius:8px;">
+                                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                                    <h5 style="color:#00aaff;margin:0;font-size:0.95em;">EV da Sess\u00e3o</h5>
+                                    {badge}
+                                </div>
+                                <div class="session-stats-grid">
+                                    <div class="session-stat-card">
+                                        <div class="stat-label">All-in Hands</div>
+                                        <div class="stat-value">{ev_data['allin_hands']}</div>
+                                        <div class="stat-detail">{ev_data['total_hands']} total</div>
+                                    </div>
+                                    <div class="session-stat-card">
+                                        <div class="stat-label">Real Net</div>
+                                        <div class="stat-value {'positive' if ev_data['real_net'] >= 0 else 'negative'}">${ev_data['real_net']:.2f}</div>
+                                    </div>
+                                    <div class="session-stat-card">
+                                        <div class="stat-label">EV Net</div>
+                                        <div class="stat-value {'positive' if ev_data['ev_net'] >= 0 else 'negative'}">${ev_data['ev_net']:.2f}</div>
+                                    </div>
+                                    <div class="session-stat-card">
+                                        <div class="stat-label">Luck Factor</div>
+                                        <div class="stat-value {luck_class}">${luck:+.2f}</div>
+                                        <div class="stat-detail">{luck_label}</div>
+                                    </div>
+                                </div>
+"""
+
+    # Mini EV chart
+    chart_data = ev_data.get('chart_data', [])
+    if chart_data and len(chart_data) >= 2:
+        html += _render_mini_ev_chart(chart_data)
+
+    html += """                            </div>
+"""
+    return html
+
+
+def _render_mini_ev_chart(chart_data: list) -> str:
+    """Render compact inline SVG chart for session EV vs Real (300x60)."""
+    width = 300
+    height = 60
+    margin = 5
+    plot_w = width - 2 * margin
+    plot_h = height - 2 * margin
+
+    real_values = [d['real'] for d in chart_data]
+    ev_values = [d['ev'] for d in chart_data]
+    all_values = real_values + ev_values
+    y_min = min(all_values)
+    y_max = max(all_values)
+    y_range = y_max - y_min if y_max != y_min else 1.0
+    x_max = len(chart_data) - 1
+    if x_max == 0:
+        x_max = 1
+
+    def sx(i):
+        return margin + (i / x_max) * plot_w
+
+    def sy(v):
+        return margin + plot_h - ((v - y_min) / y_range) * plot_h
+
+    real_points = ' '.join(f'{sx(i):.1f},{sy(v):.1f}' for i, v in enumerate(real_values))
+    ev_points = ' '.join(f'{sx(i):.1f},{sy(v):.1f}' for i, v in enumerate(ev_values))
+
+    # Zero line
+    zero_line = ''
+    if y_min < 0 < y_max:
+        zy = sy(0)
+        zero_line = (
+            f'<line x1="{margin}" y1="{zy:.1f}" '
+            f'x2="{width - margin}" y2="{zy:.1f}" '
+            f'stroke="rgba(255,255,255,0.2)" stroke-width="0.5" '
+            f'stroke-dasharray="2,2"/>'
+        )
+
+    svg = f"""                                <div style="margin:6px 0;">
+                                    <svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"
+                                         style="width:100%;max-width:{width}px;background:rgba(0,0,0,0.15);border-radius:6px;">
+                                        {zero_line}
+                                        <polyline points="{real_points}"
+                                                  fill="none" stroke="#00ff88" stroke-width="1.5"
+                                                  stroke-linejoin="round"/>
+                                        <polyline points="{ev_points}"
+                                                  fill="none" stroke="#ffa500" stroke-width="1.5"
+                                                  stroke-linejoin="round" stroke-dasharray="4,2"/>
+                                        <text x="{width - margin - 2}" y="{margin + 8}"
+                                              text-anchor="end" fill="#00ff88" font-size="7">Real</text>
+                                        <text x="{width - margin - 2}" y="{margin + 16}"
+                                              text-anchor="end" fill="#ffa500" font-size="7">EV</text>
+                                    </svg>
+                                </div>
 """
     return svg
 

@@ -393,6 +393,93 @@ class EVAnalyzer:
         result.append(data[-1])
         return result
 
+    def get_session_ev_analysis(self, session: dict) -> dict:
+        """Calculate EV analysis for a single cash session.
+
+        Args:
+            session: dict with 'start_time' and 'end_time' keys.
+
+        Returns dict with:
+        - allin_hands, total_hands, real_net, ev_net, luck_factor
+        - bb100_real, bb100_ev
+        - chart_data: list of dicts for mini SVG chart
+        """
+        all_hands = self.repo.get_hands_for_session(session)
+        if not all_hands:
+            return self._empty_session_ev()
+
+        # Get all-in hands for the year and filter to session range
+        allin_hands = self.repo.get_allin_hands(self.year)
+        start = session.get('start_time', '')
+        end = session.get('end_time', '')
+        session_allin = [
+            h for h in allin_hands
+            if start <= (h.get('date') or '') <= end
+        ]
+
+        # Calculate equity for each all-in hand
+        allin_ev = {}
+        for h in session_allin:
+            ev_data = self._compute_hand_ev(h)
+            if ev_data is not None:
+                allin_ev[h['hand_id']] = ev_data
+
+        # Build cumulative data
+        cumulative_real = 0.0
+        cumulative_ev = 0.0
+        chart_data = []
+
+        for i, h in enumerate(all_hands):
+            net = h.get('net', 0) or 0
+            cumulative_real += net
+
+            if h['hand_id'] in allin_ev:
+                ev_net_hand = allin_ev[h['hand_id']]['ev_net']
+                cumulative_ev += ev_net_hand
+            else:
+                ev_net_hand = net
+                cumulative_ev += net
+
+            chart_data.append({
+                'hand': i + 1,
+                'real': round(cumulative_real, 2),
+                'ev': round(cumulative_ev, 2),
+            })
+
+        total_hands = len(all_hands)
+        total_allin = len(allin_ev)
+        luck_factor = cumulative_real - cumulative_ev
+
+        # bb/100
+        avg_bb = self._weighted_avg_bb(all_hands)
+        bb100_real = ((cumulative_real / avg_bb / total_hands * 100)
+                      if avg_bb > 0 and total_hands > 0 else 0)
+        bb100_ev = ((cumulative_ev / avg_bb / total_hands * 100)
+                    if avg_bb > 0 and total_hands > 0 else 0)
+
+        # Downsample chart for mini SVG (max 100 points)
+        chart_sampled = self._downsample(chart_data, 100)
+
+        return {
+            'total_hands': total_hands,
+            'allin_hands': total_allin,
+            'real_net': round(cumulative_real, 2),
+            'ev_net': round(cumulative_ev, 2),
+            'luck_factor': round(luck_factor, 2),
+            'bb100_real': round(bb100_real, 2),
+            'bb100_ev': round(bb100_ev, 2),
+            'chart_data': chart_sampled,
+        }
+
+    @staticmethod
+    def _empty_session_ev() -> dict:
+        return {
+            'total_hands': 0, 'allin_hands': 0,
+            'real_net': 0, 'ev_net': 0, 'luck_factor': 0,
+            'bb100_real': 0, 'bb100_ev': 0,
+            'chart_data': [],
+        }
+
     @staticmethod
     def _empty_result() -> dict:
         return {

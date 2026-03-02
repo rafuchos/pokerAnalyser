@@ -278,6 +278,7 @@ class TournamentAnalyzer:
         """Calculate EV analysis for a single day's tournament hands.
 
         Returns same structure as get_ev_analysis but filtered to one day.
+        Includes chart_data for mini EV sparkline and luck badge info.
         """
         all_hands = self.repo.get_tournament_hands(self.year)
         allin_hands = self.repo.get_tournament_allin_hands(self.year)
@@ -291,6 +292,7 @@ class TournamentAnalyzer:
                 'total_hands': 0, 'allin_hands': 0,
                 'real_net': 0, 'ev_net': 0, 'luck_factor': 0,
                 'bb100_real': 0, 'bb100_ev': 0,
+                'chart_data': [],
             }
 
         # Calculate equity for each all-in hand
@@ -304,8 +306,9 @@ class TournamentAnalyzer:
         cumulative_ev = 0.0
         total_bb_real = 0.0
         total_bb_ev = 0.0
+        chart_data = []
 
-        for h in day_hands:
+        for i, h in enumerate(day_hands):
             net = h.get('net', 0) or 0
             bb = h.get('blinds_bb') or 100
             if bb <= 0:
@@ -322,11 +325,20 @@ class TournamentAnalyzer:
             total_bb_real += net / bb
             total_bb_ev += ev_net_hand / bb
 
+            chart_data.append({
+                'hand': i + 1,
+                'real': round(cumulative_real, 2),
+                'ev': round(cumulative_ev, 2),
+            })
+
         total_hands = len(day_hands)
         total_allin = len(allin_ev)
         luck_factor = cumulative_real - cumulative_ev
         bb100_real = (total_bb_real / total_hands * 100) if total_hands > 0 else 0
         bb100_ev = (total_bb_ev / total_hands * 100) if total_hands > 0 else 0
+
+        # Downsample chart for mini SVG (max 100 points)
+        chart_sampled = EVAnalyzer._downsample(chart_data, 100)
 
         return {
             'total_hands': total_hands,
@@ -336,6 +348,7 @@ class TournamentAnalyzer:
             'luck_factor': round(luck_factor, 2),
             'bb100_real': round(bb100_real, 2),
             'bb100_ev': round(bb100_ev, 2),
+            'chart_data': chart_sampled,
         }
 
     @staticmethod

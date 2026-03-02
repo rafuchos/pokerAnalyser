@@ -113,3 +113,15 @@
 
 === US-007 completed at 2026-03-02T02:34:36.500Z ===
 - All quality gates passed
+
+=== US-008 completed at 2026-03-02 ===
+- All 469 tests passing (40 new + 429 existing)
+- Pattern: EVAnalyzer.get_session_ev_analysis() filters cash hands and allin hands by session time range
+- Pattern: get_session_details(ev_analyzer=) optional parameter to wire EV into session details
+- Pattern: get_daily_reports_with_sessions(ev_analyzer=) passes through to each session detail
+- Pattern: _get_daily_ev_analysis() now includes chart_data with cumulative real/ev per hand
+- Pattern: _render_session_ev_summary() shows Lucky (badge-good) / Unlucky (badge-danger) based on luck_factor sign
+- Pattern: _render_mini_ev_chart() generates compact SVG (300x60) with two polylines (Real solid + EV dashed)
+- Pattern: Cash mini EV uses green (#00ff88) Real + orange (#ffa500) EV; Tournament uses orange (#ff8800) Real + blue (#00aaff) EV
+- Pattern: Chart downsampled to max 100 points for session-level (vs 500 for global)
+- Lesson: Format string ${luck:+.2f} produces "$+20.00" not "+$20.00" - test assertions must match actual format

@@ -733,7 +733,7 @@ def _render_session_notable_hands(notable: dict) -> str:
 
 
 def _render_session_ev_summary(day_ev: dict) -> str:
-    """Render session-level EV analysis summary."""
+    """Render session-level EV analysis summary with Lucky/Unlucky badge and mini chart."""
     if not day_ev or day_ev.get('total_hands', 0) == 0:
         return ''
 
@@ -741,9 +741,18 @@ def _render_session_ev_summary(day_ev: dict) -> str:
     luck_class = 'positive' if luck >= 0 else 'negative'
     luck_label = 'acima do EV' if luck >= 0 else 'abaixo do EV'
 
+    # Lucky/Unlucky badge
+    if luck >= 0:
+        badge = '<span class="badge badge-good" style="font-size:0.85em;">Lucky</span>'
+    else:
+        badge = '<span class="badge badge-danger" style="font-size:0.85em;">Unlucky</span>'
+
     html = f"""
             <div class="day-summary-stats" style="border-color:rgba(0,170,255,0.3);">
-                <h4 style="color:#00aaff;">EV da Sess\u00e3o</h4>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <h4 style="color:#00aaff;margin:0;">EV da Sess\u00e3o</h4>
+                    {badge}
+                </div>
                 <div class="stats-grid">
                     <div class="session-stat-card">
                         <div class="stat-label">All-in Hands</div>
@@ -772,9 +781,74 @@ def _render_session_ev_summary(day_ev: dict) -> str:
                         <div class="stat-value {'positive' if day_ev['ev_net'] >= 0 else 'negative'}">{day_ev['ev_net']:+.0f}</div>
                     </div>
                 </div>
-            </div>
+"""
+
+    # Mini EV chart (EV vs Real sparkline)
+    chart_data = day_ev.get('chart_data', [])
+    if chart_data and len(chart_data) >= 2:
+        html += _render_mini_ev_chart(chart_data)
+
+    html += """            </div>
 """
     return html
+
+
+def _render_mini_ev_chart(chart_data: list) -> str:
+    """Render compact inline SVG chart for session EV vs Real (300x60)."""
+    width = 300
+    height = 60
+    margin = 5
+    plot_w = width - 2 * margin
+    plot_h = height - 2 * margin
+
+    real_values = [d['real'] for d in chart_data]
+    ev_values = [d['ev'] for d in chart_data]
+    all_values = real_values + ev_values
+    y_min = min(all_values)
+    y_max = max(all_values)
+    y_range = y_max - y_min if y_max != y_min else 1.0
+    x_max = len(chart_data) - 1
+    if x_max == 0:
+        x_max = 1
+
+    def sx(i):
+        return margin + (i / x_max) * plot_w
+
+    def sy(v):
+        return margin + plot_h - ((v - y_min) / y_range) * plot_h
+
+    real_points = ' '.join(f'{sx(i):.1f},{sy(v):.1f}' for i, v in enumerate(real_values))
+    ev_points = ' '.join(f'{sx(i):.1f},{sy(v):.1f}' for i, v in enumerate(ev_values))
+
+    # Zero line
+    zero_line = ''
+    if y_min < 0 < y_max:
+        zy = sy(0)
+        zero_line = (
+            f'<line x1="{margin}" y1="{zy:.1f}" '
+            f'x2="{width - margin}" y2="{zy:.1f}" '
+            f'stroke="rgba(255,255,255,0.2)" stroke-width="0.5" '
+            f'stroke-dasharray="2,2"/>'
+        )
+
+    svg = f"""                <div style="margin:8px 0;">
+                    <svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"
+                         style="width:100%;max-width:{width}px;background:rgba(0,0,0,0.15);border-radius:6px;">
+                        {zero_line}
+                        <polyline points="{real_points}"
+                                  fill="none" stroke="#ff8800" stroke-width="1.5"
+                                  stroke-linejoin="round"/>
+                        <polyline points="{ev_points}"
+                                  fill="none" stroke="#00aaff" stroke-width="1.5"
+                                  stroke-linejoin="round" stroke-dasharray="4,2"/>
+                        <text x="{width - margin - 2}" y="{margin + 8}"
+                              text-anchor="end" fill="#ff8800" font-size="7">Real</text>
+                        <text x="{width - margin - 2}" y="{margin + 16}"
+                              text-anchor="end" fill="#00aaff" font-size="7">EV</text>
+                    </svg>
+                </div>
+"""
+    return svg
 
 
 def _render_session_comparison(comparison: dict, daily_reports: list[dict]) -> str:

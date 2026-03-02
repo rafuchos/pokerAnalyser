@@ -72,10 +72,24 @@ Update this section weekly with sprint goals and dates.
 - [x] US-005: Relatório Diário com Breakdown por Sessão e Stats de Jogo (2026-02-28)
 - [x] US-006: Poker Stats Completas para Torneios (2026-03-01)
 - [x] US-007: Relatório de Torneios por Sessão (2026-03-02)
+- [x] US-008: EV Analysis por Sessão (Cash e Torneio) (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-008: EV Analysis por Sessão (Cash e Torneio) (2026-03-02)
+  - EVAnalyzer.get_session_ev_analysis: per-session EV for cash games (all-in hands, chart_data)
+  - CashAnalyzer.get_session_details: ev_data included when ev_analyzer passed
+  - CashAnalyzer.get_daily_reports_with_sessions: ev_data flows through to each session
+  - TournamentAnalyzer._get_daily_ev_analysis: chart_data added for mini EV sparkline
+  - Cash report: _render_session_ev_summary with Lucky/Unlucky badge per session
+  - Cash report: _render_mini_ev_chart (300x60 SVG, Real green vs EV orange dashed)
+  - Tournament report: _render_session_ev_summary with Lucky/Unlucky badge per day
+  - Tournament report: _render_mini_ev_chart (300x60 SVG, Real orange vs EV blue dashed)
+  - Global EV maintained at top of both reports (complementary, not replaced)
+  - 40 new tests (469 total)
+
 
 - [x] US-007: Relatório de Torneios por Sessão (2026-03-02)
   - Session-focused daily layout: aggregated stats as primary view, not individual tournament details

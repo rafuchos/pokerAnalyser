@@ -847,11 +847,16 @@ class CashAnalyzer:
             points.append({'hand': i, 'profit': cumulative})
         return points
 
-    def get_session_details(self, session: dict) -> dict:
-        """Build full session detail: info, stats, sparkline, notable hands."""
+    def get_session_details(self, session: dict, ev_analyzer=None) -> dict:
+        """Build full session detail: info, stats, sparkline, notable hands, EV."""
         hands = self.repo.get_hands_for_session(session)
         stats = self.get_session_stats(session)
         sparkline = self.get_session_sparkline(session)
+
+        # Session-level EV analysis
+        ev_data = None
+        if ev_analyzer is not None:
+            ev_data = ev_analyzer.get_session_ev_analysis(session)
 
         # Notable hands within session
         biggest_win = None
@@ -888,12 +893,13 @@ class CashAnalyzer:
             'sparkline': sparkline,
             'biggest_win': biggest_win,
             'biggest_loss': biggest_loss,
+            'ev_data': ev_data,
         }
 
-    def get_daily_reports_with_sessions(self) -> list[dict]:
+    def get_daily_reports_with_sessions(self, ev_analyzer=None) -> list[dict]:
         """Build daily report data with session breakdown.
 
-        Each day contains session details with stats, sparkline, and notable hands.
+        Each day contains session details with stats, sparkline, notable hands, and EV.
         Day-level stats are weighted averages of session stats (by hands count).
         """
         daily_stats = self.repo.get_cash_daily_stats(self.year)
@@ -906,7 +912,7 @@ class CashAnalyzer:
             # Build session details
             session_details = []
             for s in sessions_raw:
-                detail = self.get_session_details(s)
+                detail = self.get_session_details(s, ev_analyzer=ev_analyzer)
                 session_details.append(detail)
 
             # Weighted average day stats from sessions
