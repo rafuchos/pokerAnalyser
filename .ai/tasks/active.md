@@ -78,10 +78,28 @@ Update this section weekly with sprint goals and dates.
 - [x] US-013: Análise de Bet Sizing e Pot-Type Segmentation (2026-03-02)
 - [x] US-012: Red Line / Blue Line (Non-Showdown vs Showdown Winnings) (2026-03-02)
 - [x] US-011: Leak Finder Automatizado com Spots de Estudo Priorizados (2026-03-02)
+- [x] US-014: Detecção de Tilt e Análise de Performance por Horário/Duração (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-014: Detecção de Tilt e Análise de Performance por Horário/Duração (2026-03-02)
+  - New module: src/analyzers/tilt.py with TiltAnalyzer class (593 lines)
+  - TiltAnalyzer.detect_session_tilt(): first-half vs second-half VPIP/PFR/AF comparison
+  - TiltAnalyzer._analyze_hourly_performance(): win rate by hour (0-23) and time-of-day buckets (madrugada/manhã/tarde/noite)
+  - TiltAnalyzer._analyze_duration_performance(): win rate by elapsed session time (0-60/60-120/120-180/180+ min)
+  - TiltAnalyzer._analyze_post_bad_beat(): performance in 20 hands after >30BB loss
+  - TiltAnalyzer._generate_recommendation(): ideal session duration advice based on data
+  - Tilt severity classification (good/warning/danger) with cost estimation in BB
+  - Module helpers: _compute_segment_stats(), _classify_tilt_severity(), _generate_tilt_diagnostics()
+  - CashAnalyzer.get_tilt_analysis(): delegation wrapper to TiltAnalyzer
+  - cash_report.py: _render_tilt_analysis() with session tilt table, badges, cost display
+  - cash_report.py: _render_hourly_heatmap() 24-hour color-coded grid (green positive, red negative)
+  - Post-bad-beat section: baseline vs post-beat win rate comparison with degradation metric
+  - Duration recommendation section with degradation detection
+  - Diagnostic messages: tilt sessions summary, time-of-day variation, duration degradation
+  - 110 new tests (958 total)
 
 - [x] US-012: Red Line / Blue Line (Non-Showdown vs Showdown Winnings) (2026-03-02)
   - CashAnalyzer.get_redline_blueline(): cumulative profit split by showdown/non-showdown
