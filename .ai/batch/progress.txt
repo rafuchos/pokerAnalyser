@@ -128,3 +128,16 @@
 
 === US-008 completed at 2026-03-02T02:46:07.705Z ===
 - All quality gates passed
+
+=== US-009 completed at 2026-03-02 ===
+- All 522 tests passing (53 new + 469 existing)
+- Pattern: get_decision_ev_analysis() groups hero actions by (street, decision_type, context)
+- Pattern: Decision classification: fold→fold, call→call, raise/bet/all-in→raise; check/blinds skipped
+- Pattern: Context detection: facing_bet (opponent bet/raise before hero) → 'vs_bet', else 'initiative'
+- Pattern: _identify_ev_leaks() filters contexts with count>=5 and negative total_net, returns top 5
+- Pattern: ctx_key format "{street}_{decision}_{context}" where context can be 'vs_bet' (has underscore)
+- Pattern: _render_decision_ev_chart() generates inline SVG bar chart with fold(red)/call(orange)/raise(green) bars
+- Pattern: Leak cards show rank (#1-#5), description, stats (count/net/avg), and correction suggestion
+- Pattern: All-in EV rendered as sub-section inside Decision Tree section via _as_subsection=True flag
+- Bug fix: _identify_ev_leaks ctx_key parsing was splitting 'vs_bet' incorrectly; fixed to split(parts[0]=street, parts[1]=decision, rest=context)
+- Lesson: Previous attempt timed out; implementation was already complete from partial work, just needed tests and bug fix
