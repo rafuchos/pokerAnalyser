@@ -265,3 +265,22 @@ US-019 (2026-03-02): PFR/3Bet Positional Matrix com Drill-Down (Posição vs Pos
 
 === US-019 completed at 2026-03-02T13:24:08.858Z ===
 - All quality gates passed
+
+---
+US-020 (2026-03-02): Botão Resumo de Leaks por Sessão (Consolidação de Todas as Análises)
+- CashAnalyzer.get_session_leak_summary(stats): checks 7 stats (VPIP/PFR/3-Bet/AF/WTSD/W$SD/CBet)
+  against healthy ranges; returns warning/danger leaks sorted by cost_bb100 (deviation × weight).
+- get_session_details() now includes 'leak_summary' key automatically.
+- _render_session_leak_modal(key, stats, leaks): reuses vpip-modal-overlay CSS; two tabs —
+  "Todas as Stats" (full table + health badges) and "Leaks Detectados" (cost + suggestions).
+- _render_session_card(): adds "⚠ Leaks (N)" button with .leak-summary-btn/.danger CSS class;
+  event.stopPropagation() prevents accordion toggle; openLeakModal(key) onclick.
+- _render_daily_report(): passes date+session_num key (e.g. 20260115s1) for unique modal IDs.
+- JS: openLeakModal/closeLeakModal/closeLeakModalOverlay/switchLeakTab — generic key-based funcs.
+- ESC handler uses querySelectorAll('[id^="leak-modal-"]') to close all open leak modals.
+- Pattern: reuse vpip-modal-overlay + vpip-modal CSS classes for new per-session modals (DRY).
+- Pattern: session_key = f"{date_key}s{i+1}" ensures unique modal IDs across all days.
+- 88 new tests (1376 total). All quality gates passed.
+
+=== US-020 completed at 2026-03-02T14:00:00.000Z ===
+- All quality gates passed

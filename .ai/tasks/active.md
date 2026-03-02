@@ -84,6 +84,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-017: Stats Segmentadas por Stack Depth (BB Count) e Posição (2026-03-02)
 - [x] US-018: VPIP Drill-Down Modal com Breakdown por Posição e Stack Depth (2026-03-02)
 - [x] US-019: PFR/3Bet Positional Matrix com Drill-Down (Posição vs Posição) (2026-03-02)
+- [x] US-020: Botão Resumo de Leaks por Sessão (Consolidação de Todas as Análises) (2026-03-02)
 
 ---
 
