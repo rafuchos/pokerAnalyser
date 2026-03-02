@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional
 
-from src.parsers.base import HandData, TournamentSummaryData
+from src.parsers.base import ActionData, HandData, TournamentSummaryData
 
 
 class Repository:
@@ -41,14 +41,16 @@ class Repository:
         try:
             self.conn.execute(
                 "INSERT INTO hands (hand_id, platform, game_type, date, blinds_sb, blinds_bb, "
-                "hero_cards, hero_position, invested, won, net, rake, table_name, num_players) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "hero_cards, hero_position, invested, won, net, rake, table_name, num_players, "
+                "tournament_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     hand.hand_id, hand.platform, hand.game_type,
                     hand.date.isoformat() if isinstance(hand.date, datetime) else hand.date,
                     hand.blinds_sb, hand.blinds_bb, hand.hero_cards, hand.hero_position,
                     hand.invested, hand.won, hand.net, hand.rake,
                     hand.table_name, hand.num_players,
+                    getattr(hand, 'tournament_id', None),
                 )
             )
             return True
@@ -63,6 +65,73 @@ class Repository:
                 inserted += 1
         self.conn.commit()
         return inserted
+
+    # ── Hand Actions ────────────────────────────────────────────────
+
+    def insert_actions_batch(self, actions: list[ActionData]) -> int:
+        """Insert multiple hand actions, returning count inserted."""
+        if not actions:
+            return 0
+        self.conn.executemany(
+            "INSERT INTO hand_actions (hand_id, street, player, action_type, amount, "
+            "is_hero, sequence_order, position, is_voluntary) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (a.hand_id, a.street, a.player, a.action_type, a.amount or 0,
+                 a.is_hero or 0, a.sequence_order or 0, a.position, a.is_voluntary or 0)
+                for a in actions
+            ]
+        )
+        self.conn.commit()
+        return len(actions)
+
+    def update_hand_board(self, hand_id: str, board_flop: str = None,
+                          board_turn: str = None, board_river: str = None):
+        """Update board cards for a hand."""
+        self.conn.execute(
+            "UPDATE hands SET board_flop = ?, board_turn = ?, board_river = ? "
+            "WHERE hand_id = ?",
+            (board_flop, board_turn, board_river, hand_id)
+        )
+
+    def update_hand_position(self, hand_id: str, hero_position: str):
+        """Update hero position for a hand."""
+        self.conn.execute(
+            "UPDATE hands SET hero_position = ? WHERE hand_id = ?",
+            (hero_position, hand_id)
+        )
+
+    def update_hand_showdown(self, hand_id: str, pot_total: float = None,
+                              opponent_cards: str = None,
+                              has_allin: bool = False,
+                              allin_street: str = None):
+        """Update showdown and all-in data for a hand."""
+        self.conn.execute(
+            "UPDATE hands SET pot_total = ?, opponent_cards = ?, "
+            "has_allin = ?, allin_street = ? WHERE hand_id = ?",
+            (pot_total, opponent_cards, 1 if has_allin else 0,
+             allin_street, hand_id)
+        )
+
+    def get_hand_actions(self, hand_id: str) -> list[dict]:
+        """Get all actions for a hand, ordered by street and sequence."""
+        rows = self.conn.execute(
+            "SELECT * FROM hand_actions WHERE hand_id = ? "
+            "ORDER BY CASE street "
+            "  WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2 "
+            "  WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END, "
+            "sequence_order",
+            (hand_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def has_actions_for_hand(self, hand_id: str) -> bool:
+        """Check if actions already exist for a hand."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM hand_actions WHERE hand_id = ?",
+            (hand_id,)
+        ).fetchone()
+        return row['cnt'] > 0
 
     # ── Sessions ─────────────────────────────────────────────────────
 
@@ -272,6 +341,209 @@ class Repository:
             params.append(f"{year}%")
         row = self.conn.execute(query, params).fetchone()
         return dict(row) if row else {}
+
+    # ── Preflop Stats Queries ─────────────────────────────────────
+
+    def get_preflop_action_sequences(self, year: Optional[str] = None) -> list[dict]:
+        """Get all preflop actions for cash hands, ordered by hand and sequence.
+
+        Joins with hands table to include hero_position and date info.
+        Used by CashAnalyzer to compute VPIP, PFR, 3-Bet%, Fold-to-3-Bet%, ATS%.
+        """
+        query = """
+            SELECT ha.hand_id, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position, ha.is_voluntary,
+                   h.hero_position, substr(h.date, 1, 10) as day
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE ha.street = 'preflop' AND h.game_type = 'cash'
+        """
+        params = []
+        if year:
+            query += " AND h.date LIKE ?"
+            params.append(f"{year}%")
+        query += " ORDER BY ha.hand_id, ha.sequence_order"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Postflop Stats Queries ─────────────────────────────────────
+
+    def get_all_action_sequences(self, year: Optional[str] = None) -> list[dict]:
+        """Get all actions across all streets for cash hands.
+
+        Joins with hands table to include hero_position, net, and date.
+        Used by CashAnalyzer to compute postflop stats (AF, WTSD, W$SD, CBet, etc.).
+        """
+        query = """
+            SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position,
+                   h.hero_position, h.net as hero_net, substr(h.date, 1, 10) as day
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE h.game_type = 'cash'
+        """
+        params = []
+        if year:
+            query += " AND h.date LIKE ?"
+            params.append(f"{year}%")
+        query += """ ORDER BY ha.hand_id,
+            CASE ha.street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
+            WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
+            ha.sequence_order"""
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── EV / All-in Queries ──────────────────────────────────────────
+
+    def get_allin_hands(self, year: Optional[str] = None) -> list[dict]:
+        """Get all-in hands with showdown (opponent cards visible).
+
+        Returns hands where has_allin=1 AND opponent_cards IS NOT NULL,
+        ordered by date. Used for EV analysis.
+        """
+        query = """
+            SELECT * FROM hands
+            WHERE game_type = 'cash'
+              AND has_allin = 1
+              AND opponent_cards IS NOT NULL
+              AND hero_cards IS NOT NULL
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_hands_for_session(self, session: dict) -> list[dict]:
+        """Get all cash hands that fall within a session's time range."""
+        rows = self.conn.execute(
+            "SELECT * FROM hands WHERE game_type = 'cash' "
+            "AND date >= ? AND date <= ? ORDER BY date",
+            (session['start_time'], session['end_time'])
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_actions_for_session(self, session: dict) -> list[dict]:
+        """Get all actions for hands within a session's time range.
+
+        Returns all streets (preflop + postflop) for stat calculation.
+        """
+        query = """
+            SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position, ha.is_voluntary,
+                   h.hero_position, h.net as hero_net, substr(h.date, 1, 10) as day
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE h.game_type = 'cash'
+              AND h.date >= ? AND h.date <= ?
+            ORDER BY ha.hand_id,
+                CASE ha.street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
+                WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
+                ha.sequence_order
+        """
+        rows = self.conn.execute(
+            query, (session['start_time'], session['end_time'])
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Tournament Hand Queries ─────────────────────────────────────
+
+    def get_tournament_hands(self, year: Optional[str] = None,
+                             tournament_id: Optional[str] = None) -> list[dict]:
+        """Get tournament hands, optionally filtered by year and/or tournament_id."""
+        query = "SELECT * FROM hands WHERE game_type = 'tournament'"
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND tournament_id = ?"
+            params.append(tournament_id)
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_preflop_actions(self, year: Optional[str] = None,
+                                       tournament_id: Optional[str] = None) -> list[dict]:
+        """Get preflop actions for tournament hands."""
+        query = """
+            SELECT ha.hand_id, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position, ha.is_voluntary,
+                   h.hero_position, substr(h.date, 1, 10) as day,
+                   h.tournament_id
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE ha.street = 'preflop' AND h.game_type = 'tournament'
+        """
+        params = []
+        if year:
+            query += " AND h.date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND h.tournament_id = ?"
+            params.append(tournament_id)
+        query += " ORDER BY ha.hand_id, ha.sequence_order"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_all_actions(self, year: Optional[str] = None,
+                                    tournament_id: Optional[str] = None) -> list[dict]:
+        """Get all actions across all streets for tournament hands."""
+        query = """
+            SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
+                   ha.is_hero, ha.sequence_order, ha.position,
+                   h.hero_position, h.net as hero_net, substr(h.date, 1, 10) as day,
+                   h.tournament_id, h.blinds_bb
+            FROM hand_actions ha
+            JOIN hands h ON ha.hand_id = h.hand_id
+            WHERE h.game_type = 'tournament'
+        """
+        params = []
+        if year:
+            query += " AND h.date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND h.tournament_id = ?"
+            params.append(tournament_id)
+        query += """ ORDER BY ha.hand_id,
+            CASE ha.street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
+            WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
+            ha.sequence_order"""
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_allin_hands(self, year: Optional[str] = None,
+                                    tournament_id: Optional[str] = None) -> list[dict]:
+        """Get tournament all-in hands with showdown."""
+        query = """
+            SELECT * FROM hands
+            WHERE game_type = 'tournament'
+              AND has_allin = 1
+              AND opponent_cards IS NOT NULL
+              AND hero_cards IS NOT NULL
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND tournament_id = ?"
+            params.append(tournament_id)
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_hand_count(self, year: Optional[str] = None) -> int:
+        """Get count of tournament hands."""
+        query = "SELECT COUNT(*) as cnt FROM hands WHERE game_type = 'tournament'"
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        row = self.conn.execute(query, params).fetchone()
+        return row['cnt']
 
     def get_imported_files_count(self) -> int:
         """Get count of imported files."""

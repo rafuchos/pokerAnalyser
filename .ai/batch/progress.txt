@@ -1,3 +1,98 @@
 
 === US-000 completed at 2026-02-28T18:35:14.151Z ===
 - All quality gates passed
+
+=== US-001 completed at 2026-02-28 ===
+- All 83 tests passing (61 new + 22 existing)
+- Pattern: parse_actions() returns tuple(list[ActionData], BoardData, dict[str,str])
+- Pattern: _map_positions() is a static method reusable by both parsers (PokerStars imports from GGPoker)
+- Pattern: Schema migration via _run_migrations() using PRAGMA table_info for safe ALTER TABLE
+- Pattern: Importer calls parse_actions() per hand_text block alongside parse_single_hand()
+- Lesson: Previous attempt timed out—focus on core criteria first, tests second
+
+=== US-001 completed at 2026-02-28T19:09:56.483Z ===
+- All quality gates passed
+
+=== US-002 completed at 2026-02-28 ===
+- All 126 tests passing (43 new + 83 existing)
+- Pattern: _analyze_preflop_hand() is a static method for sequence-based stat detection
+- Pattern: get_preflop_action_sequences() fetches joined data in one query for batch processing in Python
+- Pattern: Health badges use HEALTHY_RANGES/WARNING_RANGES class constants for 6-max NL thresholds
+- Pattern: _render_player_stats() is a standalone function to keep report generation modular
+- Pattern: Stats grouped by hand_id from action sequences, then analyzed per-hand and aggregated
+- Lesson: SQL is best for simple aggregation; complex sequence analysis (3-bet, fold-to-3bet, ATS) done in Python
+- Limitation: all-in actions can't distinguish raise-all-in vs call-all-in; PFR only counts explicit 'raise' type
+
+=== US-002 completed at 2026-02-28T19:27:57.592Z ===
+- All quality gates passed
+
+=== US-003 completed at 2026-02-28 ===
+- All 179 tests passing (53 new + 126 existing)
+- Pattern: get_all_action_sequences() fetches ALL streets in one query (preflop+postflop) for postflop analysis
+- Pattern: _analyze_postflop_hand() is a static method that analyzes both preflop (for PFA detection) and postflop actions
+- Pattern: Showdown detection via set difference: flop_players - folded_players >= 2 means showdown
+- Pattern: CBet detection: hero was PFA AND hero has 'bet' action_type on flop (first money action)
+- Pattern: Fold-to-CBet: opponent was PFA, opponent bet on flop, hero's response was 'fold'
+- Pattern: Check-raise detection: sequential scan (hero check → opp bet → hero raise) within a street
+- Pattern: POSTFLOP_HEALTHY_RANGES / POSTFLOP_WARNING_RANGES separate from preflop ranges
+- Pattern: _get_week() for ISO week grouping using datetime.isocalendar()
+- Pattern: _render_postflop_stats() follows same stat_card/badge pattern as preflop section
+- Limitation: all-in preflop hands with no postflop actions don't count as "saw flop"
+- Limitation: all-in action counted as aggressive for AF (can't distinguish raise-all-in vs call-all-in)
+
+=== US-003 completed at 2026-02-28T19:45:32.028Z ===
+- All quality gates passed
+
+=== US-004 completed at 2026-02-28 ===
+- All 257 tests passing (78 new + 179 existing)
+- Pattern: parse_showdown_data() extracts opponent cards from SHOW DOWN and SUMMARY sections
+- Pattern: Opponent cards stored as pipe-separated string for multi-way pots (e.g., "Kh Kd|Qh Qd")
+- Pattern: _get_board_at_allin() determines board state at time of all-in for accurate equity calc
+- Pattern: calculate_equity() uses exact enumeration for ≤2 remaining cards, Monte Carlo for 3+
+- Pattern: _eval_five() returns ranking tuples for comparable hand evaluation (higher tuple = better)
+- Pattern: EVAnalyzer processes ALL cash hands for chart data, only all-in+showdown for EV adjustments
+- Pattern: Non-allin hands use actual net as their EV contribution (no adjustment needed)
+- Pattern: _downsample() keeps first/last points for SVG chart with max 500 data points
+- Pattern: by_stakes breakdown keyed as "$SB/$BB" string (e.g., "$0.25/$0.50")
+- Pattern: _render_ev_chart() generates inline SVG with polylines, gridlines, and legend
+- Lesson: Previous attempt timed out; this attempt reused existing implementation and focused on tests
+- Limitation: Equity calc doesn't account for side pots in multi-way all-ins
+
+=== US-004 completed at 2026-02-28T20:09:09.457Z ===
+- All quality gates passed
+
+=== US-005 completed at 2026-02-28 ===
+- All 305 tests passing (48 new + 257 existing)
+- Pattern: get_hands_for_session() / get_actions_for_session() use date range queries (>= start, <= end)
+- Pattern: get_session_stats() reuses existing _analyze_preflop_hand() and _analyze_postflop_hand() static methods
+- Pattern: get_session_sparkline() builds cumulative profit points from hands within session time range
+- Pattern: get_session_details() aggregates stats, sparkline, and notable hands per session
+- Pattern: get_daily_reports_with_sessions() replaces get_daily_reports() for session-aware reports
+- Pattern: _aggregate_session_stats() computes weighted average stats (weighted by hands count)
+- Pattern: _build_session_comparison() identifies best/worst session index per stat
+- Pattern: _render_session_card() uses accordion pattern with CSS max-height transition + JS toggle
+- Pattern: _render_sparkline() generates compact inline SVG (300x60) with color based on final profit
+- Pattern: _render_daily_report() delegates to sub-renderers for sessions, day stats, comparison
+- Pattern: CSS responsive breakpoints at 768px (tablet) and 480px (mobile) for grid layout
+- Lesson: CSS class names appear in both style block and HTML body; test assertions should use full element selectors (e.g., '<div class="session-card">') not substring matches
+
+=== US-005 completed at 2026-02-28T20:21:20.130Z ===
+- All quality gates passed
+
+=== US-006 completed at 2026-03-01 ===
+- All 362 tests passing (57 new + 305 existing)
+- Pattern: parse_tournament_single_hand() reuses same HandData with game_type='tournament' and tournament_id
+- Pattern: TournamentAnalyzer reuses CashAnalyzer._analyze_preflop_hand() and _analyze_postflop_hand() static methods
+- Pattern: Variable BB normalization: each hand's bb/100 contribution uses its own blinds_bb value
+- Pattern: get_tournament_game_stats() returns per-tournament stats dict keyed by tournament_id
+- Pattern: get_ev_analysis() adapted for tournaments: chip-based EV, variable blind normalization
+- Pattern: _render_ev_chart() generates inline SVG with Real (#ff8800) vs EV (#00aaff) polylines
+- Pattern: _render_chip_sparkline() generates compact SVG sparkline for chip stack evolution
+- Pattern: _render_tournament_comparison() highlights best/worst per stat across tournaments
+- Pattern: _render_day_summary_stats() computes weighted average stats across tournaments
+- Pattern: Orange theme (#ff8800) distinguishes tournament reports from cash reports
+- Lesson: GGPoker parser raise "to" semantics overwrites current_street_total (ante not accumulated with raise)
+- Lesson: Previous attempt timed out; this attempt continued from partial backend work already done
+
+=== US-006 completed at 2026-03-01T22:56:58.216Z ===
+- All quality gates passed

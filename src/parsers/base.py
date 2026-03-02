@@ -5,11 +5,11 @@ from typing import Optional
 
 
 class HandData:
-    """Parsed data for a single cash game hand."""
+    """Parsed data for a single hand (cash or tournament)."""
     __slots__ = (
         'hand_id', 'platform', 'game_type', 'date', 'blinds_sb', 'blinds_bb',
         'hero_cards', 'hero_position', 'invested', 'won', 'net', 'rake',
-        'table_name', 'num_players',
+        'table_name', 'num_players', 'tournament_id',
     )
 
     def __init__(self, **kwargs):
@@ -24,6 +24,27 @@ class TournamentSummaryData:
         'bounty', 'total_buy_in', 'position', 'prize', 'bounty_won',
         'total_players', 'entries', 'is_bounty', 'is_satellite',
     )
+
+    def __init__(self, **kwargs):
+        for slot in self.__slots__:
+            setattr(self, slot, kwargs.get(slot))
+
+
+class ActionData:
+    """Parsed data for a single player action within a hand."""
+    __slots__ = (
+        'hand_id', 'street', 'player', 'action_type', 'amount',
+        'is_hero', 'sequence_order', 'position', 'is_voluntary',
+    )
+
+    def __init__(self, **kwargs):
+        for slot in self.__slots__:
+            setattr(self, slot, kwargs.get(slot))
+
+
+class BoardData:
+    """Parsed board cards by street."""
+    __slots__ = ('flop', 'turn', 'river')
 
     def __init__(self, **kwargs):
         for slot in self.__slots__:

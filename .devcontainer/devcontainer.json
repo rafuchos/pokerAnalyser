@@ -1,7 +1,7 @@
 {
 	"name": "Poker Hand Tracking",
 	"image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
-	"postCreateCommand": "pip install --upgrade pip && npm install -g @fermindi/pwn-cli@0.9.0",
+	"postCreateCommand": "pip install --upgrade pip && npm install -g @fermindi/pwn-cli@latest",
 	"features": {
 		"ghcr.io/devcontainers/features/node:1": {},
 		"ghcr.io/anthropics/devcontainer-features/claude-code:1": {}

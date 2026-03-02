@@ -165,7 +165,8 @@
         "src/parsers/base.py",
         "src/db/schema.py",
         "src/db/repository.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-002",
@@ -201,7 +202,8 @@
         "src/analyzers/cash.py",
         "src/db/repository.py",
         "src/reports/cash_report.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-003",
@@ -241,7 +243,8 @@
         "src/db/schema.py",
         "src/db/repository.py",
         "src/reports/cash_report.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-004",
@@ -281,7 +284,8 @@
         "src/db/schema.py",
         "src/db/repository.py",
         "src/reports/cash_report.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-005",
@@ -354,7 +358,89 @@
         "src/reports/cash_report.py",
         "src/analyzers/cash.py",
         "src/db/repository.py"
-      ]
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-006",
+      "title": "Poker Stats Completas para Torneios (VPIP, PFR, AF, EV, bb/100)",
+      "phase": "phase-2",
+      "priority": "high",
+      "status": "done",
+      "story": "Como jogador, quero ver as mesmas estatísticas de jogo que existem para cash (VPIP, PFR, 3-Bet, AF, WTSD, CBet, EV, bb/100) no relatório de torneios, com visão global no topo e breakdown por sessão (torneio) dentro de cada dia, para analisar meu jogo em torneios com a mesma profundidade do cash.",
+      "acceptance_criteria": [
+        "Importar mãos de torneio completas na tabela hands (game_type='tournament') com invested/won/net e actions na hand_actions",
+        "Adicionar coluna tournament_id na tabela hands para linkar mãos ao torneio",
+        "Criar parse_tournament_single_hand() nos parsers GGPoker e PokerStars que retorna HandData completo",
+        "Calcular VPIP%, PFR%, 3-Bet%, Fold-to-3-Bet%, ATS% global para todas as mãos de torneio do ano",
+        "Calcular AF, AFq, WTSD%, W$SD%, CBet%, Fold-to-CBet%, Check-Raise% global para torneios",
+        "Calcular EV analysis (all-in equity, bb/100 real vs EV) adaptado para blinds variáveis de torneio",
+        "Gráfico SVG inline EV line vs Real line para torneios",
+        "Cada dia no report mostra breakdown por torneio com stats individuais (como sessões no cash)",
+        "Cada torneio mostra: stats de jogo (VPIP/PFR/AF/etc com health badges), sparkline de chips, mãos notáveis",
+        "Stats agregadas do dia (média ponderada por mãos jogadas)",
+        "Comparativo entre torneios do dia (melhor/pior VPIP, PFR, resultado)",
+        "bb/100 usa BB variável por mão (blinds escalantes em torneio)",
+        "Manter theme orange (#ff8800) existente no tournament report",
+        "Requer reimportação com --force --source tournament após deploy"
+      ],
+      "technical_notes": [
+        "IMPORT PIPELINE:",
+        "- Atualmente parse_tournament_hand() retorna dict mínimo e descarta as mãos individuais",
+        "- Novo parse_tournament_single_hand() retorna HandData com game_type='tournament'",
+        "- parse_actions(), parse_showdown_data(), _parse_board() já funcionam para torneios (regex usa \\$?)",
+        "- Header de torneio GG: 'Tournament #TID, ... Level4(50/100) - 2026/01/15 12:00:00'",
+        "- Calcular invested/won/net do hand_text (mesma lógica de cash mas sem $ prefix)",
+        "- Importer faz dual parse: parse_tournament_single_hand() + parse_tournament_hand() para manter _build_tournaments()",
+        "",
+        "SCHEMA MIGRATION:",
+        "- ALTER TABLE hands ADD COLUMN tournament_id TEXT",
+        "- CREATE INDEX idx_hands_tournament_id ON hands(tournament_id)",
+        "",
+        "ANALYZER:",
+        "- Reusar CashAnalyzer._analyze_preflop_hand() e _analyze_postflop_hand() (são @staticmethod)",
+        "- Reusar CashAnalyzer._classify_health() e _classify_postflop_health() (são @classmethod)",
+        "- Adicionar métodos no TournamentAnalyzer: get_global_poker_stats(), get_tournament_session_stats(), get_tournament_sparkline()",
+        "- get_daily_reports_with_stats() = versão enhanced do get_daily_reports() com stats por torneio",
+        "",
+        "EV em TORNEIOS:",
+        "- bb/100 com blinds variáveis: sum(net_i / bb_i) / N * 100",
+        "- Reusar EVAnalyzer._compute_hand_ev() que é genérico",
+        "- Adicionar get_tournament_ev_analysis() no EVAnalyzer",
+        "",
+        "REPOSITORY:",
+        "- Adicionar tournament_id ao insert_hand()",
+        "- Novas queries: get_tournament_hands(), get_tournament_preflop_action_sequences(),",
+        "  get_tournament_all_action_sequences(), get_tournament_allin_hands(),",
+        "  get_hands_for_tournament(), get_actions_for_tournament(), get_tournament_daily_stats()",
+        "",
+        "REPORT HTML:",
+        "- Seções novas: Global Poker Stats, Postflop Analysis, EV Analysis (mesma estrutura do cash em orange theme)",
+        "- Daily reports expandidos com tournament session cards (stats badges, sparkline, notable hands)",
+        "- Reusar padrões CSS/HTML do cash_report.py adaptados pro theme orange"
+      ],
+      "estimated_points": 13,
+      "dependencies": [
+        "US-000",
+        "US-001",
+        "US-002",
+        "US-003",
+        "US-004",
+        "US-005"
+      ],
+      "files_affected": [
+        "src/db/schema.py",
+        "src/parsers/base.py",
+        "src/parsers/ggpoker.py",
+        "src/parsers/pokerstars.py",
+        "src/importer.py",
+        "src/db/repository.py",
+        "src/analyzers/tournament.py",
+        "src/analyzers/ev.py",
+        "src/reports/tournament_report.py",
+        "main.py"
+      ],
+      "passes": true
     }
   ]
 }

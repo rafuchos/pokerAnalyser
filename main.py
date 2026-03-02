@@ -40,6 +40,7 @@ def cmd_report(args):
     from src.db.connection import get_connection
     from src.db.repository import Repository
     from src.analyzers.cash import CashAnalyzer
+    from src.analyzers.ev import EVAnalyzer
     from src.analyzers.tournament import TournamentAnalyzer
     from src.analyzers.spin import SpinAnalyzer
     from src.reports.cash_report import generate_cash_report
@@ -60,7 +61,10 @@ def cmd_report(args):
         if repo.get_hands_count() > 0:
             print("Generating cash game report...")
             cash_analyzer = CashAnalyzer(repo)
-            output = generate_cash_report(cash_analyzer, 'output/cash_report.html')
+            ev_analyzer = EVAnalyzer(repo)
+            output = generate_cash_report(
+                cash_analyzer, 'output/cash_report.html',
+                ev_analyzer=ev_analyzer)
             reports_generated.append(('Cash Games', output))
         else:
             print("No cash hands in database. Run 'import' first.")

@@ -104,6 +104,7 @@ class Importer:
 
         print(f"Importing {len(files)} cash hand file(s)...")
         total_inserted = 0
+        total_actions = 0
         skipped_files = 0
 
         for filepath in files:
@@ -114,15 +115,61 @@ class Importer:
                 skipped_files += 1
                 continue
 
-            hands = self.gg_parser.parse_hand_file(fpath_str)
+            with open(fpath_str, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            hand_texts = content.split('\n\n\n')
+            hands = []
+            all_actions = []
+
+            for hand_text in hand_texts:
+                if not hand_text.strip():
+                    continue
+                hand = self.gg_parser.parse_single_hand(hand_text)
+                if not hand:
+                    continue
+                hands.append(hand)
+
+                # Parse actions, board, and positions
+                actions, board, positions = self.gg_parser.parse_actions(
+                    hand_text, hand.hand_id
+                )
+
+                # Parse showdown data for EV analysis
+                showdown = self.gg_parser.parse_showdown_data(hand_text)
+
+                all_actions.append(
+                    (hand.hand_id, actions, board, positions, showdown))
+
             inserted = self.repo.insert_hands_batch(hands)
+
+            # Persist actions, board cards, hero positions, and showdown data
+            for hand_id, actions, board, positions, showdown in all_actions:
+                if actions:
+                    self.repo.insert_actions_batch(actions)
+                if board.flop or board.turn or board.river:
+                    self.repo.update_hand_board(hand_id, board.flop, board.turn, board.river)
+                hero_pos = positions.get('Hero')
+                if hero_pos:
+                    self.repo.update_hand_position(hand_id, hero_pos)
+                if showdown.get('pot_total') or showdown.get('has_allin'):
+                    self.repo.update_hand_showdown(
+                        hand_id,
+                        pot_total=showdown.get('pot_total'),
+                        opponent_cards=showdown.get('opponent_cards'),
+                        has_allin=showdown.get('has_allin', False),
+                        allin_street=showdown.get('allin_street'),
+                    )
+
+            self.conn.commit()
             self.repo.mark_file_imported(fpath_str, fhash, inserted)
             total_inserted += inserted
-            print(f"  {filepath.name}: {inserted} hands imported")
+            total_actions += sum(len(a[1]) for a in all_actions)
+            print(f"  {filepath.name}: {inserted} hands, {sum(len(a[1]) for a in all_actions)} actions imported")
 
         if skipped_files:
             print(f"  {skipped_files} file(s) already imported (skipped)")
-        print(f"  Total: {total_inserted} new cash hands imported")
+        print(f"  Total: {total_inserted} new cash hands, {total_actions} actions imported")
 
     def _import_tournament_summaries(self, force: bool):
         """Import tournament summary files."""
@@ -159,10 +206,11 @@ class Importer:
         print(f"  Total: {total_inserted} new tournament summaries imported")
 
     def _import_tournament_hands(self, force: bool):
-        """Import tournament hand history files and build tournament records."""
+        """Import tournament hand history files, build tournament records, and store hand data."""
         # GGPoker tournaments
         tournament_path = Path('data/tournament')
         gg_hands = []
+        gg_hand_texts = []  # (hand_text, tournament_id) for HandData parsing
         if tournament_path.exists():
             files = list(tournament_path.glob('*.txt'))
             if files:
@@ -174,9 +222,22 @@ class Importer:
                     if not force and self.repo.is_file_imported(fpath_str, fhash):
                         skipped += 1
                         continue
-                    hands = self.gg_parser.parse_tournament_file(fpath_str)
-                    gg_hands.extend(hands)
-                    self.repo.mark_file_imported(fpath_str, fhash, len(hands))
+
+                    with open(fpath_str, 'r', encoding='utf-8') as f:
+                        content = f.read()
+
+                    hand_texts = content.split('\n\n\n')
+                    file_hands = []
+                    for hand_text in hand_texts:
+                        if not hand_text.strip():
+                            continue
+                        hand = self.gg_parser.parse_tournament_hand(hand_text)
+                        if hand:
+                            file_hands.append(hand)
+                            gg_hand_texts.append(hand_text)
+
+                    gg_hands.extend(file_hands)
+                    self.repo.mark_file_imported(fpath_str, fhash, len(file_hands))
                 if skipped:
                     print(f"  {skipped} file(s) already imported (skipped)")
 
@@ -184,6 +245,7 @@ class Importer:
         ps_path = Path('data/pokerstars')
         ps_summaries = {}
         ps_hands = []
+        ps_hand_texts = []  # (hand_text, tournament_id, tournament_name) for HandData parsing
         if ps_path.exists():
             files = list(ps_path.glob('**/*.txt'))
             if files:
@@ -195,18 +257,88 @@ class Importer:
                     if not force and self.repo.is_file_imported(fpath_str, fhash):
                         skipped += 1
                         continue
+
+                    with open(fpath_str, 'r', encoding='utf-8') as f:
+                        content = f.read()
+
                     hands, summary = self.ps_parser.parse_tournament_file(fpath_str)
                     ps_hands.extend(hands)
                     if summary:
                         ps_summaries[summary['tournament_id']] = summary
+                        # Collect hand texts for HandData parsing
+                        for hand_text in content.split('\n\n\n'):
+                            if hand_text.strip():
+                                ps_hand_texts.append(
+                                    (hand_text, summary['tournament_id'],
+                                     summary.get('tournament_name', '')))
+
                     self.repo.mark_file_imported(fpath_str, fhash, len(hands))
                 if skipped:
                     print(f"  {skipped} file(s) already imported (skipped)")
 
-        # Build tournament records from hands
+        # Build tournament records from hands (legacy dict-based)
         all_tournament_hands = gg_hands + ps_hands
         if all_tournament_hands:
             self._build_tournaments(all_tournament_hands, ps_summaries)
+
+        # Import tournament hands into hands table as HandData with actions
+        total_hand_data = 0
+        total_actions = 0
+
+        # GGPoker tournament hand data
+        for hand_text in gg_hand_texts:
+            hand_data = self.gg_parser.parse_tournament_single_hand(hand_text)
+            if not hand_data:
+                continue
+            if self.repo.insert_hand(hand_data):
+                total_hand_data += 1
+                # Parse actions, board, positions
+                actions, board, positions = self.gg_parser.parse_actions(
+                    hand_text, hand_data.hand_id)
+                if actions:
+                    self.repo.insert_actions_batch(actions)
+                    total_actions += len(actions)
+                if board.flop or board.turn or board.river:
+                    self.repo.update_hand_board(
+                        hand_data.hand_id, board.flop, board.turn, board.river)
+                hero_pos = positions.get('Hero')
+                if hero_pos:
+                    self.repo.update_hand_position(hand_data.hand_id, hero_pos)
+                # Parse showdown data for EV
+                showdown = self.gg_parser.parse_showdown_data(hand_text)
+                if showdown.get('pot_total') or showdown.get('has_allin'):
+                    self.repo.update_hand_showdown(
+                        hand_data.hand_id,
+                        pot_total=showdown.get('pot_total'),
+                        opponent_cards=showdown.get('opponent_cards'),
+                        has_allin=showdown.get('has_allin', False),
+                        allin_street=showdown.get('allin_street'),
+                    )
+
+        # PokerStars tournament hand data
+        for hand_text, t_id, t_name in ps_hand_texts:
+            hand_data = self.ps_parser.parse_tournament_single_hand(
+                hand_text, t_id, t_name)
+            if not hand_data:
+                continue
+            if self.repo.insert_hand(hand_data):
+                total_hand_data += 1
+                # Parse actions, board, positions
+                actions, board, positions = self.ps_parser.parse_actions(
+                    hand_text, hand_data.hand_id)
+                if actions:
+                    self.repo.insert_actions_batch(actions)
+                    total_actions += len(actions)
+                if board.flop or board.turn or board.river:
+                    self.repo.update_hand_board(
+                        hand_data.hand_id, board.flop, board.turn, board.river)
+                hero_pos = positions.get(self.ps_parser.hero_name)
+                if hero_pos:
+                    self.repo.update_hand_position(hand_data.hand_id, hero_pos)
+
+        self.conn.commit()
+        if total_hand_data > 0:
+            print(f"  {total_hand_data} tournament hands, {total_actions} actions imported to hands table")
 
     def _build_tournaments(self, all_hands: list[dict], ps_summaries: dict):
         """Build tournament records from parsed hands and summaries."""
