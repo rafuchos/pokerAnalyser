@@ -7,7 +7,11 @@ chip sparklines, daily session-level aggregation, and session comparisons.
 
 from collections import defaultdict
 
-from src.analyzers.cash import CashAnalyzer
+from src.analyzers.cash import (
+    CashAnalyzer,
+    _downsample_redline,
+    _generate_redline_diagnostics,
+)
 from src.analyzers.ev import EVAnalyzer, parse_cards, calculate_equity
 from src.db.repository import Repository
 
@@ -811,4 +815,104 @@ class TournamentAnalyzer:
             'net': total_won - total_invested,
             'total_rake': total_rake,
             'roi': ((total_won - total_invested) / total_invested * 100) if total_invested > 0 else 0,
+        }
+
+    # ── Red Line / Blue Line ──────────────────────────────────────────
+
+    def get_redline_blueline(self) -> dict:
+        """Compute Red Line / Blue Line cumulative profit for tournament hands.
+
+        Red line  = cumulative profit from non-showdown hands.
+        Blue line = cumulative profit from showdown hands.
+        Green line = total profit (red + blue).
+
+        Returns dict with chart_data, summary totals, diagnostics,
+        and per-day breakdown (each day = one tournament session).
+        """
+        hands = self.repo.get_tournament_hands(self.year)
+        actions = self.repo.get_tournament_all_actions(self.year)
+
+        # Group actions by hand_id
+        hand_acts = defaultdict(list)
+        for a in actions:
+            hand_acts[a['hand_id']].append(a)
+
+        cum_total = 0.0
+        cum_showdown = 0.0
+        cum_nonshowdown = 0.0
+        total_hands = 0
+        showdown_hands = 0
+        nonshowdown_hands = 0
+        showdown_net = 0.0
+        nonshowdown_net = 0.0
+        chart_data = []
+
+        # Per-day aggregation (tournament sessions are grouped by day)
+        by_day = defaultdict(lambda: {
+            'sd_net': 0.0, 'nsd_net': 0.0, 'sd_count': 0, 'nsd_count': 0,
+        })
+
+        for h in hands:
+            hand_id = h['hand_id']
+            net = h['net'] or 0.0
+            day = (h.get('date') or '')[:10]
+            went_to_sd = CashAnalyzer._hand_went_to_showdown(
+                hand_acts.get(hand_id, []), h
+            )
+
+            cum_total += net
+            total_hands += 1
+
+            if went_to_sd:
+                cum_showdown += net
+                showdown_hands += 1
+                showdown_net += net
+                by_day[day]['sd_net'] += net
+                by_day[day]['sd_count'] += 1
+            else:
+                cum_nonshowdown += net
+                nonshowdown_hands += 1
+                nonshowdown_net += net
+                by_day[day]['nsd_net'] += net
+                by_day[day]['nsd_count'] += 1
+
+            chart_data.append({
+                'hand': total_hands,
+                'total': round(cum_total, 2),
+                'showdown': round(cum_showdown, 2),
+                'nonshowdown': round(cum_nonshowdown, 2),
+            })
+
+        if len(chart_data) > 500:
+            chart_data = _downsample_redline(chart_data, 500)
+
+        by_session = [
+            {
+                'date': day,
+                'hands': d['sd_count'] + d['nsd_count'],
+                'showdown_hands': d['sd_count'],
+                'nonshowdown_hands': d['nsd_count'],
+                'showdown_net': round(d['sd_net'], 2),
+                'nonshowdown_net': round(d['nsd_net'], 2),
+                'total_net': round(d['sd_net'] + d['nsd_net'], 2),
+            }
+            for day, d in sorted(by_day.items(), reverse=True)
+            if d['sd_count'] + d['nsd_count'] > 0
+        ]
+
+        diagnostics = _generate_redline_diagnostics(
+            showdown_net, nonshowdown_net,
+            showdown_hands, nonshowdown_hands, total_hands,
+        )
+
+        return {
+            'chart_data': chart_data,
+            'total_hands': total_hands,
+            'showdown_hands': showdown_hands,
+            'nonshowdown_hands': nonshowdown_hands,
+            'total_net': round(cum_total, 2),
+            'showdown_net': round(showdown_net, 2),
+            'nonshowdown_net': round(nonshowdown_net, 2),
+            'diagnostics': diagnostics,
+            'by_session': by_session,
         }

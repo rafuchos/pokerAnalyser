@@ -18,6 +18,7 @@ def generate_tournament_report(analyzer: TournamentAnalyzer,
     sat_summary = analyzer.get_satellite_summary()
     global_stats = analyzer.get_tournament_game_stats()
     ev_stats = analyzer.get_ev_analysis()
+    redline_data = analyzer.get_redline_blueline()
     session_comparison = analyzer.get_session_comparison(daily_reports)
 
     total_tournaments = summary['total_tournaments']
@@ -207,6 +208,10 @@ def generate_tournament_report(analyzer: TournamentAnalyzer,
     # EV Analysis
     if ev_stats and ev_stats.get('overall', {}).get('total_hands', 0) > 0:
         html += _render_ev_analysis(ev_stats)
+
+    # Red Line / Blue Line
+    if redline_data and redline_data.get('total_hands', 0) >= 2:
+        html += _render_redline_blueline_tournament(redline_data)
 
     # Session comparison (across days)
     if session_comparison:
@@ -465,6 +470,234 @@ def _render_ev_chart(chart_data: list) -> str:
                       dominant-baseline="middle">EV</text>
                 <text x="{margin_left + plot_w / 2}" y="{height - 5}" text-anchor="middle"
                       fill="#888" font-size="11">M\u00e3os</text>
+            </svg>
+"""
+
+
+def _render_redline_blueline_tournament(data: dict) -> str:
+    """Render Red Line / Blue Line section for tournament report."""
+    if not data or data.get('total_hands', 0) < 2:
+        return ''
+
+    total_hands = data['total_hands']
+    showdown_hands = data['showdown_hands']
+    nonshowdown_hands = data['nonshowdown_hands']
+    showdown_net = data['showdown_net']
+    nonshowdown_net = data['nonshowdown_net']
+    total_net = data['total_net']
+    chart_data = data.get('chart_data', [])
+    diagnostics = data.get('diagnostics', [])
+    by_session = data.get('by_session', [])
+
+    sd_pct = (showdown_hands / total_hands * 100) if total_hands > 0 else 0
+    nsd_pct = (nonshowdown_hands / total_hands * 100) if total_hands > 0 else 0
+    sd_class = 'positive' if showdown_net >= 0 else 'negative'
+    nsd_class = 'positive' if nonshowdown_net >= 0 else 'negative'
+    total_class = 'positive' if total_net >= 0 else 'negative'
+
+    html = """
+        <div class="player-stats" style="margin-bottom:20px;">
+            <h2>Red Line / Blue Line (Torneios)</h2>
+            <p style="color:#a0a0a0;font-size:0.9em;margin-bottom:15px;">
+                An\u00e1lise cumulativa de m\u00e3os de torneio por tipo de resultado.
+                <strong style="color:#4488ff;">Blue line</strong> = m\u00e3os com showdown,
+                <strong style="color:#ff4444;">Red line</strong> = m\u00e3os sem showdown.
+            </p>
+"""
+    html += f"""            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total de M\u00e3os</div>
+                    <div class="stat-value">{total_hands}</div>
+                </div>
+                <div class="stat-card" style="background:rgba(68,136,255,0.1);">
+                    <div class="stat-label">M\u00e3os Showdown</div>
+                    <div class="stat-value">{showdown_hands} <span style="font-size:0.7em;color:#888;">({sd_pct:.1f}%)</span></div>
+                    <div class="stat-detail {sd_class}">{showdown_net:+.0f} chips</div>
+                </div>
+                <div class="stat-card" style="background:rgba(255,68,68,0.1);">
+                    <div class="stat-label">M\u00e3os Sem Showdown</div>
+                    <div class="stat-value">{nonshowdown_hands} <span style="font-size:0.7em;color:#888;">({nsd_pct:.1f}%)</span></div>
+                    <div class="stat-detail {nsd_class}">{nonshowdown_net:+.0f} chips</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Blue Line Net</div>
+                    <div class="stat-value {sd_class}">{showdown_net:+.0f}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Red Line Net</div>
+                    <div class="stat-value {nsd_class}">{nonshowdown_net:+.0f}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Net</div>
+                    <div class="stat-value {total_class}">{total_net:+.0f}</div>
+                </div>
+            </div>
+"""
+    if chart_data and len(chart_data) >= 2:
+        html += _render_redline_chart_tourn(chart_data)
+
+    if diagnostics:
+        html += '            <div style="margin-top:15px;">\n'
+        html += '                <h4 style="color:#ff8800;margin-bottom:10px;">Diagn\u00f3stico Autom\u00e1tico</h4>\n'
+        for d in diagnostics:
+            if d['type'] == 'good':
+                color = '#00ff88'
+                bg = 'rgba(0,255,136,0.1)'
+            elif d['type'] == 'warning':
+                color = '#ffa500'
+                bg = 'rgba(255,165,0,0.1)'
+            else:
+                color = '#ff4444'
+                bg = 'rgba(255,68,68,0.1)'
+            html += (
+                f'                <div style="background:{bg};border:1px solid {color};'
+                f'border-radius:8px;padding:10px;margin-bottom:8px;">\n'
+                f'                    <strong style="color:{color};">{d["title"]}</strong>\n'
+                f'                    <p style="color:#c0c0c0;font-size:0.9em;margin-top:4px;">'
+                f'{d["message"]}</p>\n'
+                f'                </div>\n'
+            )
+        html += '            </div>\n'
+
+    session_rows = [s for s in by_session if s.get('hands', 0) > 0]
+    if session_rows:
+        html += """            <div style="margin-top:15px;">
+                <h4 style="color:#ff8800;margin-bottom:10px;">Breakdown por Dia</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>M\u00e3os</th>
+                            <th>Showdown</th>
+                            <th>Sem Showdown</th>
+                            <th>Blue Net</th>
+                            <th>Red Net</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+"""
+        for s in session_rows:
+            sd_c = 'positive' if s['showdown_net'] >= 0 else 'negative'
+            nsd_c = 'positive' if s['nonshowdown_net'] >= 0 else 'negative'
+            tot_c = 'positive' if s['total_net'] >= 0 else 'negative'
+            html += (
+                f'                        <tr>'
+                f'<td>{s.get("date", "")}</td>'
+                f'<td>{s["hands"]}</td>'
+                f'<td>{s["showdown_hands"]}</td>'
+                f'<td>{s["nonshowdown_hands"]}</td>'
+                f'<td class="{sd_c}">{s["showdown_net"]:+.0f}</td>'
+                f'<td class="{nsd_c}">{s["nonshowdown_net"]:+.0f}</td>'
+                f'<td class="{tot_c}">{s["total_net"]:+.0f}</td>'
+                f'</tr>\n'
+            )
+        html += """                    </tbody>
+                </table>
+            </div>
+"""
+
+    html += """        </div>
+"""
+    return html
+
+
+def _render_redline_chart_tourn(chart_data: list) -> str:
+    """3-line SVG chart for tournament Red/Blue line."""
+    width = 700
+    height = 280
+    margin_top = 30
+    margin_right = 20
+    margin_bottom = 40
+    margin_left = 70
+    plot_w = width - margin_left - margin_right
+    plot_h = height - margin_top - margin_bottom
+
+    all_values = (
+        [d['total'] for d in chart_data]
+        + [d['showdown'] for d in chart_data]
+        + [d['nonshowdown'] for d in chart_data]
+    )
+    y_min = min(all_values)
+    y_max = max(all_values)
+    x_max = chart_data[-1]['hand']
+
+    y_range = y_max - y_min if y_max != y_min else 1.0
+    y_min -= y_range * 0.1
+    y_max += y_range * 0.1
+    y_range = y_max - y_min
+
+    def scale_x(hand):
+        return margin_left + (hand / x_max) * plot_w if x_max > 0 else margin_left
+
+    def scale_y(val):
+        return margin_top + plot_h - ((val - y_min) / y_range) * plot_h
+
+    total_pts = ' '.join(
+        f'{scale_x(d["hand"]):.1f},{scale_y(d["total"]):.1f}' for d in chart_data
+    )
+    sd_pts = ' '.join(
+        f'{scale_x(d["hand"]):.1f},{scale_y(d["showdown"]):.1f}' for d in chart_data
+    )
+    nsd_pts = ' '.join(
+        f'{scale_x(d["hand"]):.1f},{scale_y(d["nonshowdown"]):.1f}' for d in chart_data
+    )
+
+    num_gridlines = 5
+    grid_html = ''
+    for i in range(num_gridlines + 1):
+        y_val = y_min + (y_range * i / num_gridlines)
+        y_pos = scale_y(y_val)
+        grid_html += (
+            f'<line x1="{margin_left}" y1="{y_pos:.1f}" '
+            f'x2="{width - margin_right}" y2="{y_pos:.1f}" '
+            f'stroke="rgba(255,255,255,0.1)" stroke-width="1"/>\n'
+            f'<text x="{margin_left - 5}" y="{y_pos:.1f}" '
+            f'text-anchor="end" fill="#888" font-size="10" '
+            f'dominant-baseline="middle">{y_val:.0f}</text>\n'
+        )
+
+    zero_line = ''
+    if y_min <= 0 <= y_max:
+        zero_y = scale_y(0)
+        zero_line = (
+            f'<line x1="{margin_left}" y1="{zero_y:.1f}" '
+            f'x2="{width - margin_right}" y2="{zero_y:.1f}" '
+            f'stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="4,4"/>\n'
+        )
+
+    legend_x = width - margin_right - 180
+
+    return f"""
+            <h3 style="color:#ff8800;margin-top:15px;">Evolu\u00e7\u00e3o Cumulativa</h3>
+            <svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"
+                 style="width:100%;max-width:{width}px;background:rgba(0,0,0,0.2);border-radius:10px;margin:15px 0;">
+                {grid_html}
+                {zero_line}
+                <line x1="{margin_left}" y1="{margin_top}" x2="{margin_left}" y2="{height - margin_bottom}"
+                      stroke="#555" stroke-width="1"/>
+                <line x1="{margin_left}" y1="{height - margin_bottom}" x2="{width - margin_right}" y2="{height - margin_bottom}"
+                      stroke="#555" stroke-width="1"/>
+                <text x="{width / 2}" y="{height - 5}" text-anchor="middle" fill="#888" font-size="11">M\u00e3os</text>
+                <text x="15" y="{height / 2}" text-anchor="middle" fill="#888" font-size="11"
+                      transform="rotate(-90, 15, {height / 2})">Chips</text>
+                <polyline points="{total_pts}"
+                          fill="none" stroke="#00ff88" stroke-width="2" stroke-linejoin="round"/>
+                <polyline points="{sd_pts}"
+                          fill="none" stroke="#4488ff" stroke-width="2" stroke-linejoin="round"/>
+                <polyline points="{nsd_pts}"
+                          fill="none" stroke="#ff4444" stroke-width="2" stroke-linejoin="round"/>
+                <rect x="{legend_x}" y="{margin_top}" width="170" height="65"
+                      fill="rgba(0,0,0,0.5)" rx="5"/>
+                <line x1="{legend_x + 10}" y1="{margin_top + 15}" x2="{legend_x + 30}" y2="{margin_top + 15}"
+                      stroke="#00ff88" stroke-width="2"/>
+                <text x="{legend_x + 35}" y="{margin_top + 19}" fill="#e0e0e0" font-size="11">Total (Green)</text>
+                <line x1="{legend_x + 10}" y1="{margin_top + 35}" x2="{legend_x + 30}" y2="{margin_top + 35}"
+                      stroke="#4488ff" stroke-width="2"/>
+                <text x="{legend_x + 35}" y="{margin_top + 39}" fill="#e0e0e0" font-size="11">Showdown (Blue)</text>
+                <line x1="{legend_x + 10}" y1="{margin_top + 55}" x2="{legend_x + 30}" y2="{margin_top + 55}"
+                      stroke="#ff4444" stroke-width="2"/>
+                <text x="{legend_x + 35}" y="{margin_top + 59}" fill="#e0e0e0" font-size="11">N\u00e3o-Showdown (Red)</text>
             </svg>
 """
 

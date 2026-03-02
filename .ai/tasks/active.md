@@ -75,11 +75,26 @@ Update this section weekly with sprint goals and dates.
 - [x] US-008: EV Analysis por Sessão (Cash e Torneio) (2026-03-02)
 - [x] US-009: EV Completo para Todas as Decisões (Decision-Tree EV) (2026-03-02)
 - [x] US-010: Análise Posicional Completa (Stats + Win Rate por Posição) (2026-03-02)
+- [x] US-012: Red Line / Blue Line (Non-Showdown vs Showdown Winnings) (2026-03-02)
 - [x] US-011: Leak Finder Automatizado com Spots de Estudo Priorizados (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-012: Red Line / Blue Line (Non-Showdown vs Showdown Winnings) (2026-03-02)
+  - CashAnalyzer.get_redline_blueline(): cumulative profit split by showdown/non-showdown
+  - CashAnalyzer._compute_redline_by_session(): per-session breakdown
+  - CashAnalyzer._hand_went_to_showdown(): static method (opponent_cards or postflop remaining players)
+  - TournamentAnalyzer.get_redline_blueline(): tournament version with per-day breakdown
+  - Module helpers: _downsample_redline() (max 500 points), _generate_redline_diagnostics()
+  - Diagnostics: 'Red line caindo', 'Blue line caindo', 'Alta taxa de showdown'
+  - cash_report.py: _render_redline_blueline_chart() (700x300 SVG, 3 polylines, grid, legend)
+  - cash_report.py: _render_redline_blueline() (stats grid, chart, diagnostics, session table)
+  - tournament_report.py: _render_redline_chart_tourn() (tournament SVG chart, Chips Y-axis)
+  - tournament_report.py: _render_redline_blueline_tournament() (tournament HTML section)
+  - Integrated into generate_cash_report() and generate_tournament_report()
+  - 98 new tests (764 total)
 
 - [x] US-011: Leak Finder Automatizado com Spots de Estudo Priorizados (2026-03-02)
   - New module: src/analyzers/leak_finder.py with Leak dataclass and LeakFinder class

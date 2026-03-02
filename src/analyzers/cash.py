@@ -1400,3 +1400,229 @@ class CashAnalyzer:
         from src.analyzers.leak_finder import LeakFinder
         finder = LeakFinder(self, self.repo, self.year)
         return finder.find_leaks()
+
+    # ── Red Line / Blue Line ──────────────────────────────────────────
+
+    def get_redline_blueline(self) -> dict:
+        """Compute Red Line / Blue Line cumulative profit statistics.
+
+        Red line  = cumulative profit from non-showdown hands.
+        Blue line = cumulative profit from showdown hands.
+        Green line = total profit (red + blue).
+
+        Returns dict with chart_data (3 cumulative lines), summary totals,
+        diagnostic messages, and per-session breakdown.
+        """
+        hands = self.repo.get_cash_hands(self.year)
+        actions = self.repo.get_all_action_sequences(self.year)
+
+        # Group actions by hand_id
+        hand_acts = defaultdict(list)
+        for a in actions:
+            hand_acts[a['hand_id']].append(a)
+
+        cum_total = 0.0
+        cum_showdown = 0.0
+        cum_nonshowdown = 0.0
+        total_hands = 0
+        showdown_hands = 0
+        nonshowdown_hands = 0
+        showdown_net = 0.0
+        nonshowdown_net = 0.0
+        chart_data = []
+
+        for h in hands:
+            hand_id = h['hand_id']
+            net = h['net'] or 0.0
+            went_to_sd = self._hand_went_to_showdown(hand_acts.get(hand_id, []), h)
+
+            cum_total += net
+            total_hands += 1
+
+            if went_to_sd:
+                cum_showdown += net
+                showdown_hands += 1
+                showdown_net += net
+            else:
+                cum_nonshowdown += net
+                nonshowdown_hands += 1
+                nonshowdown_net += net
+
+            chart_data.append({
+                'hand': total_hands,
+                'total': round(cum_total, 2),
+                'showdown': round(cum_showdown, 2),
+                'nonshowdown': round(cum_nonshowdown, 2),
+            })
+
+        if len(chart_data) > 500:
+            chart_data = _downsample_redline(chart_data, 500)
+
+        sessions = self.repo.get_sessions(self.year)
+        by_session = self._compute_redline_by_session(sessions, hand_acts)
+
+        diagnostics = _generate_redline_diagnostics(
+            showdown_net, nonshowdown_net,
+            showdown_hands, nonshowdown_hands, total_hands,
+        )
+
+        return {
+            'chart_data': chart_data,
+            'total_hands': total_hands,
+            'showdown_hands': showdown_hands,
+            'nonshowdown_hands': nonshowdown_hands,
+            'total_net': round(cum_total, 2),
+            'showdown_net': round(showdown_net, 2),
+            'nonshowdown_net': round(nonshowdown_net, 2),
+            'diagnostics': diagnostics,
+            'by_session': by_session,
+        }
+
+    def _compute_redline_by_session(self, sessions: list[dict],
+                                     hand_acts: dict) -> list[dict]:
+        """Compute red/blue line stats per cash session."""
+        result = []
+        for session in sessions:
+            hands = self.repo.get_hands_for_session(session)
+            sd_net = 0.0
+            nsd_net = 0.0
+            sd_count = 0
+            nsd_count = 0
+            for h in hands:
+                hand_id = h['hand_id']
+                net = h['net'] or 0.0
+                went_to_sd = self._hand_went_to_showdown(
+                    hand_acts.get(hand_id, []), h
+                )
+                if went_to_sd:
+                    sd_net += net
+                    sd_count += 1
+                else:
+                    nsd_net += net
+                    nsd_count += 1
+
+            total = sd_count + nsd_count
+            if total > 0:
+                result.append({
+                    'session_id': session.get('session_id'),
+                    'date': session.get('date', ''),
+                    'start_time': session.get('start_time', ''),
+                    'hands': total,
+                    'showdown_hands': sd_count,
+                    'nonshowdown_hands': nsd_count,
+                    'showdown_net': round(sd_net, 2),
+                    'nonshowdown_net': round(nsd_net, 2),
+                    'total_net': round(sd_net + nsd_net, 2),
+                })
+        return result
+
+    @staticmethod
+    def _hand_went_to_showdown(actions: list[dict], hand: dict = None) -> bool:
+        """Determine if a hand went to showdown.
+
+        Returns True if:
+        - opponent_cards is visible in hand data (parser detected showdown), OR
+        - There were postflop actions AND 2+ players remained AND hero was among them.
+        """
+        if hand and hand.get('opponent_cards'):
+            return True
+
+        if not actions:
+            return False
+
+        hero_name = None
+        for a in actions:
+            if a.get('is_hero'):
+                hero_name = a['player']
+                break
+        if not hero_name:
+            return False
+
+        all_players = set()
+        folded_players = set()
+        has_postflop = False
+        for a in actions:
+            all_players.add(a['player'])
+            if a['street'] in ('flop', 'turn', 'river'):
+                has_postflop = True
+            if a['action_type'] == 'fold':
+                folded_players.add(a['player'])
+
+        if not has_postflop:
+            return False
+
+        remaining = all_players - folded_players
+        return len(remaining) >= 2 and hero_name in remaining
+
+
+# ── Module-level helpers for Red Line / Blue Line ────────────────────────────
+
+def _downsample_redline(data: list, max_points: int) -> list:
+    """Downsample chart data keeping first, last, and evenly-spaced points."""
+    n = len(data)
+    if n <= max_points:
+        return data
+    indices = [0]
+    step = (n - 1) / (max_points - 1)
+    for i in range(1, max_points - 1):
+        indices.append(round(i * step))
+    indices.append(n - 1)
+    return [data[i] for i in indices]
+
+
+def _generate_redline_diagnostics(showdown_net: float, nonshowdown_net: float,
+                                   showdown_hands: int, nonshowdown_hands: int,
+                                   total_hands: int) -> list[dict]:
+    """Generate diagnostic messages for red/blue line analysis."""
+    diagnostics = []
+    if total_hands < 20:
+        return diagnostics
+
+    # Red line (non-showdown) diagnosis
+    if nonshowdown_net < 0 and nonshowdown_hands > 20:
+        diagnostics.append({
+            'type': 'danger',
+            'title': 'Red line caindo',
+            'message': (
+                'Não está blefando/defendendo o suficiente. '
+                'Muitas mãos são perdidas sem ir ao showdown.'
+            ),
+        })
+    elif nonshowdown_net >= 0 and nonshowdown_hands > 20:
+        diagnostics.append({
+            'type': 'good',
+            'title': 'Red line saudável',
+            'message': 'Bom equilíbrio entre blefes e defesas sem ir ao showdown.',
+        })
+
+    # Blue line (showdown) diagnosis
+    if showdown_net < 0 and showdown_hands > 10:
+        diagnostics.append({
+            'type': 'danger',
+            'title': 'Blue line caindo',
+            'message': (
+                'Indo ao showdown com mãos fracas. '
+                'Considere ser mais seletivo ao ir ao showdown.'
+            ),
+        })
+    elif showdown_net >= 0 and showdown_hands > 10:
+        diagnostics.append({
+            'type': 'good',
+            'title': 'Blue line saudável',
+            'message': 'Boa seletividade ao ir ao showdown.',
+        })
+
+    # High showdown rate warning
+    if total_hands > 0:
+        sd_pct = showdown_hands / total_hands * 100
+        if sd_pct > 35:
+            diagnostics.append({
+                'type': 'warning',
+                'title': 'Alta taxa de showdown',
+                'message': (
+                    f'Indo ao showdown em {sd_pct:.1f}% das mãos. '
+                    'Considere foldar mais mãos fracas antes do showdown.'
+                ),
+            })
+
+    return diagnostics
