@@ -1001,7 +1001,96 @@ class CashAnalyzer:
             'biggest_win': biggest_win,
             'biggest_loss': biggest_loss,
             'ev_data': ev_data,
+            'leak_summary': self.get_session_leak_summary(stats),
         }
+
+    def get_session_leak_summary(self, stats: dict) -> list[dict]:
+        """Compute a leak summary for a single session's stats.
+
+        Checks VPIP, PFR, 3-Bet, AF, WTSD, W$SD, CBet against healthy ranges.
+        Returns a list of dicts for stats that are 'warning' or 'danger',
+        sorted by estimated cost in bb/100 (highest first).
+
+        Each entry contains:
+          stat_name, label, value, health, healthy_low, healthy_high,
+          cost_bb100, direction ('too_high'|'too_low'), suggestion.
+        """
+        if not stats or stats.get('total_hands', 0) == 0:
+            return []
+
+        # (label, category, weight_per_ppt_deviation)
+        STAT_META = {
+            'vpip':      ('VPIP',  'preflop',  0.15),
+            'pfr':       ('PFR',   'preflop',  0.18),
+            'three_bet': ('3-Bet', 'preflop',  0.12),
+            'af':        ('AF',    'postflop', 0.40),
+            'wtsd':      ('WTSD%', 'postflop', 0.12),
+            'wsd':       ('W$SD%', 'postflop', 0.10),
+            'cbet':      ('CBet%', 'postflop', 0.10),
+        }
+
+        SUGGESTIONS = {
+            ('vpip', 'too_high'):      'Reduza range de abertura: revise mãos marginais que está jogando.',
+            ('vpip', 'too_low'):       'Amplie range de abertura: adicione mãos com bom playability.',
+            ('pfr', 'too_high'):       'Reduza frequência de raise: identifique spots de call ou limp.',
+            ('pfr', 'too_low'):        'Aumente agressividade preflop: substitua calls por raises.',
+            ('three_bet', 'too_high'): 'Reduza 3-bets: polarize entre value e bluffs equilibrados.',
+            ('three_bet', 'too_low'):  'Aumente 3-bets: adicione bluffs com Axs e suited connectors.',
+            ('af', 'too_high'):        'Reduza agressividade postflop: adicione mais checks e calls ao range.',
+            ('af', 'too_low'):         'Aumente agressividade postflop: aposte mais com value e bluffs.',
+            ('wtsd', 'too_high'):      'Vá ao showdown menos: folde mãos fracas no river.',
+            ('wtsd', 'too_low'):       'Defenda mais: não folde em excesso com mãos com equity suficiente.',
+            ('wsd', 'too_high'):       'W$SD alto indica range tight: considere adicionar bluffs ao showdown.',
+            ('wsd', 'too_low'):        'Melhore seleção de mãos para showdown: folde bluff-catchers fracos.',
+            ('cbet', 'too_high'):      'Reduza c-bets: check em boards wet/low desfavoráveis ao seu range.',
+            ('cbet', 'too_low'):       'Aumente c-bets: aposte mais em boards favoráveis como PFA.',
+        }
+
+        leaks = []
+        for stat_name, (label, category, weight) in STAT_META.items():
+            if stat_name not in stats:
+                continue
+            value = stats[stat_name]
+            health = stats.get(f'{stat_name}_health', 'good')
+            if health == 'good':
+                continue
+
+            healthy = (
+                self._healthy_ranges.get(stat_name)
+                if category == 'preflop'
+                else self._postflop_healthy_ranges.get(stat_name)
+            )
+            if not healthy:
+                continue
+
+            low, high = healthy
+            if value < low:
+                direction = 'too_low'
+                deviation = low - value
+            else:
+                direction = 'too_high'
+                deviation = value - high
+
+            cost = round(deviation * weight, 2)
+            suggestion = SUGGESTIONS.get(
+                (stat_name, direction),
+                f'Ajuste {label} nesta sessão.',
+            )
+
+            leaks.append({
+                'stat_name': stat_name,
+                'label': label,
+                'value': value,
+                'health': health,
+                'healthy_low': low,
+                'healthy_high': high,
+                'cost_bb100': cost,
+                'direction': direction,
+                'suggestion': suggestion,
+            })
+
+        leaks.sort(key=lambda x: x['cost_bb100'], reverse=True)
+        return leaks
 
     def get_daily_reports_with_sessions(self, ev_analyzer=None) -> list[dict]:
         """Build daily report data with session breakdown.

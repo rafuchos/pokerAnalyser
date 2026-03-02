@@ -697,6 +697,35 @@ def generate_cash_report(analyzer: CashAnalyzer,
             color: #555;
         }
 
+        /* ── Session Leak Summary Button & Modal (US-020) ── */
+        .leak-summary-btn {
+            background: rgba(255, 160, 0, 0.15);
+            border: 1px solid rgba(255, 160, 0, 0.4);
+            color: #ffa000;
+            border-radius: 6px;
+            padding: 3px 9px;
+            font-size: 0.75em;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            white-space: nowrap;
+        }
+
+        .leak-summary-btn:hover {
+            background: rgba(255, 160, 0, 0.30);
+            color: #ffcc44;
+        }
+
+        .leak-summary-btn.danger {
+            background: rgba(255, 68, 68, 0.15);
+            border-color: rgba(255, 68, 68, 0.4);
+            color: #ff6666;
+        }
+
+        .leak-summary-btn.danger:hover {
+            background: rgba(255, 68, 68, 0.28);
+            color: #ff9999;
+        }
+
         /* ── Responsive ──────────────────────────────── */
         @media (max-width: 768px) {
             .summary-grid {
@@ -933,8 +962,53 @@ def generate_cash_report(analyzer: CashAnalyzer,
         if (btn) { btn.classList.add('active'); }
     }
 
+    /* ── Session Leak Summary Modal (US-020) ── */
+    function openLeakModal(key) {
+        var overlay = document.getElementById('leak-modal-' + key);
+        if (overlay) {
+            overlay.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+    }
+
+    function closeLeakModal(key) {
+        var overlay = document.getElementById('leak-modal-' + key);
+        if (overlay) {
+            overlay.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+    }
+
+    function closeLeakModalOverlay(event, key) {
+        if (event.target === document.getElementById('leak-modal-' + key)) {
+            closeLeakModal(key);
+        }
+    }
+
+    function switchLeakTab(key, tab) {
+        ['stats', 'leaks'].forEach(function(t) {
+            var panel = document.getElementById('leak-panel-' + t + '-' + key);
+            if (panel) { panel.classList.remove('active'); }
+            var btn = document.getElementById('leak-tab-btn-' + t + '-' + key);
+            if (btn) { btn.classList.remove('active'); }
+        });
+        var panel = document.getElementById('leak-panel-' + tab + '-' + key);
+        if (panel) { panel.classList.add('active'); }
+        var btn = document.getElementById('leak-tab-btn-' + tab + '-' + key);
+        if (btn) { btn.classList.add('active'); }
+    }
+
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') { closeVpipModal(); closePfrModal(); }
+        if (e.key === 'Escape') {
+            closeVpipModal();
+            closePfrModal();
+            document.querySelectorAll('[id^="leak-modal-"]').forEach(function(el) {
+                if (el.style.display === 'block') {
+                    el.style.display = 'none';
+                    document.body.style.overflow = '';
+                }
+            });
+        }
     });
     </script>
 </body>
@@ -988,10 +1062,12 @@ def _render_daily_report(report: dict) -> str:
 
     # Session accordion
     sessions = report.get('sessions', [])
+    date_key = report.get('date', '').replace('-', '')
     if sessions:
         html += '            <div class="session-accordion">\n'
         for i, sd in enumerate(sessions):
-            html += _render_session_card(sd, i + 1)
+            session_key = f"{date_key}s{i + 1}"
+            html += _render_session_card(sd, i + 1, session_key=session_key)
         html += '            </div>\n'
 
     # Day summary stats (weighted average from sessions)
@@ -1010,8 +1086,12 @@ def _render_daily_report(report: dict) -> str:
     return html
 
 
-def _render_session_card(sd: dict, session_num: int) -> str:
-    """Render a single session accordion card."""
+def _render_session_card(sd: dict, session_num: int, session_key: str = '') -> str:
+    """Render a single session accordion card.
+
+    session_key is used as a unique identifier for the leak summary modal ID.
+    When not provided, falls back to str(session_num).
+    """
     profit = sd.get('profit', 0)
     profit_class = 'positive' if profit >= 0 else 'negative'
     hands_count = sd.get('hands_count', 0)
@@ -1035,6 +1115,22 @@ def _render_session_card(sd: dict, session_num: int) -> str:
     else:
         dur_display = 'N/A'
 
+    # Unique key for modal IDs
+    key = session_key or str(sd.get('session_id', session_num))
+
+    # Leak summary button (shown when there are warning/danger stats)
+    leak_summary = sd.get('leak_summary', [])
+    if leak_summary:
+        has_danger = any(l['health'] == 'danger' for l in leak_summary)
+        btn_class = 'leak-summary-btn danger' if has_danger else 'leak-summary-btn'
+        leak_btn = (
+            f'<button class="{btn_class}" '
+            f'onclick="event.stopPropagation();openLeakModal(\'{key}\')">'
+            f'&#9888; Leaks ({len(leak_summary)})</button>'
+        )
+    else:
+        leak_btn = ''
+
     html = f"""
                 <div class="session-card">
                     <div class="session-header">
@@ -1044,6 +1140,7 @@ def _render_session_card(sd: dict, session_num: int) -> str:
                         </div>
                         <div class="session-header-right">
                             <span class="session-hands">{hands_count} m\u00e3os</span>
+                            {leak_btn}
                             <span class="session-profit {profit_class}">${profit:.2f}</span>
                             <span class="session-toggle">\u25bc</span>
                         </div>
@@ -1110,6 +1207,11 @@ def _render_session_card(sd: dict, session_num: int) -> str:
                     </div>
                 </div>
 """
+
+    # Session leak summary modal (appended outside the accordion card)
+    if leak_summary is not None and stats:
+        html += _render_session_leak_modal(key, stats, leak_summary)
+
     return html
 
 
@@ -2299,6 +2401,123 @@ def _render_period_comparison(period: dict) -> str:
             </table>
 """
     return html
+
+
+def _render_session_leak_modal(session_key: str, stats: dict,
+                               leak_summary: list) -> str:
+    """Render the hidden per-session Leak Summary modal (US-020).
+
+    Shows a consolidated view of all session stats with health badges and,
+    for problematic stats, estimated cost in bb/100 with study suggestions.
+
+    The modal is opened by clicking the 'Resumo de Leaks' button via
+    openLeakModal(session_key) and closed by ✕, backdrop click, or ESC.
+    """
+    if not stats:
+        return ''
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saudável', 'warning': 'Atenção', 'danger': 'Crítico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    # ── All-stats summary table ────────────────────────────────────────
+    ALL_STATS = [
+        ('vpip',      'VPIP',   '{:.1f}%'),
+        ('pfr',       'PFR',    '{:.1f}%'),
+        ('three_bet', '3-Bet',  '{:.1f}%'),
+        ('af',        'AF',     '{:.2f}'),
+        ('wtsd',      'WTSD%',  '{:.1f}%'),
+        ('wsd',       'W$SD%',  '{:.1f}%'),
+        ('cbet',      'CBet%',  '{:.1f}%'),
+    ]
+
+    stat_rows = ''
+    for stat_key, label, fmt in ALL_STATS:
+        if stat_key not in stats:
+            continue
+        value = stats[stat_key]
+        health = stats.get(f'{stat_key}_health', 'good')
+        stat_rows += f"""
+                    <tr>
+                        <td><strong>{label}</strong></td>
+                        <td>{fmt.format(value)}</td>
+                        <td>{badge_html(health)}</td>
+                    </tr>"""
+
+    stats_table = f"""
+            <table class="position-table" style="margin-top:0;">
+                <thead>
+                    <tr>
+                        <th>Stat</th>
+                        <th>Valor</th>
+                        <th>Saúde</th>
+                    </tr>
+                </thead>
+                <tbody>{stat_rows}
+                </tbody>
+            </table>"""
+
+    # ── Leaks section ─────────────────────────────────────────────────
+    leaks_html = ''
+    if leak_summary:
+        danger_count = sum(1 for l in leak_summary if l['health'] == 'danger')
+        warning_count = sum(1 for l in leak_summary if l['health'] == 'warning')
+        total_cost = sum(l['cost_bb100'] for l in leak_summary)
+
+        leaks_html += f"""
+            <div style="margin:15px 0 10px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+                <span style="color:#a0a0a0;font-size:0.9em;">Problemas nesta sessão:</span>
+                {'<span class="badge badge-danger">' + str(danger_count) + ' crítico(s)</span>' if danger_count else ''}
+                {'<span class="badge badge-warning">' + str(warning_count) + ' atenção</span>' if warning_count else ''}
+                <span style="color:#ff9999;font-size:0.9em;">Custo estimado: <strong>{total_cost:.2f} bb/100</strong></span>
+            </div>"""
+
+        for leak in leak_summary:
+            direction_arrow = '↑' if leak['direction'] == 'too_high' else '↓'
+            health_colors = {
+                'danger': ('#ff4444', 'rgba(255,68,68,0.08)', 'rgba(255,68,68,0.25)'),
+                'warning': ('#ffa500', 'rgba(255,165,0,0.08)', 'rgba(255,165,0,0.25)'),
+            }
+            col, bg, border = health_colors.get(leak['health'], ('#a0a0a0', 'rgba(255,255,255,0.03)', 'rgba(255,255,255,0.15)'))
+            leaks_html += f"""
+            <div style="background:{bg};border:1px solid {border};border-radius:8px;padding:12px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                    <span style="color:{col};font-weight:bold;font-size:1em;">{direction_arrow} {leak['label']}</span>
+                    <span style="color:{col};font-size:0.85em;">{leak['value']:.1f} (ideal: {leak['healthy_low']:.0f}–{leak['healthy_high']:.0f})</span>
+                    {badge_html(leak['health'])}
+                    <span style="margin-left:auto;color:#ff9999;font-size:0.85em;">−{leak['cost_bb100']:.2f} bb/100</span>
+                </div>
+                <div class="leak-suggestion" style="font-size:0.82em;">{leak['suggestion']}</div>
+            </div>"""
+    else:
+        leaks_html = '<p style="color:#00ff88;margin:10px 0;">&#10003; Nenhum problema detectado nesta sessão.</p>'
+
+    total_hands = stats.get('total_hands', 0)
+    return f"""
+    <!-- Session Leak Summary Modal (US-020) -->
+    <div id="leak-modal-{session_key}" class="vpip-modal-overlay" onclick="closeLeakModalOverlay(event,'{session_key}')">
+        <div class="vpip-modal" role="dialog" aria-modal="true" aria-labelledby="leak-modal-title-{session_key}">
+            <div class="vpip-modal-header">
+                <span id="leak-modal-title-{session_key}" class="vpip-modal-title">&#128270; Resumo de Leaks da Sessão</span>
+                <button class="vpip-modal-close" onclick="closeLeakModal('{session_key}')" aria-label="Fechar">&times;</button>
+            </div>
+            <p style="color:#a0a0a0;font-size:0.85em;margin-bottom:15px;">{total_hands} mãos analisadas nesta sessão</p>
+            <div class="vpip-tab-bar">
+                <button id="leak-tab-btn-stats-{session_key}" class="vpip-tab-btn active"
+                        onclick="switchLeakTab('{session_key}','stats')">Todas as Stats</button>
+                <button id="leak-tab-btn-leaks-{session_key}" class="vpip-tab-btn"
+                        onclick="switchLeakTab('{session_key}','leaks')">Leaks Detectados</button>
+            </div>
+            <div id="leak-panel-stats-{session_key}" class="vpip-panel active">
+                <h3 class="section-subtitle" style="margin-top:0;">Stats desta Sessão</h3>
+                {stats_table}
+            </div>
+            <div id="leak-panel-leaks-{session_key}" class="vpip-panel">
+                <h3 class="section-subtitle" style="margin-top:0;">Análise de Leaks</h3>
+                {leaks_html}
+            </div>
+        </div>
+    </div>"""
 
 
 def _render_positional_analysis(positional_stats: dict) -> str:
