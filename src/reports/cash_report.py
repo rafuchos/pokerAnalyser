@@ -512,6 +512,132 @@ def generate_cash_report(analyzer: CashAnalyzer,
             border-left: 3px solid rgba(0, 255, 136, 0.5);
         }
 
+        /* ── VPIP Drill-Down Modal ──────────────────────────────── */
+        .vpip-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.75);
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+
+        .vpip-modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 860px;
+            width: 92%;
+            max-height: 82vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+            animation: slideUp 0.25s ease;
+        }
+
+        @keyframes slideUp {
+            from { transform: translate(-50%, -45%); opacity: 0; }
+            to   { transform: translate(-50%, -50%); opacity: 1; }
+        }
+
+        .vpip-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(0, 255, 136, 0.2);
+        }
+
+        .vpip-modal-title {
+            color: #00ff88;
+            font-size: 1.4em;
+            font-weight: bold;
+            text-shadow: 0 0 8px rgba(0, 255, 136, 0.4);
+        }
+
+        .vpip-modal-close {
+            background: none;
+            border: none;
+            color: #a0a0a0;
+            font-size: 1.4em;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: color 0.2s, background 0.2s;
+        }
+
+        .vpip-modal-close:hover {
+            color: #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+        }
+
+        .vpip-tab-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .vpip-tab-btn {
+            padding: 8px 18px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            background: rgba(255, 255, 255, 0.05);
+            color: #a0a0a0;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+
+        .vpip-tab-btn:hover {
+            background: rgba(0, 255, 136, 0.1);
+            color: #e0e0e0;
+        }
+
+        .vpip-tab-btn.active {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+            border-color: rgba(0, 255, 136, 0.6);
+        }
+
+        .vpip-panel {
+            display: none;
+        }
+
+        .vpip-panel.active {
+            display: block;
+        }
+
+        .stat-card.vpip-clickable {
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+        }
+
+        .stat-card.vpip-clickable:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 255, 136, 0.25);
+            background: rgba(0, 255, 136, 0.18);
+        }
+
+        .vpip-hint {
+            font-size: 0.65em;
+            color: rgba(0, 255, 136, 0.6);
+            margin-top: 4px;
+        }
+
         /* ── Responsive ──────────────────────────────── */
         @media (max-width: 768px) {
             .summary-grid {
@@ -594,7 +720,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     by_position = preflop_stats.get('by_position', {})
 
     if overall.get('total_hands', 0) > 0:
-        html += _render_player_stats(overall, by_position)
+        html += _render_player_stats(overall, by_position, positional_stats, stack_depth_data)
 
     # ── Postflop Analysis Section ──────────────────────────────────
     postflop_overall = postflop_stats.get('overall', {})
@@ -656,6 +782,9 @@ def generate_cash_report(analyzer: CashAnalyzer,
     for report in daily_reports:
         html += _render_daily_report(report)
 
+    # ── VPIP Drill-Down Modal (US-018) ───────────────────────────────────
+    html += _render_vpip_modal(positional_stats, stack_depth_data)
+
     html += """
         <div class="footer">
             <p>Relat\u00f3rio gerado automaticamente</p>
@@ -666,6 +795,46 @@ def generate_cash_report(analyzer: CashAnalyzer,
         header.addEventListener('click', function() {
             this.parentElement.classList.toggle('open');
         });
+    });
+
+    /* ── VPIP Drill-Down Modal (US-018) ── */
+    function openVpipModal() {
+        var overlay = document.getElementById('vpip-modal-overlay');
+        if (overlay) {
+            overlay.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+    }
+
+    function closeVpipModal() {
+        var overlay = document.getElementById('vpip-modal-overlay');
+        if (overlay) {
+            overlay.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+    }
+
+    function closeVpipModalOverlay(event) {
+        if (event.target === document.getElementById('vpip-modal-overlay')) {
+            closeVpipModal();
+        }
+    }
+
+    function switchVpipTab(tab) {
+        document.querySelectorAll('.vpip-panel').forEach(function(p) {
+            p.classList.remove('active');
+        });
+        document.querySelectorAll('.vpip-tab-btn').forEach(function(b) {
+            b.classList.remove('active');
+        });
+        var panel = document.getElementById('vpip-panel-' + tab);
+        if (panel) { panel.classList.add('active'); }
+        var btn = document.getElementById('vpip-tab-btn-' + tab);
+        if (btn) { btn.classList.add('active'); }
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { closeVpipModal(); }
     });
     </script>
 </body>
@@ -1146,8 +1315,18 @@ def _render_session_comparison(comparison: dict, sessions: list[dict]) -> str:
     return html
 
 
-def _render_player_stats(overall: dict, by_position: dict) -> str:
-    """Render the Player Stats HTML section."""
+def _render_player_stats(overall: dict, by_position: dict,
+                         positional_stats: dict = None,
+                         stack_depth_data: dict = None) -> str:
+    """Render the Player Stats HTML section.
+
+    When positional_stats or stack_depth_data are provided the VPIP card
+    becomes clickable and opens the VPIP Drill-Down Modal (US-018).
+    """
+    has_modal = bool(
+        (positional_stats and positional_stats.get('by_position'))
+        or (stack_depth_data and stack_depth_data.get('by_tier'))
+    )
 
     def badge_html(health: str) -> str:
         label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
@@ -1164,6 +1343,23 @@ def _render_player_stats(overall: dict, by_position: dict) -> str:
             f'</div>'
         )
 
+    def vpip_stat_card(value: float, health: str, detail: str = '') -> str:
+        """VPIP card – clickable when modal data is available."""
+        detail_html = f'<div class="stat-detail">{detail}</div>' if detail else ''
+        if has_modal:
+            hint = '<div class="vpip-hint">&#128269; clique para detalhes</div>'
+            return (
+                f'<div class="stat-card vpip-clickable" onclick="openVpipModal()" '
+                f'title="Clique para ver breakdown por posi\u00e7\u00e3o e stack depth">'
+                f'<div class="stat-label">VPIP</div>'
+                f'<div class="stat-value">{value:.1f}%</div>'
+                f'{badge_html(health)}'
+                f'{detail_html}'
+                f'{hint}'
+                f'</div>'
+            )
+        return stat_card('VPIP', value, health, detail)
+
     vpip_detail = f'{overall["vpip_hands"]}/{overall["total_hands"]} m\u00e3os'
     pfr_detail = f'{overall["pfr_hands"]}/{overall["total_hands"]} m\u00e3os'
     three_bet_detail = f'{overall["three_bet_hands"]}/{overall["three_bet_opps"]} opps'
@@ -1174,7 +1370,7 @@ def _render_player_stats(overall: dict, by_position: dict) -> str:
         <div class="player-stats">
             <h2>Player Stats (Preflop)</h2>
             <div class="stats-grid">
-                {stat_card('VPIP', overall['vpip'], overall['vpip_health'], vpip_detail)}
+                {vpip_stat_card(overall['vpip'], overall['vpip_health'], vpip_detail)}
                 {stat_card('PFR', overall['pfr'], overall['pfr_health'], pfr_detail)}
                 {stat_card('3-Bet', overall['three_bet'], overall['three_bet_health'], three_bet_detail)}
                 {stat_card('Fold to 3-Bet', overall['fold_to_3bet'], overall['fold_to_3bet_health'], fold_3bet_detail)}
@@ -2419,6 +2615,121 @@ def _render_stack_depth_analysis(stack_depth_data: dict) -> str:
         </div>
 """
     return html
+
+
+# ── VPIP Drill-Down Modal ─────────────────────────────────────────────────────
+
+def _render_vpip_modal(positional_stats: dict, stack_depth_data: dict) -> str:
+    """Render the hidden VPIP drill-down modal with two tabs.
+
+    Tab 1 – Por Posição: VPIP breakdown by position (from US-010 data).
+    Tab 2 – Por Stack Depth: VPIP breakdown by stack tier (from US-017 data).
+
+    The modal is opened by clicking the VPIP stat card via openVpipModal()
+    and closed by the ✕ button, backdrop click, or the ESC key.
+    """
+    position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+    by_position = positional_stats.get('by_position', {})
+    by_tier = stack_depth_data.get('by_tier', {})
+    tier_order = stack_depth_data.get('tier_order', ['deep', 'medium', 'shallow', 'shove'])
+    tiers_present = [t for t in tier_order if t in by_tier]
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    # ── Panel 1: by position ─────────────────────────────────────────────
+    pos_rows = ''
+    for pos in position_order:
+        if pos not in by_position:
+            continue
+        ps = by_position[pos]
+        pos_rows += f"""
+                    <tr>
+                        <td><strong>{pos}</strong></td>
+                        <td>{ps['total_hands']}</td>
+                        <td>{ps['vpip']:.1f}% {badge_html(ps.get('vpip_health', 'good'))}</td>
+                        <td>{ps['pfr']:.1f}%</td>
+                        <td>{ps['three_bet']:.1f}%</td>
+                        <td class="{'positive' if ps.get('bb_per_100', 0) >= 0 else 'negative'}">{ps.get('bb_per_100', 0):+.1f}</td>
+                    </tr>"""
+
+    if pos_rows:
+        position_table = f"""
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Posi\u00e7\u00e3o</th>
+                        <th>M\u00e3os</th>
+                        <th>VPIP</th>
+                        <th>PFR</th>
+                        <th>3-Bet</th>
+                        <th>bb/100</th>
+                    </tr>
+                </thead>
+                <tbody>{pos_rows}
+                </tbody>
+            </table>"""
+    else:
+        position_table = '<p style="color:#a0a0a0;">Sem dados por posi\u00e7\u00e3o dispon\u00edveis.</p>'
+
+    # ── Panel 2: by stack tier ────────────────────────────────────────────
+    tier_rows = ''
+    for tier in tiers_present:
+        ts = by_tier[tier]
+        tier_rows += f"""
+                    <tr>
+                        <td><strong>{ts['label']}</strong></td>
+                        <td>{ts['total_hands']}</td>
+                        <td>{ts['vpip']:.1f}% {badge_html(ts.get('vpip_health', 'good'))}</td>
+                        <td>{ts['pfr']:.1f}% {badge_html(ts.get('pfr_health', 'good'))}</td>
+                        <td>{ts['three_bet']:.1f}%</td>
+                        <td class="{'positive' if ts.get('bb_per_100', 0) >= 0 else 'negative'}">{ts.get('bb_per_100', 0):+.1f}</td>
+                    </tr>"""
+
+    if tier_rows:
+        stack_table = f"""
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Stack Tier</th>
+                        <th>M\u00e3os</th>
+                        <th>VPIP</th>
+                        <th>PFR</th>
+                        <th>3-Bet</th>
+                        <th>bb/100</th>
+                    </tr>
+                </thead>
+                <tbody>{tier_rows}
+                </tbody>
+            </table>"""
+    else:
+        stack_table = '<p style="color:#a0a0a0;">Sem dados por stack depth dispon\u00edveis.</p>'
+
+    return f"""
+    <!-- VPIP Drill-Down Modal (US-018) -->
+    <div id="vpip-modal-overlay" class="vpip-modal-overlay" onclick="closeVpipModalOverlay(event)">
+        <div id="vpip-modal" class="vpip-modal" role="dialog" aria-modal="true" aria-labelledby="vpip-modal-title">
+            <div class="vpip-modal-header">
+                <span id="vpip-modal-title" class="vpip-modal-title">&#128269; VPIP Drill-Down</span>
+                <button class="vpip-modal-close" onclick="closeVpipModal()" aria-label="Fechar">&times;</button>
+            </div>
+            <div class="vpip-tab-bar">
+                <button id="vpip-tab-btn-position" class="vpip-tab-btn active"
+                        onclick="switchVpipTab('position')">Por Posi\u00e7\u00e3o</button>
+                <button id="vpip-tab-btn-stack" class="vpip-tab-btn"
+                        onclick="switchVpipTab('stack')">Por Stack Depth</button>
+            </div>
+            <div id="vpip-panel-position" class="vpip-panel active">
+                <h3 class="section-subtitle" style="margin-top:0;">VPIP por Posi\u00e7\u00e3o</h3>
+                {position_table}
+            </div>
+            <div id="vpip-panel-stack" class="vpip-panel">
+                <h3 class="section-subtitle" style="margin-top:0;">VPIP por Stack Depth</h3>
+                {stack_table}
+            </div>
+        </div>
+    </div>"""
 
 
 # ── Red Line / Blue Line ──────────────────────────────────────────────────────

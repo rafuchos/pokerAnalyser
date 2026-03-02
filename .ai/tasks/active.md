@@ -82,10 +82,22 @@ Update this section weekly with sprint goals and dates.
 - [x] US-015: Preflop Range Visualization (Hand Matrix por Posição) (2026-03-02)
 - [x] US-016: Sistema de Configuração Externo para Targets de Stats (2026-03-02)
 - [x] US-017: Stats Segmentadas por Stack Depth (BB Count) e Posição (2026-03-02)
+- [x] US-018: VPIP Drill-Down Modal com Breakdown por Posição e Stack Depth (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-018: VPIP Drill-Down Modal com Breakdown por Posição e Stack Depth (2026-03-02)
+  - _render_vpip_modal(): hidden modal overlay with two tab panels (Por Posição, Por Stack Depth)
+  - Position panel: VPIP, PFR, 3-Bet, bb/100 per position with health badges
+  - Stack depth panel: VPIP, PFR, 3-Bet, bb/100 per tier (deep/medium/shallow/shove) with health badges
+  - _render_player_stats(): VPIP card becomes clickable (vpip-clickable class + hint) when data supplied
+  - generate_cash_report(): passes positional_stats+stack_depth_data to _render_player_stats(); injects modal HTML
+  - JS: openVpipModal(), closeVpipModal(), closeVpipModalOverlay(), switchVpipTab(), ESC key listener
+  - CSS: modal overlay with backdrop blur, slide-up animation, tab buttons, vpip-clickable hover
+  - Backwards-compatible: _render_player_stats() still works with only 2 args (no modal)
+  - 47 new tests (1215 total)
 
 - [x] US-017: Stats Segmentadas por Stack Depth (BB Count) e Posição (2026-03-02)
   - Schema: hero_stack REAL column on hands table with migration
