@@ -19,6 +19,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     preflop_stats = analyzer.get_preflop_stats()
     postflop_stats = analyzer.get_postflop_stats()
     positional_stats = analyzer.get_positional_stats()
+    leak_analysis = analyzer.get_leak_analysis()
     ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
     decision_ev_stats = ev_analyzer.get_decision_ev_analysis() if ev_analyzer else None
 
@@ -602,6 +603,10 @@ def generate_cash_report(analyzer: CashAnalyzer,
     # ── Positional Analysis Section ──────────────────────────────────
     if positional_stats.get('by_position'):
         html += _render_positional_analysis(positional_stats)
+
+    # ── Leak Finder Section ───────────────────────────────────────────
+    if leak_analysis and leak_analysis.get('total_leaks', 0) > 0:
+        html += _render_leak_finder(leak_analysis)
 
     # ── Decision-Tree EV Analysis Section ───────────────────────────
     _total_decisions = 0
@@ -1753,6 +1758,202 @@ def _render_ev_chart(chart_data: list) -> str:
             </svg>
 """
     return svg
+
+
+def _render_leak_finder(leak_analysis: dict) -> str:
+    """Render the Leak Finder section.
+
+    Shows health score, top 5 leaks with priority badges,
+    study spots, and period comparison.
+    """
+    health_score = leak_analysis.get('health_score', 100)
+    top5 = leak_analysis.get('top5', [])
+    study_spots = leak_analysis.get('study_spots', [])
+    period = leak_analysis.get('period_comparison', {})
+    total_leaks = leak_analysis.get('total_leaks', 0)
+
+    html = """
+        <div class="player-stats">
+            <h2>Leak Finder</h2>
+"""
+
+    # Health score bar
+    html += _render_health_score_bar(health_score, total_leaks)
+
+    # Top 5 leaks
+    if top5:
+        html += """
+            <h3 class="section-subtitle">Top 5 Leaks (maior impacto primeiro)</h3>
+            <div class="leaks-container">
+"""
+        priority_labels = {0: 'URGENTE', 1: 'ALTO', 2: 'MÉDIO', 3: 'MÉDIO', 4: 'BAIXO'}
+        priority_colors = {0: '#ff4444', 1: '#ff6b6b', 2: '#ffa500', 3: '#ffc107', 4: '#a0a0a0'}
+
+        for i, leak in enumerate(top5):
+            p_label = priority_labels.get(i, 'BAIXO')
+            p_color = priority_colors.get(i, '#a0a0a0')
+            cost = leak['cost_bb100']
+            direction_label = '↑ acima' if leak['direction'] == 'too_high' else '↓ abaixo'
+            cat_labels = {
+                'preflop': 'Preflop', 'postflop': 'Postflop',
+                'positional': 'Posicional', 'sizing': 'Sizing',
+            }
+            cat = cat_labels.get(leak['category'], leak['category'])
+
+            html += f"""
+                <div class="leak-card">
+                    <div class="leak-header">
+                        <div class="leak-rank">#{i + 1}</div>
+                        <div class="leak-description">{leak['name']}</div>
+                        <span class="badge" style="background:rgba({_hex_to_rgb(p_color)},0.2);color:{p_color};margin-left:auto;">{p_label}</span>
+                    </div>
+                    <div class="leak-stats">
+                        <span>Categoria: <strong>{cat}</strong></span>
+                        <span>Atual: <strong>{leak['current_value']:.1f}</strong></span>
+                        <span>Ideal: <strong>{leak['healthy_low']:.0f}-{leak['healthy_high']:.0f}</strong></span>
+                        <span>Custo: <strong class="negative">{cost:.2f} bb/100</strong></span>
+                        <span>{direction_label} do range ideal</span>
+                    </div>
+                    <div class="leak-suggestion">
+                        {leak['suggestion']}
+                    </div>
+                </div>
+"""
+        html += """
+            </div>
+"""
+
+    # Study spots
+    if study_spots:
+        html += """
+            <h3 class="section-subtitle">Spots para Estudar</h3>
+            <div class="leaks-container">
+"""
+        for spot in study_spots:
+            priority = spot.get('priority', 'média')
+            if priority == 'alta':
+                badge_class = 'badge-danger'
+            elif priority == 'média':
+                badge_class = 'badge-warning'
+            else:
+                badge_class = 'badge-good'
+
+            html += f"""
+                <div class="leak-card" style="border-color:rgba(0,170,255,0.25);background:rgba(0,170,255,0.05);">
+                    <div class="leak-header">
+                        <div class="leak-description" style="color:#66ccff;">{spot['title']}</div>
+                        <span class="badge {badge_class}" style="margin-left:auto;">Prioridade: {priority}</span>
+                    </div>
+                    <div class="leak-suggestion">
+                        {spot['action']}
+                    </div>
+                </div>
+"""
+        html += """
+            </div>
+"""
+
+    # Period comparison
+    if period and period.get('overall') and period.get('recent'):
+        html += _render_period_comparison(period)
+
+    html += """
+        </div>
+"""
+    return html
+
+
+def _render_health_score_bar(score: int, total_leaks: int) -> str:
+    """Render visual health score meter (0-100)."""
+    if score >= 80:
+        color = '#00ff88'
+        label = 'Excelente'
+    elif score >= 60:
+        color = '#ffc107'
+        label = 'Bom'
+    elif score >= 40:
+        color = '#ffa500'
+        label = 'Atenção'
+    else:
+        color = '#ff4444'
+        label = 'Crítico'
+
+    html = f"""
+            <div style="margin:15px 0;">
+                <div style="display:flex;align-items:center;gap:15px;margin-bottom:8px;">
+                    <span style="color:#a0a0a0;font-size:0.9em;">Score de Saúde do Jogo</span>
+                    <span style="font-size:1.5em;font-weight:bold;color:{color};">{score}/100</span>
+                    <span class="badge" style="background:rgba({_hex_to_rgb(color)},0.2);color:{color};">{label}</span>
+                    <span style="color:#a0a0a0;font-size:0.85em;">{total_leaks} leak(s) detectado(s)</span>
+                </div>
+                <div style="background:rgba(255,255,255,0.1);border-radius:10px;height:20px;overflow:hidden;">
+                    <div style="background:{color};width:{score}%;height:100%;border-radius:10px;transition:width 0.3s;"></div>
+                </div>
+            </div>
+"""
+    return html
+
+
+def _hex_to_rgb(hex_color: str) -> str:
+    """Convert hex color like '#ff4444' to '255,68,68'."""
+    h = hex_color.lstrip('#')
+    return f'{int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)}'
+
+
+def _render_period_comparison(period: dict) -> str:
+    """Render period comparison table (last 30 days vs overall)."""
+    overall = period.get('overall', {})
+    recent = period.get('recent', {})
+    period_label = period.get('period_label', 'Últimos 30 dias')
+
+    stat_config = [
+        ('vpip', 'VPIP', '{:.1f}%'),
+        ('pfr', 'PFR', '{:.1f}%'),
+        ('three_bet', '3-Bet', '{:.1f}%'),
+        ('fold_to_3bet', 'Fold to 3-Bet', '{:.1f}%'),
+        ('ats', 'ATS', '{:.1f}%'),
+        ('af', 'AF', '{:.2f}'),
+        ('wtsd', 'WTSD%', '{:.1f}%'),
+        ('wsd', 'W$SD%', '{:.1f}%'),
+        ('cbet', 'CBet%', '{:.1f}%'),
+        ('fold_to_cbet', 'Fold to CBet', '{:.1f}%'),
+        ('check_raise', 'Check-Raise%', '{:.1f}%'),
+    ]
+
+    html = f"""
+            <h3 class="section-subtitle">Comparação de Períodos: Overall vs. {period_label}</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Stat</th>
+                        <th>Overall</th>
+                        <th>Recente</th>
+                        <th>Variação</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+    for stat_key, label, fmt in stat_config:
+        o_val = overall.get(stat_key)
+        r_val = recent.get(stat_key)
+        if o_val is None or r_val is None:
+            continue
+        diff = r_val - o_val
+        diff_class = 'positive' if abs(diff) < 2 else ('negative' if abs(diff) > 5 else '')
+        diff_str = f'{diff:+.1f}'
+        html += f"""
+                    <tr>
+                        <td><strong>{label}</strong></td>
+                        <td>{fmt.format(o_val)}</td>
+                        <td>{fmt.format(r_val)}</td>
+                        <td class="{diff_class}">{diff_str}</td>
+                    </tr>
+"""
+    html += """
+                </tbody>
+            </table>
+"""
+    return html
 
 
 def _render_positional_analysis(positional_stats: dict) -> str:

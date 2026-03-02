@@ -1,0 +1,33 @@
+{
+  "id": "US-011",
+  "title": "Leak Finder Automatizado com Spots de Estudo Priorizados",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Create src/analyzers/leak_finder.py with Leak dataclass and LeakFinder class containing leak detection methods for preflop, postflop, positional, and sizing categories",
+    "Implement cost estimation in bb/100 using deviation from healthy ranges and weight factors for each stat",
+    "Implement health score calculation (0-100) based on aggregate leak severity",
+    "Implement period comparison logic (last 30 days vs overall) using existing repository date filtering",
+    "Implement study spot generation with concrete action suggestions per leak type",
+    "Create comprehensive test suite in tests/test_leak_finder.py (60-80 tests covering unit, integration, and edge cases)",
+    "Integrate LeakFinder into src/analyzers/cash.py to expose leak data through existing analyzer pipeline",
+    "Add HTML rendering section in src/reports/cash_report.py with top 5 leaks, study spots, health score bar, and period comparison table",
+    "Update main.py if CLI leak-finder subcommand is needed",
+    "Run full test suite and quality gates"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/leak_finder.py",
+    "tests/test_leak_finder.py",
+    "src/analyzers/cash.py",
+    "src/reports/cash_report.py",
+    "main.py",
+    ".ai/tasks/active.md"
+  ],
+  "created_at": "2026-03-02T03:27:42.310Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-011"
+}

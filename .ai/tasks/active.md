@@ -75,10 +75,28 @@ Update this section weekly with sprint goals and dates.
 - [x] US-008: EV Analysis por Sessão (Cash e Torneio) (2026-03-02)
 - [x] US-009: EV Completo para Todas as Decisões (Decision-Tree EV) (2026-03-02)
 - [x] US-010: Análise Posicional Completa (Stats + Win Rate por Posição) (2026-03-02)
+- [x] US-011: Leak Finder Automatizado com Spots de Estudo Priorizados (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-011: Leak Finder Automatizado com Spots de Estudo Priorizados (2026-03-02)
+  - New module: src/analyzers/leak_finder.py with Leak dataclass and LeakFinder class
+  - LeakFinder._detect_preflop_leaks(): compares VPIP, PFR, 3-Bet, Fold-to-3Bet, ATS vs healthy ranges
+  - LeakFinder._detect_postflop_leaks(): compares AF, WTSD, W$SD, CBet, Fold-to-CBet, Check-Raise vs ranges
+  - LeakFinder._detect_positional_leaks(): per-position VPIP/PFR using position-specific ranges
+  - LeakFinder._check_deviation(): computes cost in bb/100 (deviation × weight factor)
+  - LeakFinder._calculate_health_score(): 0-100 score based on aggregate leak severity
+  - LeakFinder._generate_study_spots(): concrete action suggestions per leak type
+  - LeakFinder._compare_periods(): last 30 days vs overall stats comparison
+  - CashAnalyzer.get_leak_analysis(): integration method delegating to LeakFinder
+  - cash_report.py: _render_leak_finder() with top 5 leaks, priority badges, study spots
+  - cash_report.py: _render_health_score_bar() visual health meter (0-100)
+  - cash_report.py: _render_period_comparison() table (overall vs recent)
+  - cash_report.py: _hex_to_rgb() utility for CSS color conversion
+  - Integrated into generate_cash_report() after positional analysis section
+  - 79 new tests (666 total)
 
 - [x] US-010: Análise Posicional Completa (Stats + Win Rate por Posição) (2026-03-02)
   - Repository: get_cash_hands_with_position() for hand-level financial data per position

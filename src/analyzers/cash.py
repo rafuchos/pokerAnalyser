@@ -1388,3 +1388,15 @@ class CashAnalyzer:
             })
 
         return radar
+
+    # ── Leak Finder ──────────────────────────────────────────────────
+
+    def get_leak_analysis(self) -> dict:
+        """Run leak finder analysis.
+
+        Returns dict with leaks, top5, study_spots, health_score,
+        period_comparison, and total_leaks.
+        """
+        from src.analyzers.leak_finder import LeakFinder
+        finder = LeakFinder(self, self.repo, self.year)
+        return finder.find_leaks()
