@@ -19,6 +19,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     preflop_stats = analyzer.get_preflop_stats()
     postflop_stats = analyzer.get_postflop_stats()
     ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
+    decision_ev_stats = ev_analyzer.get_decision_ev_analysis() if ev_analyzer else None
 
     total_hands = summary['total_hands']
     total_net = summary['total_net']
@@ -444,6 +445,66 @@ def generate_cash_report(analyzer: CashAnalyzer,
             margin-top: 5px;
         }
 
+        /* ── EV Leak Cards ──────────────────────────────── */
+        .leaks-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .leak-card {
+            background: rgba(255, 68, 68, 0.08);
+            border: 1px solid rgba(255, 68, 68, 0.25);
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .leak-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .leak-rank {
+            background: rgba(255, 68, 68, 0.4);
+            color: #fff;
+            border-radius: 50%;
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8em;
+            flex-shrink: 0;
+        }
+
+        .leak-description {
+            font-weight: bold;
+            color: #ff9999;
+            font-size: 0.95em;
+        }
+
+        .leak-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            font-size: 0.85em;
+            color: #a0a0a0;
+            margin-bottom: 8px;
+        }
+
+        .leak-suggestion {
+            font-size: 0.85em;
+            color: #b0e0b0;
+            padding: 8px 10px;
+            background: rgba(0, 255, 136, 0.05);
+            border-radius: 6px;
+            border-left: 3px solid rgba(0, 255, 136, 0.5);
+        }
+
         /* ── Responsive ──────────────────────────────── */
         @media (max-width: 768px) {
             .summary-grid {
@@ -537,8 +598,19 @@ def generate_cash_report(analyzer: CashAnalyzer,
             postflop_stats.get('by_week', {}),
         )
 
-    # ── EV Analysis Section ──────────────────────────────────────
-    if ev_stats and ev_stats.get('overall', {}).get('allin_hands', 0) > 0:
+    # ── Decision-Tree EV Analysis Section ───────────────────────────
+    _total_decisions = 0
+    if decision_ev_stats:
+        _total_decisions = sum(
+            decision_ev_stats['by_street'][st][dec]['count']
+            for st in ('preflop', 'flop', 'turn', 'river')
+            for dec in ('fold', 'call', 'raise')
+        )
+
+    if decision_ev_stats and _total_decisions > 0:
+        html += _render_decision_ev_analysis(decision_ev_stats, ev_stats)
+    elif ev_stats and ev_stats.get('overall', {}).get('allin_hands', 0) > 0:
+        # Fallback: show standalone all-in EV section when no action data
         html += _render_ev_analysis(
             ev_stats['overall'],
             ev_stats.get('by_stakes', {}),
@@ -1231,18 +1303,277 @@ def _render_postflop_stats(overall: dict, by_street: dict, by_week: dict) -> str
     return html
 
 
+def _render_decision_ev_analysis(decision_ev: dict, allin_ev: dict = None) -> str:
+    """Render the Decision-Tree EV Analysis section.
+
+    Shows per-street EV breakdown for fold/call/raise decisions,
+    a bar chart of decision EV, top 5 EV leaks, and the all-in EV
+    subsection (when available).
+    """
+    by_street = decision_ev.get('by_street', {})
+    leaks = decision_ev.get('leaks', [])
+    chart_data = decision_ev.get('chart_data', [])
+
+    streets = ('preflop', 'flop', 'turn', 'river')
+    street_labels = {
+        'preflop': 'Preflop', 'flop': 'Flop',
+        'turn': 'Turn', 'river': 'River',
+    }
+
+    html = """
+        <div class="player-stats">
+            <h2>EV Completo - Decision Tree</h2>
+            <h3 class="section-subtitle">EV por Street e Tipo de Decis\u00e3o</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Street</th>
+                        <th>Fold: Qtd</th>
+                        <th>Fold: Net M\u00e9dio</th>
+                        <th>Call: Qtd</th>
+                        <th>Call: Net M\u00e9dio</th>
+                        <th>Raise: Qtd</th>
+                        <th>Raise: Net M\u00e9dio</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+    for street in streets:
+        st_data = by_street.get(street, {})
+        fold = st_data.get('fold', {})
+        call = st_data.get('call', {})
+        raise_ = st_data.get('raise', {})
+
+        def _nc(v):
+            return 'positive' if v >= 0 else 'negative'
+
+        def _fmt(v):
+            return f'${v:+.2f}' if v != 0 else '$0.00'
+
+        f_avg = fold.get('avg_net', 0)
+        c_avg = call.get('avg_net', 0)
+        r_avg = raise_.get('avg_net', 0)
+
+        html += f"""
+                    <tr>
+                        <td><strong>{street_labels[street]}</strong></td>
+                        <td>{fold.get('count', 0)}</td>
+                        <td class="{_nc(f_avg)}">{_fmt(f_avg)}</td>
+                        <td>{call.get('count', 0)}</td>
+                        <td class="{_nc(c_avg)}">{_fmt(c_avg)}</td>
+                        <td>{raise_.get('count', 0)}</td>
+                        <td class="{_nc(r_avg)}">{_fmt(r_avg)}</td>
+                    </tr>
+"""
+    html += """
+                </tbody>
+            </table>
+"""
+
+    # Decision EV bar chart
+    if chart_data:
+        html += _render_decision_ev_chart(chart_data)
+
+    # EV Leaks
+    if leaks:
+        html += """
+            <h3 class="section-subtitle">Top EV Leaks</h3>
+            <div class="leaks-container">
+"""
+        for i, leak in enumerate(leaks, 1):
+            html += f"""
+                <div class="leak-card">
+                    <div class="leak-header">
+                        <div class="leak-rank">#{i}</div>
+                        <div class="leak-description">{leak['description']}</div>
+                    </div>
+                    <div class="leak-stats">
+                        <span>Ocorr\u00eancias: <strong>{leak['count']}</strong></span>
+                        <span>Net Total: <strong class="negative">${leak['total_loss']:.2f}</strong></span>
+                        <span>M\u00e9dia/M\u00e3o: <strong class="negative">${leak['avg_loss']:.2f}</strong></span>
+                    </div>
+                    <div class="leak-suggestion">
+                        {leak['suggestion']}
+                    </div>
+                </div>
+"""
+        html += """
+            </div>
+"""
+    else:
+        html += """
+            <div style="padding:15px;color:#a0a0a0;text-align:center;">
+                Dados insuficientes para identificar EV leaks (m\u00ednimo 5 m\u00e3os por spot)
+            </div>
+"""
+
+    # All-in EV as sub-section
+    if allin_ev and allin_ev.get('overall', {}).get('allin_hands', 0) > 0:
+        html += """
+            <h3 class="section-subtitle">EV Analysis (All-in Sub-se\u00e7\u00e3o)</h3>
+"""
+        html += _render_ev_analysis(
+            allin_ev['overall'],
+            allin_ev.get('by_stakes', {}),
+            allin_ev.get('chart_data', []),
+            _as_subsection=True,
+        )
+
+    html += """
+        </div>
+"""
+    return html
+
+
+def _render_decision_ev_chart(chart_data: list) -> str:
+    """Render inline SVG bar chart of decision EV breakdown by street."""
+    if not chart_data:
+        return ''
+
+    width = 700
+    height = 300
+    margin_top = 30
+    margin_right = 20
+    margin_bottom = 50
+    margin_left = 70
+    plot_w = width - margin_left - margin_right
+    plot_h = height - margin_top - margin_bottom
+
+    # Collect all avg values for y-scale
+    all_values = [0.0]
+    for d in chart_data:
+        all_values.extend([
+            d.get('fold_avg', 0),
+            d.get('call_avg', 0),
+            d.get('raise_avg', 0),
+        ])
+
+    y_min = min(min(all_values), 0)
+    y_max = max(max(all_values), 0)
+    y_range = y_max - y_min if y_max != y_min else 1.0
+    y_min -= y_range * 0.1
+    y_max += y_range * 0.1
+    y_range = y_max - y_min
+
+    def scale_y(val):
+        return margin_top + plot_h - ((val - y_min) / y_range) * plot_h
+
+    zero_y = scale_y(0)
+
+    num_streets = len(chart_data)
+    group_w = plot_w / num_streets if num_streets > 0 else plot_w
+    bar_w = group_w / 5  # 3 bars + 2 gaps
+    colors = {'fold': '#ff6b6b', 'call': '#ffa500', 'raise': '#00ff88'}
+    dec_order = ('fold', 'call', 'raise')
+
+    street_labels = {
+        'preflop': 'Pre', 'flop': 'Flop', 'turn': 'Turn', 'river': 'River',
+    }
+
+    bars_html = ''
+    labels_html = ''
+    for i, d in enumerate(chart_data):
+        group_x = margin_left + i * group_w + group_w * 0.1
+        street = d.get('street', '')
+        label = street_labels.get(street, street)
+        label_x = margin_left + (i + 0.5) * group_w
+        labels_html += (
+            f'<text x="{label_x:.1f}" y="{height - margin_bottom + 15}" '
+            f'text-anchor="middle" fill="#888" font-size="11">{label}</text>\n'
+        )
+        for j, dec in enumerate(dec_order):
+            val = d.get(f'{dec}_avg', 0)
+            color = colors[dec]
+            bar_x = group_x + j * (bar_w + 2)
+            if val >= 0:
+                bar_y = scale_y(val)
+                bar_h = zero_y - bar_y
+            else:
+                bar_y = zero_y
+                bar_h = scale_y(val) - zero_y
+            if bar_h > 0:
+                bars_html += (
+                    f'<rect x="{bar_x:.1f}" y="{bar_y:.1f}" '
+                    f'width="{bar_w:.1f}" height="{bar_h:.1f}" '
+                    f'fill="{color}" opacity="0.8" rx="2"/>\n'
+                )
+            if abs(val) > 0.01:
+                lbl_y = bar_y - 3 if val >= 0 else bar_y + bar_h + 10
+                bars_html += (
+                    f'<text x="{bar_x + bar_w / 2:.1f}" y="{lbl_y:.1f}" '
+                    f'text-anchor="middle" fill="{color}" font-size="7">'
+                    f'{val:+.1f}</text>\n'
+                )
+
+    # Grid lines and Y-axis labels
+    grid_html = ''
+    for i in range(6):
+        y_val = y_min + (y_range * i / 5)
+        y_pos = scale_y(y_val)
+        grid_html += (
+            f'<line x1="{margin_left}" y1="{y_pos:.1f}" '
+            f'x2="{width - margin_right}" y2="{y_pos:.1f}" '
+            f'stroke="rgba(255,255,255,0.1)" stroke-width="1"/>\n'
+            f'<text x="{margin_left - 5}" y="{y_pos:.1f}" '
+            f'text-anchor="end" fill="#888" font-size="10" '
+            f'dominant-baseline="middle">${y_val:.1f}</text>\n'
+        )
+
+    zero_line = (
+        f'<line x1="{margin_left}" y1="{zero_y:.1f}" '
+        f'x2="{width - margin_right}" y2="{zero_y:.1f}" '
+        f'stroke="rgba(255,255,255,0.4)" stroke-width="1.5" '
+        f'stroke-dasharray="4,4"/>\n'
+    )
+
+    # Legend
+    legend_x = width - margin_right - 110
+    legend_html = (
+        f'<rect x="{legend_x}" y="{margin_top}" width="100" height="55" '
+        f'fill="rgba(0,0,0,0.5)" rx="5"/>\n'
+    )
+    dec_labels = {'fold': 'Fold', 'call': 'Call', 'raise': 'Raise'}
+    for k, dec in enumerate(dec_order):
+        color = colors[dec]
+        ly = margin_top + 15 + k * 15
+        legend_html += (
+            f'<rect x="{legend_x + 8}" y="{ly - 6}" width="12" height="8" '
+            f'fill="{color}" rx="2"/>\n'
+            f'<text x="{legend_x + 25}" y="{ly}" fill="#e0e0e0" '
+            f'font-size="10">{dec_labels[dec]}</text>\n'
+        )
+
+    svg = f"""
+            <h3 class="section-subtitle">EV Breakdown por Tipo de Decis\u00e3o</h3>
+            <svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"
+                 style="width:100%;max-width:{width}px;background:rgba(0,0,0,0.2);border-radius:10px;margin:15px 0;">
+                {grid_html}
+                {zero_line}
+                <line x1="{margin_left}" y1="{margin_top}" x2="{margin_left}" y2="{height - margin_bottom}"
+                      stroke="#555" stroke-width="1"/>
+                {bars_html}
+                {labels_html}
+                {legend_html}
+                <text x="15" y="{height / 2}" text-anchor="middle" fill="#888" font-size="11"
+                      transform="rotate(-90, 15, {height / 2})">Net M\u00e9dio ($)</text>
+            </svg>
+"""
+    return svg
+
+
 def _render_ev_analysis(overall: dict, by_stakes: dict,
-                        chart_data: list) -> str:
+                        chart_data: list, _as_subsection: bool = False) -> str:
     """Render the EV Analysis HTML section with inline SVG chart."""
 
     luck = overall.get('luck_factor', 0)
     luck_class = 'positive' if luck >= 0 else 'negative'
     luck_label = 'acima do EV' if luck >= 0 else 'abaixo do EV'
 
-    html = f"""
-        <div class="player-stats">
-            <h2>EV Analysis</h2>
-            <div class="stats-grid">
+    outer_open = '' if _as_subsection else '\n        <div class="player-stats">\n'
+    heading = '' if _as_subsection else '            <h2>EV Analysis</h2>\n'
+    outer_close = '' if _as_subsection else '\n        </div>\n'
+
+    html = f"""{outer_open}{heading}            <div class="stats-grid">
                 <div class="stat-card">
                     <div class="stat-label">All-in Hands</div>
                     <div class="stat-value">{overall['allin_hands']}</div>
@@ -1313,9 +1644,7 @@ def _render_ev_analysis(overall: dict, by_stakes: dict,
             </table>
 """
 
-    html += """
-        </div>
-"""
+    html += outer_close
     return html
 
 

@@ -491,3 +491,242 @@ class EVAnalyzer:
             'by_stakes': {},
             'chart_data': [],
         }
+
+    # ── Decision-Tree EV Analysis ─────────────────────────────────────
+
+    def get_decision_ev_analysis(self) -> dict:
+        """Calculate decision-tree EV for fold, call, and raise decisions.
+
+        Analyzes all cash hands, groups hero decisions by type and street,
+        computes average net outcomes per decision context, and identifies
+        EV leaks.
+
+        Returns dict with:
+        - total_hands: count of cash hands analyzed
+        - by_street: per-street metrics for fold/call/raise decisions
+        - leaks: top 5 EV leaks with descriptions and suggestions
+        - chart_data: list of dicts for decision EV bar chart
+        """
+        actions = self.repo.get_all_action_sequences(self.year)
+        hands = self.repo.get_cash_hands(self.year)
+
+        if not hands:
+            return self._empty_decision_ev_result()
+
+        hand_lookup = {h['hand_id']: h for h in hands}
+
+        hand_actions_map = defaultdict(list)
+        for a in actions:
+            hand_actions_map[a['hand_id']].append(a)
+
+        streets = ('preflop', 'flop', 'turn', 'river')
+        _skip = {'post_sb', 'post_bb', 'post_ante', 'check'}
+
+        # Per (street, decision) net accumulators
+        stats = {
+            st: {dec: {'count': 0, 'total_net': 0.0}
+                 for dec in ('fold', 'call', 'raise')}
+            for st in streets
+        }
+        # Context-specific accumulators for leak detection
+        contexts: dict = defaultdict(lambda: {'count': 0, 'wins': 0, 'total_net': 0.0})
+
+        for hand_id, hand_acts in hand_actions_map.items():
+            hand = hand_lookup.get(hand_id)
+            if not hand:
+                continue
+            hand_net = hand.get('net', 0) or 0
+
+            street_acts: dict = defaultdict(list)
+            for a in hand_acts:
+                street_acts[a['street']].append(a)
+
+            for street in streets:
+                acts = sorted(street_acts.get(street, []),
+                              key=lambda x: x['sequence_order'])
+                if not acts:
+                    continue
+
+                hero_acts = [
+                    a for a in acts
+                    if a['is_hero'] and a['action_type'] not in _skip
+                ]
+                if not hero_acts:
+                    continue
+
+                first_hero = hero_acts[0]
+                atype = first_hero['action_type']
+
+                if atype == 'fold':
+                    decision = 'fold'
+                elif atype == 'call':
+                    decision = 'call'
+                elif atype in ('raise', 'bet', 'all-in'):
+                    decision = 'raise'
+                else:
+                    continue
+
+                stats[street][decision]['count'] += 1
+                stats[street][decision]['total_net'] += hand_net
+
+                # Determine context: facing opponent bet or hero initiative
+                seq = first_hero['sequence_order']
+                facing_bet = any(
+                    a for a in acts
+                    if not a['is_hero']
+                    and a['sequence_order'] < seq
+                    and a['action_type'] in ('bet', 'raise', 'all-in')
+                )
+                context = 'vs_bet' if facing_bet else 'initiative'
+                ctx_key = f"{street}_{decision}_{context}"
+                contexts[ctx_key]['count'] += 1
+                contexts[ctx_key]['total_net'] += hand_net
+                if hand_net > 0:
+                    contexts[ctx_key]['wins'] += 1
+
+        by_street = {}
+        for street in streets:
+            by_street[street] = {}
+            for dec in ('fold', 'call', 'raise'):
+                cnt = stats[street][dec]['count']
+                net = stats[street][dec]['total_net']
+                by_street[street][dec] = {
+                    'count': cnt,
+                    'total_net': round(net, 2),
+                    'avg_net': round(net / cnt, 2) if cnt > 0 else 0.0,
+                }
+
+        leaks = self._identify_ev_leaks(dict(contexts))
+
+        chart_data = [
+            {
+                'street': street,
+                'fold_avg': by_street[street]['fold']['avg_net'],
+                'call_avg': by_street[street]['call']['avg_net'],
+                'raise_avg': by_street[street]['raise']['avg_net'],
+            }
+            for street in streets
+        ]
+
+        return {
+            'total_hands': len(hands),
+            'by_street': by_street,
+            'leaks': leaks,
+            'chart_data': chart_data,
+        }
+
+    @staticmethod
+    def _identify_ev_leaks(contexts: dict) -> list:
+        """Find top 5 EV leaks from decision context data.
+
+        Args:
+            contexts: dict mapping context keys to {count, wins, total_net}.
+
+        Returns list of up to 5 leak dicts sorted by total loss (worst first).
+        """
+        leaks = []
+        for ctx_key, data in contexts.items():
+            count = data['count']
+            if count < 5:
+                continue
+            total_net = data['total_net']
+            if total_net >= 0:
+                continue
+
+            # Parse ctx_key: "{street}_{decision}_{context}"
+            # Note: context can be 'vs_bet' (contains underscore)
+            # Streets and decisions never contain underscores, so split
+            # as: first part = street, second = decision, rest = context
+            parts = ctx_key.split('_')
+            if len(parts) < 3:
+                continue
+
+            street = parts[0]
+            decision = parts[1]
+            context = '_'.join(parts[2:])
+
+            win_rate = data['wins'] / count * 100
+            desc, suggestion = EVAnalyzer._leak_description(
+                street, decision, context, count, win_rate, total_net)
+
+            leaks.append({
+                'description': desc,
+                'count': count,
+                'total_loss': round(total_net, 2),
+                'avg_loss': round(total_net / count, 2),
+                'suggestion': suggestion,
+            })
+
+        leaks.sort(key=lambda x: x['total_loss'])
+        return leaks[:5]
+
+    @staticmethod
+    def _leak_description(street: str, decision: str, context: str,
+                          count: int, win_rate: float, total_net: float):
+        """Generate human-readable description and suggestion for an EV leak."""
+        street_pt = {
+            'preflop': 'Preflop', 'flop': 'Flop',
+            'turn': 'Turn', 'river': 'River',
+        }.get(street, street.capitalize())
+
+        if decision == 'fold' and context == 'vs_bet':
+            desc = f"Fold excessivo vs bet no {street_pt} ({count} vezes)"
+            suggestion = (
+                f"Defenda mais vs bets no {street_pt}: "
+                f"use pot odds para calcular equity m\u00ednima necess\u00e1ria"
+            )
+        elif decision == 'call' and context == 'vs_bet':
+            desc = (f"Calls no {street_pt} com baixa win rate "
+                    f"({win_rate:.0f}%)")
+            suggestion = (
+                f"Selecione calls mais tight no {street_pt}: "
+                f"compare equity vs pot odds antes de chamar"
+            )
+        elif decision == 'raise' and context == 'vs_bet':
+            desc = (f"Raise vs bet no {street_pt} com EV negativo "
+                    f"({count} spots)")
+            suggestion = (
+                f"Escolha melhores spots para raise no {street_pt}: "
+                f"polarize range entre value e bluffs"
+            )
+        elif decision == 'fold' and context == 'initiative':
+            desc = f"Check-fold no {street_pt} ({count} vezes)"
+            suggestion = (
+                f"Adicione bluffs ao range de check no {street_pt} "
+                f"ou c-bet mais seletivo para proteger sua range"
+            )
+        elif decision == 'call' and context == 'initiative':
+            desc = f"Limp/call no {street_pt} ({count} spots passivos)"
+            suggestion = (
+                f"Prefira raise ou fold no {street_pt}: "
+                f"callar sem iniciativa reduz sua range advantage"
+            )
+        elif decision == 'raise' and context == 'initiative':
+            desc = f"Bet/raise no {street_pt} sem retorno positivo"
+            suggestion = (
+                f"Revise sizing e frequ\u00eancia de bet no {street_pt}: "
+                f"target value bets com m\u00e3os fortes, bluffs com equity"
+            )
+        else:
+            desc = f"{street_pt} {decision} decision com EV negativo"
+            suggestion = f"Revise suas decis\u00f5es de {decision} no {street_pt}"
+
+        return desc, suggestion
+
+    @staticmethod
+    def _empty_decision_ev_result() -> dict:
+        """Return empty decision EV result structure."""
+        def _empty_street():
+            return {
+                dec: {'count': 0, 'total_net': 0.0, 'avg_net': 0.0}
+                for dec in ('fold', 'call', 'raise')
+            }
+        return {
+            'total_hands': 0,
+            'by_street': {
+                st: _empty_street()
+                for st in ('preflop', 'flop', 'turn', 'river')
+            },
+            'leaks': [],
+            'chart_data': [],
+        }

@@ -73,10 +73,25 @@ Update this section weekly with sprint goals and dates.
 - [x] US-006: Poker Stats Completas para Torneios (2026-03-01)
 - [x] US-007: Relatório de Torneios por Sessão (2026-03-02)
 - [x] US-008: EV Analysis por Sessão (Cash e Torneio) (2026-03-02)
+- [x] US-009: EV Completo para Todas as Decisões (Decision-Tree EV) (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-009: EV Completo para Todas as Decisões (Decision-Tree EV) (2026-03-02)
+  - EVAnalyzer.get_decision_ev_analysis: per-street EV for fold/call/raise decisions
+  - EVAnalyzer._identify_ev_leaks: top 5 leak detection from decision contexts
+  - EVAnalyzer._leak_description: human-readable leak descriptions in Portuguese
+  - Context detection: vs_bet (facing opponent bet) vs initiative (hero acts first)
+  - Bug fix: _identify_ev_leaks ctx_key parsing for 'vs_bet' underscore
+  - Cash report: _render_decision_ev_analysis with per-street table
+  - Cash report: _render_decision_ev_chart (inline SVG bar chart)
+  - Cash report: EV leaks section with ranked cards, stats, and suggestions
+  - All-in EV maintained as sub-section within Decision Tree section
+  - CSS: .leak-card, .leak-header, .leak-rank, .leak-suggestion styles
+  - 53 new tests (522 total)
+
 
 - [x] US-008: EV Analysis por Sessão (Cash e Torneio) (2026-03-02)
   - EVAnalyzer.get_session_ev_analysis: per-session EV for cash games (all-in hands, chart_data)
