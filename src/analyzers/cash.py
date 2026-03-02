@@ -329,15 +329,19 @@ class CashAnalyzer:
         """Analyze a single hand's preflop non-blind action sequence.
 
         Returns dict with boolean flags for each stat event.
+        Also returns raiser_position: position of the last opponent to raise
+        before hero acted (used for the PFR/3-Bet positional matrix, US-019).
         """
         hero_vpip = False
         hero_pfr = False
         hero_first_acted = False
         raises_before_hero = 0
+        raiser_position = None
         all_fold_before_hero = True
         hero_open_raised = False
         hero_got_3bet = False
         hero_folded_to_3bet = False
+        three_bettor_position = None
 
         for action in actions:
             is_raise = action['action_type'] in ('raise', 'bet')
@@ -361,10 +365,12 @@ class CashAnalyzer:
                         all_fold_before_hero = False
                     if is_raise or action['action_type'] == 'all-in':
                         raises_before_hero += 1
+                        raiser_position = action.get('position')
                 else:
                     # After hero's first action
                     if hero_open_raised and (is_raise or action['action_type'] == 'all-in'):
                         hero_got_3bet = True
+                        three_bettor_position = action.get('position')
 
         hero_pos = None
         for a in actions:
@@ -389,6 +395,8 @@ class CashAnalyzer:
             'fold_3bet': hero_folded_to_3bet,
             'ats_opp': ats_opp,
             'ats': ats,
+            'raiser_position': raiser_position,       # opener pos (US-019)
+            'three_bettor_position': three_bettor_position,  # re-raiser vs hero (US-019)
         }
 
     def _format_preflop_stats(self, total_hands, vpip_count, pfr_count,
@@ -1299,6 +1307,12 @@ class CashAnalyzer:
             'net': 0.0, 'bb_net': 0.0,
         })
 
+        # Position vs position matrix for PFR/3-Bet drill-down (US-019)
+        # pos_vs_pos[hero_pos][opp_pos] = {three_bet_opps, three_bet}
+        pos_vs_pos: dict = defaultdict(lambda: defaultdict(lambda: {
+            'three_bet_opps': 0, 'three_bet': 0,
+        }))
+
         for hand_id, actions in hands_actions.items():
             if not any(a['is_hero'] for a in actions):
                 continue
@@ -1331,6 +1345,13 @@ class CashAnalyzer:
                 pd['three_bet_opps'] += 1
                 if pre['three_bet']:
                     pd['three_bet'] += 1
+                # Position vs position matrix: track which opponent raised (US-019)
+                raiser_pos = pre.get('raiser_position')
+                if raiser_pos:
+                    cell = pos_vs_pos[hero_pos][raiser_pos]
+                    cell['three_bet_opps'] += 1
+                    if pre['three_bet']:
+                        cell['three_bet'] += 1
             if pre['ats_opp']:
                 pd['ats_opps'] += 1
                 if pre['ats']:
@@ -1368,7 +1389,11 @@ class CashAnalyzer:
                     pd['agg_br'] += ha['bets'] + ha['raises']
                     pd['agg_calls'] += ha['calls']
 
-        return self._format_positional_stats(dict(pos_data))
+        result = self._format_positional_stats(dict(pos_data))
+        result['three_bet_matrix'] = self._format_three_bet_matrix(
+            {hp: dict(opps) for hp, opps in pos_vs_pos.items()}
+        )
+        return result
 
     def _format_positional_stats(self, pos_data: dict) -> dict:
         """Format raw positional counters into percentages with health badges.
@@ -1473,6 +1498,38 @@ class CashAnalyzer:
             'comparison': comparison,
             'radar': radar,
         }
+
+    @staticmethod
+    def _format_three_bet_matrix(raw: dict) -> dict:
+        """Format position-vs-position 3-bet counters into a percentage matrix.
+
+        raw: {hero_pos: {opp_pos: {three_bet_opps: int, three_bet: int}}}
+
+        Returns a dict with the same structure but with 'three_bet_pct' added
+        and only cells with at least one opportunity included.  Used by the
+        PFR/3-Bet Drill-Down Modal (US-019).
+        """
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        matrix: dict = {}
+        position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+        for h_pos in position_order:
+            if h_pos not in raw:
+                continue
+            row: dict = {}
+            for o_pos in position_order:
+                cell = raw[h_pos].get(o_pos)
+                if not cell or cell['three_bet_opps'] == 0:
+                    continue
+                row[o_pos] = {
+                    'three_bet_opps': cell['three_bet_opps'],
+                    'three_bet_count': cell['three_bet'],
+                    'three_bet_pct': pct(cell['three_bet'], cell['three_bet_opps']),
+                }
+            if row:
+                matrix[h_pos] = row
+        return matrix
 
     @staticmethod
     def _build_radar_data(by_position: dict) -> list[dict]:

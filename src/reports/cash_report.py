@@ -638,6 +638,65 @@ def generate_cash_report(analyzer: CashAnalyzer,
             margin-top: 4px;
         }
 
+        /* ── PFR/3-Bet Positional Matrix Modal (US-019) ── */
+        .stat-card.three-bet-clickable {
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+        }
+
+        .stat-card.three-bet-clickable:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 170, 255, 0.25);
+            background: rgba(0, 170, 255, 0.18);
+        }
+
+        .three-bet-hint {
+            font-size: 0.65em;
+            color: rgba(0, 170, 255, 0.6);
+            margin-top: 4px;
+        }
+
+        .pfr-matrix-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82em;
+            overflow-x: auto;
+        }
+
+        .pfr-matrix-table th,
+        .pfr-matrix-table td {
+            padding: 7px 10px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            white-space: nowrap;
+        }
+
+        .pfr-matrix-table th {
+            background: rgba(0, 170, 255, 0.12);
+            color: #00aaff;
+            font-weight: bold;
+        }
+
+        .pfr-matrix-table td.matrix-hero-label {
+            background: rgba(0, 255, 136, 0.08);
+            color: #00ff88;
+            font-weight: bold;
+        }
+
+        .pfr-matrix-table td.matrix-cell-hot {
+            background: rgba(0, 170, 255, 0.25);
+            color: #e0e0e0;
+        }
+
+        .pfr-matrix-table td.matrix-cell-warm {
+            background: rgba(0, 170, 255, 0.12);
+            color: #c0c0c0;
+        }
+
+        .pfr-matrix-table td.matrix-cell-empty {
+            color: #555;
+        }
+
         /* ── Responsive ──────────────────────────────── */
         @media (max-width: 768px) {
             .summary-grid {
@@ -785,6 +844,9 @@ def generate_cash_report(analyzer: CashAnalyzer,
     # ── VPIP Drill-Down Modal (US-018) ───────────────────────────────────
     html += _render_vpip_modal(positional_stats, stack_depth_data)
 
+    # ── PFR/3-Bet Positional Matrix Modal (US-019) ───────────────────────
+    html += _render_pfr_3bet_modal(positional_stats)
+
     html += """
         <div class="footer">
             <p>Relat\u00f3rio gerado automaticamente</p>
@@ -833,8 +895,46 @@ def generate_cash_report(analyzer: CashAnalyzer,
         if (btn) { btn.classList.add('active'); }
     }
 
+    /* ── PFR/3-Bet Positional Matrix Modal (US-019) ── */
+    function openPfrModal() {
+        var overlay = document.getElementById('pfr-modal-overlay');
+        if (overlay) {
+            overlay.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+    }
+
+    function closePfrModal() {
+        var overlay = document.getElementById('pfr-modal-overlay');
+        if (overlay) {
+            overlay.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+    }
+
+    function closePfrModalOverlay(event) {
+        if (event.target === document.getElementById('pfr-modal-overlay')) {
+            closePfrModal();
+        }
+    }
+
+    function switchPfrTab(tab) {
+        ['pfr-panel-pfr', 'pfr-panel-matrix'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) { el.classList.remove('active'); }
+        });
+        ['pfr-tab-btn-pfr', 'pfr-tab-btn-matrix'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) { el.classList.remove('active'); }
+        });
+        var panel = document.getElementById('pfr-panel-' + tab);
+        if (panel) { panel.classList.add('active'); }
+        var btn = document.getElementById('pfr-tab-btn-' + tab);
+        if (btn) { btn.classList.add('active'); }
+    }
+
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') { closeVpipModal(); }
+        if (e.key === 'Escape') { closeVpipModal(); closePfrModal(); }
     });
     </script>
 </body>
@@ -1322,10 +1422,17 @@ def _render_player_stats(overall: dict, by_position: dict,
 
     When positional_stats or stack_depth_data are provided the VPIP card
     becomes clickable and opens the VPIP Drill-Down Modal (US-018).
+    When positional_stats contains a three_bet_matrix the 3-Bet card
+    becomes clickable and opens the PFR/3-Bet Modal (US-019).
     """
     has_modal = bool(
         (positional_stats and positional_stats.get('by_position'))
         or (stack_depth_data and stack_depth_data.get('by_tier'))
+    )
+    has_pfr_modal = bool(
+        positional_stats and (
+            positional_stats.get('by_position') or positional_stats.get('three_bet_matrix')
+        )
     )
 
     def badge_html(health: str) -> str:
@@ -1360,6 +1467,23 @@ def _render_player_stats(overall: dict, by_position: dict,
             )
         return stat_card('VPIP', value, health, detail)
 
+    def three_bet_stat_card(value: float, health: str, detail: str = '') -> str:
+        """3-Bet card – clickable when PFR/3-Bet matrix data is available (US-019)."""
+        detail_html = f'<div class="stat-detail">{detail}</div>' if detail else ''
+        if has_pfr_modal:
+            hint = '<div class="three-bet-hint">&#128200; clique para matriz</div>'
+            return (
+                f'<div class="stat-card three-bet-clickable" onclick="openPfrModal()" '
+                f'title="Clique para ver PFR e 3-Bet por posi\u00e7\u00e3o vs posi\u00e7\u00e3o">'
+                f'<div class="stat-label">3-Bet</div>'
+                f'<div class="stat-value">{value:.1f}%</div>'
+                f'{badge_html(health)}'
+                f'{detail_html}'
+                f'{hint}'
+                f'</div>'
+            )
+        return stat_card('3-Bet', value, health, detail)
+
     vpip_detail = f'{overall["vpip_hands"]}/{overall["total_hands"]} m\u00e3os'
     pfr_detail = f'{overall["pfr_hands"]}/{overall["total_hands"]} m\u00e3os'
     three_bet_detail = f'{overall["three_bet_hands"]}/{overall["three_bet_opps"]} opps'
@@ -1372,7 +1496,7 @@ def _render_player_stats(overall: dict, by_position: dict,
             <div class="stats-grid">
                 {vpip_stat_card(overall['vpip'], overall['vpip_health'], vpip_detail)}
                 {stat_card('PFR', overall['pfr'], overall['pfr_health'], pfr_detail)}
-                {stat_card('3-Bet', overall['three_bet'], overall['three_bet_health'], three_bet_detail)}
+                {three_bet_stat_card(overall['three_bet'], overall['three_bet_health'], three_bet_detail)}
                 {stat_card('Fold to 3-Bet', overall['fold_to_3bet'], overall['fold_to_3bet_health'], fold_3bet_detail)}
                 {stat_card('ATS (Steal)', overall['ats'], overall['ats_health'], ats_detail)}
             </div>
@@ -2727,6 +2851,137 @@ def _render_vpip_modal(positional_stats: dict, stack_depth_data: dict) -> str:
             <div id="vpip-panel-stack" class="vpip-panel">
                 <h3 class="section-subtitle" style="margin-top:0;">VPIP por Stack Depth</h3>
                 {stack_table}
+            </div>
+        </div>
+    </div>"""
+
+
+# ── PFR/3-Bet Positional Matrix Modal (US-019) ────────────────────────────────
+
+def _render_pfr_3bet_modal(positional_stats: dict) -> str:
+    """Render the hidden PFR/3-Bet Positional Matrix drill-down modal.
+
+    Tab 1 – PFR por Posição: PFR% by hero position (from US-010 by_position data).
+    Tab 2 – 3-Bet vs Posição: matrix of hero's 3-bet% keyed by
+            (hero_position × raiser_position).
+
+    Opened by clicking the 3-Bet stat card (openPfrModal()) and closed by the
+    ✕ button, backdrop click, or the ESC key.
+    """
+    position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+    by_position = positional_stats.get('by_position', {})
+    three_bet_matrix = positional_stats.get('three_bet_matrix', {})
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    # ── Panel 1: PFR por Posição ──────────────────────────────────────────
+    pfr_rows = ''
+    for pos in position_order:
+        if pos not in by_position:
+            continue
+        ps = by_position[pos]
+        pfr_rows += f"""
+                    <tr>
+                        <td><strong>{pos}</strong></td>
+                        <td>{ps['total_hands']}</td>
+                        <td>{ps['pfr']:.1f}% {badge_html(ps.get('pfr_health', 'good'))}</td>
+                        <td>{ps['vpip']:.1f}%</td>
+                        <td>{ps['three_bet']:.1f}%</td>
+                        <td class="{'positive' if ps.get('bb_per_100', 0) >= 0 else 'negative'}">{ps.get('bb_per_100', 0):+.1f}</td>
+                    </tr>"""
+
+    if pfr_rows:
+        pfr_pos_table = f"""
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Posi\u00e7\u00e3o</th>
+                        <th>M\u00e3os</th>
+                        <th>PFR</th>
+                        <th>VPIP</th>
+                        <th>3-Bet</th>
+                        <th>bb/100</th>
+                    </tr>
+                </thead>
+                <tbody>{pfr_rows}
+                </tbody>
+            </table>"""
+    else:
+        pfr_pos_table = '<p style="color:#a0a0a0;">Sem dados por posi\u00e7\u00e3o dispon\u00edveis.</p>'
+
+    # ── Panel 2: 3-Bet Matrix (hero pos × raiser pos) ────────────────────
+    hero_positions = [p for p in position_order if p in three_bet_matrix]
+    opp_positions = []
+    for row in three_bet_matrix.values():
+        for op in row:
+            if op not in opp_positions:
+                opp_positions.append(op)
+    opp_positions = [p for p in position_order if p in opp_positions]
+
+    if hero_positions and opp_positions:
+        # Header row
+        header_cols = ''.join(f'<th>{p}</th>' for p in opp_positions)
+        matrix_header = f'<tr><th>Hero \\ Raise</th>{header_cols}</tr>'
+
+        matrix_rows = ''
+        for h_pos in hero_positions:
+            row_data = three_bet_matrix.get(h_pos, {})
+            cols = ''
+            for o_pos in opp_positions:
+                cell = row_data.get(o_pos)
+                if cell:
+                    pct = cell['three_bet_pct']
+                    opps = cell['three_bet_opps']
+                    cnt = cell['three_bet_count']
+                    css = 'matrix-cell-hot' if pct >= 10 else 'matrix-cell-warm'
+                    cols += (
+                        f'<td class="{css}" title="{cnt}/{opps} m\u00e3os">'
+                        f'{pct:.1f}%<br><small style="color:#888;">{opps}m</small>'
+                        f'</td>'
+                    )
+                else:
+                    cols += '<td class="matrix-cell-empty">—</td>'
+            matrix_rows += f'<tr><td class="matrix-hero-label">{h_pos}</td>{cols}</tr>'
+
+        three_bet_matrix_html = f"""
+            <div style="overflow-x:auto;">
+            <table class="pfr-matrix-table">
+                <thead>{matrix_header}</thead>
+                <tbody>{matrix_rows}</tbody>
+            </table>
+            </div>
+            <p style="color:#888;font-size:0.8em;margin-top:8px;">
+                Hero \\ Raise: posi\u00e7\u00e3o do hero vs posi\u00e7\u00e3o do oponente que abriu.
+                Valor = 3-Bet% / n\u00famero de oportunidades.
+            </p>"""
+    else:
+        three_bet_matrix_html = (
+            '<p style="color:#a0a0a0;">Sem dados de matriz 3-Bet dispon\u00edveis.</p>'
+        )
+
+    return f"""
+    <!-- PFR/3-Bet Positional Matrix Modal (US-019) -->
+    <div id="pfr-modal-overlay" class="vpip-modal-overlay" onclick="closePfrModalOverlay(event)">
+        <div id="pfr-modal" class="vpip-modal" role="dialog" aria-modal="true" aria-labelledby="pfr-modal-title">
+            <div class="vpip-modal-header">
+                <span id="pfr-modal-title" class="vpip-modal-title">&#128200; PFR / 3-Bet por Posi\u00e7\u00e3o</span>
+                <button class="vpip-modal-close" onclick="closePfrModal()" aria-label="Fechar">&times;</button>
+            </div>
+            <div class="vpip-tab-bar">
+                <button id="pfr-tab-btn-pfr" class="vpip-tab-btn active"
+                        onclick="switchPfrTab('pfr')">PFR por Posi\u00e7\u00e3o</button>
+                <button id="pfr-tab-btn-matrix" class="vpip-tab-btn"
+                        onclick="switchPfrTab('matrix')">3-Bet vs Posi\u00e7\u00e3o</button>
+            </div>
+            <div id="pfr-panel-pfr" class="vpip-panel active">
+                <h3 class="section-subtitle" style="margin-top:0;">PFR por Posi\u00e7\u00e3o</h3>
+                {pfr_pos_table}
+            </div>
+            <div id="pfr-panel-matrix" class="vpip-panel">
+                <h3 class="section-subtitle" style="margin-top:0;">3-Bet vs Posi\u00e7\u00e3o do Oponente</h3>
+                {three_bet_matrix_html}
             </div>
         </div>
     </div>"""
