@@ -80,10 +80,30 @@ Update this section weekly with sprint goals and dates.
 - [x] US-011: Leak Finder Automatizado com Spots de Estudo Priorizados (2026-03-02)
 - [x] US-014: Detecção de Tilt e Análise de Performance por Horário/Duração (2026-03-02)
 - [x] US-015: Preflop Range Visualization (Hand Matrix por Posição) (2026-03-02)
+- [x] US-016: Sistema de Configuração Externo para Targets de Stats (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-016: Sistema de Configuração Externo para Targets de Stats (2026-03-02)
+  - New module: src/config.py with TargetsConfig class
+  - TargetsConfig.load(path): load from YAML/JSON, fallback to defaults if missing, deep-merge for partial override
+  - TargetsConfig.get_default(): returns hardcoded defaults (backward compatible)
+  - TargetsConfig.save_default(path): writes default config/targets.yaml template
+  - TargetsConfig.validate(): returns list of error strings (low >= high, warning narrower than healthy)
+  - _parse_yaml_fallback(): minimal YAML parser (inline lists/dicts, comments, float/quoted scalars, nested mappings)
+  - _deep_merge(): recursive dict merge for partial config override
+  - CashAnalyzer.__init__ accepts optional config parameter
+  - When config provided: instance-level lambda overrides for _classify_health, _classify_postflop_health, _classify_positional_health
+  - Instance-level range dicts (_healthy_ranges, _postflop_healthy_ranges, _pos_vpip_healthy, _pos_pfr_healthy etc.)
+  - LeakFinder updated to use self.analyzer._healthy_ranges etc. instead of CashAnalyzer.HEALTHY_RANGES
+  - Backward compatible: all existing tests pass, class-level classify methods unchanged
+  - CLI: python main.py config --init (generates config/targets.yaml)
+  - CLI: python main.py config --validate (validates existing config)
+  - CLI: python main.py config (shows current targets)
+  - config/targets.yaml committed as default config file
+  - 60 new tests (1089 total)
 
 - [x] US-015: Preflop Range Visualization (Hand Matrix por Posição) (2026-03-02)
   - Module helpers: _categorize_hand() converts 'Ah Kd' → 'AKo', _classify_preflop_action() → open_raise/call/three_bet

@@ -12,9 +12,94 @@ from src.db.repository import Repository
 class CashAnalyzer:
     """Analyze cash game data from the database."""
 
-    def __init__(self, repo: Repository, year: str = '2026'):
+    def __init__(self, repo: Repository, year: str = '2026', config=None):
+        """Initialise CashAnalyzer.
+
+        Args:
+            repo: Repository instance for database access.
+            year: Year string used to filter hands (default '2026').
+            config: Optional TargetsConfig.  When provided, health
+                classification and the range dicts exposed to LeakFinder
+                use the config values instead of the class-level defaults.
+        """
         self.repo = repo
         self.year = year
+
+        if config is not None:
+            # ── Expose range dicts for LeakFinder access ──────────────
+            self._healthy_ranges = config.healthy_ranges
+            self._warning_ranges = config.warning_ranges
+            self._postflop_healthy_ranges = config.postflop_healthy_ranges
+            self._postflop_warning_ranges = config.postflop_warning_ranges
+            self._pos_vpip_healthy = config.position_vpip_healthy
+            self._pos_vpip_warning = config.position_vpip_warning
+            self._pos_pfr_healthy = config.position_pfr_healthy
+            self._pos_pfr_warning = config.position_pfr_warning
+
+            # ── Override classify methods at the instance level ────────
+            # Python instance attributes shadow class attributes (incl.
+            # classmethods) so these lambdas are called instead of the
+            # @classmethods when accessed through self.
+            _h = self._healthy_ranges
+            _w = self._warning_ranges
+            _pfh = self._postflop_healthy_ranges
+            _pfw = self._postflop_warning_ranges
+            _pvh = self._pos_vpip_healthy
+            _pvw = self._pos_vpip_warning
+            _pph = self._pos_pfr_healthy
+            _ppw = self._pos_pfr_warning
+
+            def _classify_health(stat_name: str, value: float) -> str:
+                healthy = _h.get(stat_name)
+                warning = _w.get(stat_name)
+                if not healthy or not warning:
+                    return 'good'
+                if healthy[0] <= value <= healthy[1]:
+                    return 'good'
+                if warning[0] <= value <= warning[1]:
+                    return 'warning'
+                return 'danger'
+
+            def _classify_postflop_health(stat_name: str, value: float) -> str:
+                healthy = _pfh.get(stat_name)
+                warning = _pfw.get(stat_name)
+                if not healthy or not warning:
+                    return 'good'
+                if healthy[0] <= value <= healthy[1]:
+                    return 'good'
+                if warning[0] <= value <= warning[1]:
+                    return 'warning'
+                return 'danger'
+
+            def _classify_positional_health(stat: str, pos: str,
+                                            value: float) -> str:
+                if stat == 'vpip':
+                    h = _pvh.get(pos, _h.get('vpip'))
+                    w = _pvw.get(pos, _w.get('vpip'))
+                elif stat == 'pfr':
+                    h = _pph.get(pos, _h.get('pfr'))
+                    w = _ppw.get(pos, _w.get('pfr'))
+                else:
+                    return _classify_health(stat, value)
+                if h and h[0] <= value <= h[1]:
+                    return 'good'
+                if w and w[0] <= value <= w[1]:
+                    return 'warning'
+                return 'danger'
+
+            self._classify_health = _classify_health
+            self._classify_postflop_health = _classify_postflop_health
+            self._classify_positional_health = _classify_positional_health
+        else:
+            # Point to class-level defaults (no copy overhead)
+            self._healthy_ranges = type(self).HEALTHY_RANGES
+            self._warning_ranges = type(self).WARNING_RANGES
+            self._postflop_healthy_ranges = type(self).POSTFLOP_HEALTHY_RANGES
+            self._postflop_warning_ranges = type(self).POSTFLOP_WARNING_RANGES
+            self._pos_vpip_healthy = type(self).POSITION_VPIP_HEALTHY
+            self._pos_vpip_warning = type(self).POSITION_VPIP_WARNING
+            self._pos_pfr_healthy = type(self).POSITION_PFR_HEALTHY
+            self._pos_pfr_warning = type(self).POSITION_PFR_WARNING
 
     def get_daily_reports(self) -> list[dict]:
         """Build daily report data for HTML generation."""

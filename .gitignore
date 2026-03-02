@@ -35,3 +35,7 @@ logs/
 # Claude plugins (symlink artifact)
 CUsersRafael.claudepluginsmarketplacesclaude-plugins-official/
 C*/
+# Exception: project config directory
+!config/
+!config/*.yaml
+!config/*.json

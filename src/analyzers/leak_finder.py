@@ -137,7 +137,7 @@ class LeakFinder:
         leaks = []
         for stat_name, weight in self.PREFLOP_WEIGHTS.items():
             value = overall.get(stat_name, 0)
-            healthy = CashAnalyzer.HEALTHY_RANGES.get(stat_name)
+            healthy = self.analyzer._healthy_ranges.get(stat_name)
             if not healthy:
                 continue
 
@@ -154,7 +154,7 @@ class LeakFinder:
         leaks = []
         for stat_name, weight in self.POSTFLOP_WEIGHTS.items():
             value = overall.get(stat_name, 0)
-            healthy = CashAnalyzer.POSTFLOP_HEALTHY_RANGES.get(stat_name)
+            healthy = self.analyzer._postflop_healthy_ranges.get(stat_name)
             if not healthy:
                 continue
 
@@ -174,7 +174,7 @@ class LeakFinder:
                 continue
 
             # VPIP per position
-            vpip_healthy = CashAnalyzer.POSITION_VPIP_HEALTHY.get(pos)
+            vpip_healthy = self.analyzer._pos_vpip_healthy.get(pos)
             if vpip_healthy:
                 value = stats.get('vpip', 0)
                 leak = self._check_deviation(
@@ -186,7 +186,7 @@ class LeakFinder:
                     leaks.append(leak)
 
             # PFR per position
-            pfr_healthy = CashAnalyzer.POSITION_PFR_HEALTHY.get(pos)
+            pfr_healthy = self.analyzer._pos_pfr_healthy.get(pos)
             if pfr_healthy:
                 value = stats.get('pfr', 0)
                 leak = self._check_deviation(

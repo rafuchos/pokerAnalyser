@@ -97,6 +97,72 @@ def cmd_report(args):
     print("=" * 60)
 
 
+def cmd_config(args):
+    """Manage external stats targets configuration."""
+    from src.config import TargetsConfig, DEFAULT_CONFIG_PATH
+
+    config_path = getattr(args, 'config_path', None) or DEFAULT_CONFIG_PATH
+
+    if args.init:
+        if not args.force and __import__('os').path.exists(config_path):
+            print(f"Config file already exists: {config_path}")
+            print("Use --force to overwrite.")
+            return
+        TargetsConfig.save_default(config_path)
+        print(f"Default config written to: {config_path}")
+        print("Edit the file to customise your targets, then run:")
+        print(f"  python main.py config --validate")
+        return
+
+    if args.validate:
+        try:
+            config = TargetsConfig.load(config_path)
+        except ValueError as exc:
+            print(f"Parse error: {exc}")
+            return
+        errors = config.validate()
+        if errors:
+            print(f"Config validation FAILED ({len(errors)} error(s)):")
+            for err in errors:
+                print(f"  - {err}")
+        else:
+            print(f"Config is valid: {config_path}")
+            preflop_stats = list(config.healthy_ranges.keys())
+            postflop_stats = list(config.postflop_healthy_ranges.keys())
+            pos_count = len(config.position_vpip_healthy)
+            print(f"  Preflop stats  : {', '.join(preflop_stats)}")
+            print(f"  Postflop stats : {', '.join(postflop_stats)}")
+            print(f"  Positions (VPIP): {pos_count} configured")
+        return
+
+    # No flag given — show current config
+    try:
+        config = TargetsConfig.load(config_path)
+    except ValueError as exc:
+        print(f"Parse error: {exc}")
+        return
+
+    print("=" * 60)
+    print("CURRENT STATS TARGETS")
+    print("=" * 60)
+    print()
+    print("Preflop:")
+    for stat, rng in config.healthy_ranges.items():
+        w = config.warning_ranges.get(stat, ('?', '?'))
+        print(f"  {stat:<15} healthy: {list(rng)}  warning: {list(w)}")
+    print()
+    print("Postflop:")
+    for stat, rng in config.postflop_healthy_ranges.items():
+        w = config.postflop_warning_ranges.get(stat, ('?', '?'))
+        print(f"  {stat:<15} healthy: {list(rng)}  warning: {list(w)}")
+    print()
+    print("Positional VPIP overrides:", len(config.position_vpip_healthy), "positions")
+    print("Positional PFR overrides :", len(config.position_pfr_healthy), "positions")
+    print()
+    if not __import__('os').path.exists(config_path):
+        print("(using built-in defaults — run 'python main.py config --init' to create a file)")
+
+
 def cmd_stats(args):
     """Show quick stats in the terminal."""
     from src.db.connection import get_connection
@@ -192,6 +258,27 @@ def main():
     stats_parser.add_argument('--days', type=int, default=30,
                               help='Number of days to look back (default: 30)')
 
+    # config subcommand
+    config_parser = subparsers.add_parser(
+        'config', help='Manage external stats targets configuration'
+    )
+    config_parser.add_argument(
+        '--init', action='store_true',
+        help='Generate default config file (config/targets.yaml)'
+    )
+    config_parser.add_argument(
+        '--validate', action='store_true',
+        help='Validate the config file and report errors'
+    )
+    config_parser.add_argument(
+        '--force', action='store_true',
+        help='Overwrite existing config file when using --init'
+    )
+    config_parser.add_argument(
+        '--path', dest='config_path', default=None,
+        help='Path to config file (default: config/targets.yaml)'
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -204,6 +291,8 @@ def main():
         cmd_report(args)
     elif args.command == 'stats':
         cmd_stats(args)
+    elif args.command == 'config':
+        cmd_config(args)
 
 
 if __name__ == '__main__':
