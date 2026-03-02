@@ -141,3 +141,6 @@
 - Pattern: All-in EV rendered as sub-section inside Decision Tree section via _as_subsection=True flag
 - Bug fix: _identify_ev_leaks ctx_key parsing was splitting 'vs_bet' incorrectly; fixed to split(parts[0]=street, parts[1]=decision, rest=context)
 - Lesson: Previous attempt timed out; implementation was already complete from partial work, just needed tests and bug fix
+
+=== US-009 completed at 2026-03-02T03:10:36.437Z ===
+- All quality gates passed
