@@ -204,3 +204,6 @@
 - Pattern: Sizing uniformity diagnostic uses coefficient of variation (CV = std/mean) with threshold 0.15
 - Lesson: Report render function uses inline f-strings for table rows (avoids long heredocs); keeps conditional rendering via has_sizing guard
 - Lesson: Only first hero bet per postflop street is tracked (not raises) for clean sizing semantics
+
+=== US-013 completed at 2026-03-02T06:51:47.822Z ===
+- All quality gates passed
