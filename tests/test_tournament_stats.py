@@ -861,7 +861,7 @@ class TestReportRendering(unittest.TestCase):
             'af': 2.8, 'wtsd': 29.0, 'wsd': 51.0, 'cbet': 68.0,
         }
         html = _render_day_summary_stats(day_stats)
-        self.assertIn('Stats do Dia', html)
+        self.assertIn('Stats da Sess', html)
         self.assertIn('VPIP', html)
         self.assertIn('26.0%', html)
 
@@ -950,10 +950,20 @@ class TestReportRendering(unittest.TestCase):
             'itm_rate': 50.0,
             'day_stats': {
                 'total_hands': 30,
-                'vpip': 25.0, 'pfr': 20.0, 'three_bet': 8.0,
-                'af': 2.5, 'wtsd': 28.0, 'wsd': 50.0, 'cbet': 65.0,
+                'vpip': 25.0, 'vpip_health': 'good',
+                'pfr': 20.0, 'pfr_health': 'good',
+                'three_bet': 8.0, 'three_bet_health': 'good',
+                'af': 2.5, 'af_health': 'good',
+                'wtsd': 28.0, 'wtsd_health': 'good',
+                'wsd': 50.0, 'wsd_health': 'good',
+                'cbet': 65.0, 'cbet_health': 'good',
             },
             'comparison': {'vpip': {'best': 0, 'worst': 1}},
+            'session_sparkline': [],
+            'session_notable': {'biggest_win': None, 'biggest_loss': None},
+            'session_roi': 36.4,
+            'day_ev': {},
+            'total_hands': 30,
             'tournaments': [
                 {
                     'tournament_id': 'T1', 'name': 'A', 'date': '2026-01-15T20:00:00',
@@ -990,7 +1000,7 @@ class TestReportRendering(unittest.TestCase):
         html = _render_daily_report(report)
         self.assertIn('15/01/2026', html)
         self.assertIn('$+4.00', html)
-        self.assertIn('Stats do Dia', html)
+        self.assertIn('Stats da Sess', html)
         self.assertIn('Comparativo entre Torneios', html)
         self.assertIn('accordion-toggle', html)
 

@@ -71,10 +71,23 @@ Update this section weekly with sprint goals and dates.
 - [x] US-004: Análise de Expected Value (EV) e All-In Equity (2026-02-28)
 - [x] US-005: Relatório Diário com Breakdown por Sessão e Stats de Jogo (2026-02-28)
 - [x] US-006: Poker Stats Completas para Torneios (2026-03-01)
+- [x] US-007: Relatório de Torneios por Sessão (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-007: Relatório de Torneios por Sessão (2026-03-02)
+  - Session-focused daily layout: aggregated stats as primary view, not individual tournament details
+  - Day-level aggregated stats with health badges (VPIP, PFR, 3-Bet, AF, WTSD, W$SD, CBet)
+  - Session financial summary: total invested, total won, net, ROI, ITM rate per day
+  - Session sparkline: aggregated chip evolution across all tournaments of the day
+  - Session-level notable hands: biggest win/loss across all day's tournaments
+  - Session-level EV analysis: day-filtered EV with bb/100, luck factor
+  - Cross-day session comparison: best/worst sessions by net, ROI, ITM, hands, stats
+  - Tournament details demoted to accordion (collapsed by default)
+  - Tournament comparison within day preserved inside session view
+  - 67 new tests (429 total)
 
 - [x] US-006: Poker Stats Completas para Torneios (2026-03-01)
   - Schema: tournament_id column on hands table with migration

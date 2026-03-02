@@ -12,12 +12,13 @@ from src.analyzers.tournament import TournamentAnalyzer
 
 def generate_tournament_report(analyzer: TournamentAnalyzer,
                                output_file: str = 'output/tournament_report.html') -> str:
-    """Generate the tournament HTML report."""
+    """Generate the tournament HTML report with session-focused daily layout."""
     summary = analyzer.get_summary()
     daily_reports = analyzer.get_daily_reports()
     sat_summary = analyzer.get_satellite_summary()
     global_stats = analyzer.get_tournament_game_stats()
     ev_stats = analyzer.get_ev_analysis()
+    session_comparison = analyzer.get_session_comparison(daily_reports)
 
     total_tournaments = summary['total_tournaments']
     total_invested = summary['total_invested']
@@ -120,6 +121,7 @@ def generate_tournament_report(analyzer: TournamentAnalyzer,
         .hand-card { padding: 8px 12px; border-radius: 6px; margin: 5px 0; font-size: 0.85em; }
         .hand-card.win { background: rgba(0,255,136,0.1); border-left: 3px solid #00ff88; }
         .hand-card.loss { background: rgba(255,68,68,0.1); border-left: 3px solid #ff4444; }
+        .session-sparkline { display: block; }
         .footer { text-align: center; margin-top: 40px; color: #a0a0a0; font-size: 0.9em; }
         @media (max-width: 768px) {
             .summary-grid, .daily-stats, .stats-grid, .day-stats-grid { grid-template-columns: repeat(2,1fr); }
@@ -206,7 +208,11 @@ def generate_tournament_report(analyzer: TournamentAnalyzer,
     if ev_stats and ev_stats.get('overall', {}).get('total_hands', 0) > 0:
         html += _render_ev_analysis(ev_stats)
 
-    # Daily reports
+    # Session comparison (across days)
+    if session_comparison:
+        html += _render_session_comparison(session_comparison, daily_reports)
+
+    # Daily reports (session-focused)
     for report in daily_reports:
         html += _render_daily_report(report)
 
@@ -563,27 +569,33 @@ def _render_hand_card(hand: dict, is_win: bool) -> str:
 
 
 def _render_day_summary_stats(day_stats: dict) -> str:
-    """Render day-level aggregated tournament stats (weighted average)."""
+    """Render day-level aggregated tournament stats (weighted average) with health badges."""
     if not day_stats or not day_stats.get('total_hands'):
         return ''
-    html = """
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    html = f"""
             <div class="day-summary-stats">
-                <h4>Stats do Dia (m\u00e9dia ponderada)</h4>
-                <div class="day-stats-grid">
+                <h4>Stats da Sess\u00e3o ({day_stats['total_hands']} m\u00e3os)</h4>
+                <div class="stats-grid">
 """
     stats_items = [
-        ('VPIP', day_stats.get('vpip', 0), '{:.1f}%'),
-        ('PFR', day_stats.get('pfr', 0), '{:.1f}%'),
-        ('3-Bet', day_stats.get('three_bet', 0), '{:.1f}%'),
-        ('AF', day_stats.get('af', 0), '{:.2f}'),
-        ('WTSD%', day_stats.get('wtsd', 0), '{:.1f}%'),
-        ('W$SD%', day_stats.get('wsd', 0), '{:.1f}%'),
-        ('CBet%', day_stats.get('cbet', 0), '{:.1f}%'),
+        ('VPIP', day_stats.get('vpip', 0), day_stats.get('vpip_health', 'good'), '{:.1f}%'),
+        ('PFR', day_stats.get('pfr', 0), day_stats.get('pfr_health', 'good'), '{:.1f}%'),
+        ('3-Bet', day_stats.get('three_bet', 0), day_stats.get('three_bet_health', 'good'), '{:.1f}%'),
+        ('AF', day_stats.get('af', 0), day_stats.get('af_health', 'good'), '{:.2f}'),
+        ('WTSD%', day_stats.get('wtsd', 0), day_stats.get('wtsd_health', 'good'), '{:.1f}%'),
+        ('W$SD%', day_stats.get('wsd', 0), day_stats.get('wsd_health', 'good'), '{:.1f}%'),
+        ('CBet%', day_stats.get('cbet', 0), day_stats.get('cbet_health', 'good'), '{:.1f}%'),
     ]
-    for label, value, fmt in stats_items:
-        html += f"""                    <div class="daily-stat">
+    for label, value, health, fmt in stats_items:
+        html += f"""                    <div class="session-stat-card">
                         <div class="stat-label">{label}</div>
                         <div class="stat-value">{fmt.format(value)}</div>
+                        {badge_html(health)}
                     </div>
 """
     html += """                </div>
@@ -651,12 +663,187 @@ def _render_tournament_comparison(comparison: dict, tournaments: list[dict]) -> 
     return html
 
 
+def _render_session_sparkline(data: list[dict]) -> str:
+    """Render inline SVG sparkline for aggregated session chip evolution."""
+    if not data or len(data) < 2:
+        return ''
+    width = 400
+    height = 80
+    margin = 8
+    plot_w = width - 2 * margin
+    plot_h = height - 2 * margin
+
+    values = [d['chips'] for d in data]
+    y_min = min(values)
+    y_max = max(values)
+    y_range = y_max - y_min if y_max != y_min else 1.0
+    x_max = len(values) - 1
+    if x_max == 0:
+        x_max = 1
+
+    def sx(i):
+        return margin + (i / x_max) * plot_w
+
+    def sy(v):
+        return margin + plot_h - ((v - y_min) / y_range) * plot_h
+
+    points = ' '.join(f'{sx(i):.1f},{sy(v):.1f}' for i, v in enumerate(values))
+    final_val = values[-1]
+    line_color = '#00ff88' if final_val >= 0 else '#ff4444'
+
+    zero_line = ''
+    if y_min < 0 < y_max:
+        zy = sy(0)
+        zero_line = (
+            f'<line x1="{margin}" y1="{zy:.1f}" '
+            f'x2="{width - margin}" y2="{zy:.1f}" '
+            f'stroke="rgba(255,255,255,0.2)" stroke-width="0.5" '
+            f'stroke-dasharray="2,2"/>'
+        )
+
+    return f"""
+            <div style="margin:15px 0;">
+                <h4 style="color:#ff8800;margin-bottom:8px;">Chips da Sess\u00e3o</h4>
+                <svg class="session-sparkline" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"
+                     style="width:100%;max-width:{width}px;background:rgba(0,0,0,0.15);border-radius:6px;">
+                    {zero_line}
+                    <polyline points="{points}"
+                              fill="none" stroke="{line_color}" stroke-width="2"
+                              stroke-linejoin="round"/>
+                </svg>
+            </div>
+"""
+
+
+def _render_session_notable_hands(notable: dict) -> str:
+    """Render session-level notable hands (biggest win/loss across all day's tournaments)."""
+    bw = notable.get('biggest_win')
+    bl = notable.get('biggest_loss')
+    if not bw and not bl:
+        return ''
+
+    html = '            <div class="notable-hands">\n'
+    html += '                <h4>M\u00e3os Not\u00e1veis da Sess\u00e3o</h4>\n'
+    if bw:
+        html += _render_hand_card(bw, is_win=True)
+    if bl:
+        html += _render_hand_card(bl, is_win=False)
+    html += '            </div>\n'
+    return html
+
+
+def _render_session_ev_summary(day_ev: dict) -> str:
+    """Render session-level EV analysis summary."""
+    if not day_ev or day_ev.get('total_hands', 0) == 0:
+        return ''
+
+    luck = day_ev.get('luck_factor', 0)
+    luck_class = 'positive' if luck >= 0 else 'negative'
+    luck_label = 'acima do EV' if luck >= 0 else 'abaixo do EV'
+
+    html = f"""
+            <div class="day-summary-stats" style="border-color:rgba(0,170,255,0.3);">
+                <h4 style="color:#00aaff;">EV da Sess\u00e3o</h4>
+                <div class="stats-grid">
+                    <div class="session-stat-card">
+                        <div class="stat-label">All-in Hands</div>
+                        <div class="stat-value">{day_ev['allin_hands']}</div>
+                        <div class="stat-detail">{day_ev['total_hands']} total</div>
+                    </div>
+                    <div class="session-stat-card">
+                        <div class="stat-label">bb/100 Real</div>
+                        <div class="stat-value {'positive' if day_ev['bb100_real'] >= 0 else 'negative'}">{day_ev['bb100_real']:.2f}</div>
+                    </div>
+                    <div class="session-stat-card">
+                        <div class="stat-label">bb/100 EV</div>
+                        <div class="stat-value {'positive' if day_ev['bb100_ev'] >= 0 else 'negative'}">{day_ev['bb100_ev']:.2f}</div>
+                    </div>
+                    <div class="session-stat-card">
+                        <div class="stat-label">Luck Factor</div>
+                        <div class="stat-value {luck_class}">{luck:+.0f}</div>
+                        <div class="stat-detail">{luck_label}</div>
+                    </div>
+                    <div class="session-stat-card">
+                        <div class="stat-label">Real (chips)</div>
+                        <div class="stat-value {'positive' if day_ev['real_net'] >= 0 else 'negative'}">{day_ev['real_net']:+.0f}</div>
+                    </div>
+                    <div class="session-stat-card">
+                        <div class="stat-label">EV (chips)</div>
+                        <div class="stat-value {'positive' if day_ev['ev_net'] >= 0 else 'negative'}">{day_ev['ev_net']:+.0f}</div>
+                    </div>
+                </div>
+            </div>
+"""
+    return html
+
+
+def _render_session_comparison(comparison: dict, daily_reports: list[dict]) -> str:
+    """Render comparison between sessions across different days."""
+    if not comparison or len(daily_reports) < 2:
+        return ''
+
+    html = """
+        <div class="player-stats">
+            <h2>Comparativo entre Sess\u00f5es</h2>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>M\u00e9trica</th>
+                        <th>Melhor Sess\u00e3o</th>
+                        <th>Pior Sess\u00e3o</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+
+    metric_labels = {
+        'net': ('Resultado', '${:+.2f}', '${:+.2f}'),
+        'roi': ('ROI', '{:+.1f}%', '{:+.1f}%'),
+        'itm': ('ITM Rate', '{:.0f}%', '{:.0f}%'),
+        'hands': ('M\u00e3os', '{}', '{}'),
+        'vpip': ('VPIP', '{:.1f}%', '{:.1f}%'),
+        'pfr': ('PFR', '{:.1f}%', '{:.1f}%'),
+        'af': ('AF', '{:.2f}', '{:.2f}'),
+    }
+
+    for key, (label, best_fmt, worst_fmt) in metric_labels.items():
+        comp = comparison.get(key)
+        if not comp:
+            continue
+        best_idx = comp['best']
+        worst_idx = comp['worst']
+        best_date = daily_reports[best_idx]['date']
+        worst_date = daily_reports[worst_idx]['date']
+        best_val = comp['best_value']
+        worst_val = comp['worst_value']
+
+        html += f"""                    <tr>
+                        <td><strong>{label}</strong></td>
+                        <td class="positive">{best_date} ({best_fmt.format(best_val)})</td>
+                        <td class="negative">{worst_date} ({worst_fmt.format(worst_val)})</td>
+                    </tr>
+"""
+
+    html += """                </tbody>
+            </table>
+        </div>
+"""
+    return html
+
+
 def _render_daily_report(report: dict) -> str:
-    """Render a full daily report section with tournament breakdown."""
+    """Render a full daily report section with session-focused layout.
+
+    Session summary (aggregated stats, financial, sparkline, EV) is the primary view.
+    Individual tournament details are inside a collapsed accordion.
+    """
     date_obj = datetime.strptime(report['date'], '%Y-%m-%d')
     date_formatted = date_obj.strftime('%d/%m/%Y (%A)')
     day_net = report['net']
     day_net_class = 'positive' if day_net >= 0 else 'negative'
+    session_roi = report.get('session_roi', 0)
+    roi_class = 'positive' if session_roi >= 0 else 'negative'
+    total_hands = report.get('total_hands', 0)
 
     html = f"""
         <div class="daily-report">
@@ -667,51 +854,67 @@ def _render_daily_report(report: dict) -> str:
 
             <div class="daily-stats">
                 <div class="daily-stat">
-                    <div class="stat-label">Torneios</div>
-                    <div class="stat-value neutral">{report['tournament_count']}</div>
-                </div>
-                <div class="daily-stat">
-                    <div class="stat-label">Total Entries</div>
-                    <div class="stat-value">{report['total_entries']}</div>
-                </div>
-                <div class="daily-stat">
-                    <div class="stat-label">Rebuys</div>
-                    <div class="stat-value">{report['rebuys']}</div>
-                </div>
-                <div class="daily-stat">
                     <div class="stat-label">Total Investido</div>
                     <div class="stat-value">${report['total_buy_in']:.2f}</div>
-                </div>
-                <div class="daily-stat">
-                    <div class="stat-label">Total Rake</div>
-                    <div class="stat-value negative">${report['total_rake']:.2f}</div>
                 </div>
                 <div class="daily-stat">
                     <div class="stat-label">Total Ganho</div>
                     <div class="stat-value {'positive' if report['total_won'] > 0 else 'neutral'}">${report['total_won']:.2f}</div>
                 </div>
                 <div class="daily-stat">
+                    <div class="stat-label">Resultado</div>
+                    <div class="stat-value {day_net_class}">${day_net:+.2f}</div>
+                </div>
+                <div class="daily-stat">
+                    <div class="stat-label">ROI</div>
+                    <div class="stat-value {roi_class}">{session_roi:+.1f}%</div>
+                </div>
+                <div class="daily-stat">
                     <div class="stat-label">ITM</div>
                     <div class="stat-value neutral">{report['itm_count']}/{report['tournament_count']} ({report['itm_rate']:.0f}%)</div>
                 </div>
                 <div class="daily-stat">
-                    <div class="stat-label">Resultado Final</div>
-                    <div class="stat-value {day_net_class}">${day_net:+.2f}</div>
+                    <div class="stat-label">M\u00e3os</div>
+                    <div class="stat-value neutral">{total_hands}</div>
+                </div>
+                <div class="daily-stat">
+                    <div class="stat-label">Torneios</div>
+                    <div class="stat-value neutral">{report['tournament_count']}</div>
+                </div>
+                <div class="daily-stat">
+                    <div class="stat-label">Total Rake</div>
+                    <div class="stat-value negative">${report['total_rake']:.2f}</div>
                 </div>
             </div>
 """
 
-    # Day summary stats (weighted average from all tournaments)
+    # Day-level aggregated stats with health badges (primary view)
     day_stats = report.get('day_stats', {})
     if day_stats:
         html += _render_day_summary_stats(day_stats)
 
-    # Tournament comparison
+    # Session sparkline (aggregated chips across all tournaments)
+    session_sparkline = report.get('session_sparkline', [])
+    if session_sparkline and len(session_sparkline) >= 2:
+        html += _render_session_sparkline(session_sparkline)
+
+    # Session-level EV analysis
+    day_ev = report.get('day_ev', {})
+    if day_ev and day_ev.get('total_hands', 0) > 0:
+        html += _render_session_ev_summary(day_ev)
+
+    # Session-level notable hands
+    session_notable = report.get('session_notable', {})
+    if session_notable:
+        html += _render_session_notable_hands(session_notable)
+
+    # Tournament comparison (within the day)
     comparison = report.get('comparison', {})
     tournaments = report.get('tournaments', [])
     if comparison and len(tournaments) >= 2:
         html += _render_tournament_comparison(comparison, tournaments)
 
+    # Individual tournament details in accordion (secondary, collapsed by default)
     html += f"""
             <div class="accordion-toggle" onclick="toggleAccordion(this)">
                 <span>Ver detalhes dos torneios ({report['tournament_count']})</span>

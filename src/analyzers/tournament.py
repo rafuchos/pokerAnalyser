@@ -2,7 +2,7 @@
 
 Reads from database and computes statistics for reports.
 Includes per-tournament preflop/postflop stats, EV analysis,
-chip sparklines, and daily aggregated breakdowns.
+chip sparklines, daily session-level aggregation, and session comparisons.
 """
 
 from collections import defaultdict
@@ -26,7 +26,11 @@ class TournamentAnalyzer:
         self.year = year
 
     def get_daily_reports(self) -> list[dict]:
-        """Build daily report data for HTML generation."""
+        """Build daily report data with session-level focus.
+
+        Each day is treated as a session, with aggregated stats as the primary view
+        and individual tournament details in accordion sections.
+        """
         tournaments = self.repo.get_tournaments(self.year, exclude_satellites=True)
 
         # Group by day
@@ -64,11 +68,26 @@ class TournamentAnalyzer:
                 detail = self._get_tournament_detail(t, tid)
                 tournament_details.append(detail)
 
-            # Aggregate day stats (weighted by hands count)
-            day_stats = self._aggregate_tournament_stats(tournament_details)
+            # Aggregate day stats (weighted by hands count) with health badges
+            day_stats = self._aggregate_tournament_stats_with_health(tournament_details)
 
-            # Build comparison
+            # Build tournament comparison
             comparison = self._build_tournament_comparison(tournament_details)
+
+            # Session sparkline (aggregated chips across all tournaments of the day)
+            session_sparkline = self._get_session_sparkline(tournament_details)
+
+            # Session-level notable hands (biggest win/loss across all day's tournaments)
+            session_notable = self._get_daily_notable_hands(tournament_details)
+
+            # Session ROI
+            session_roi = ((net / total_buy_in) * 100) if total_buy_in > 0 else 0.0
+
+            # Day-level EV analysis
+            day_ev = self._get_daily_ev_analysis(day)
+
+            # Total hands for the session
+            total_hands = sum(td.get('hands_count', 0) for td in tournament_details)
 
             reports.append({
                 'date': day,
@@ -84,9 +103,77 @@ class TournamentAnalyzer:
                 'tournaments': tournament_details,
                 'day_stats': day_stats,
                 'comparison': comparison,
+                'session_sparkline': session_sparkline,
+                'session_notable': session_notable,
+                'session_roi': round(session_roi, 1),
+                'day_ev': day_ev,
+                'total_hands': total_hands,
             })
 
         return reports
+
+    def get_session_comparison(self, daily_reports: list[dict]) -> dict:
+        """Compare sessions across different days to find best/worst of month.
+
+        Returns dict with best/worst session indices per metric.
+        """
+        if len(daily_reports) < 2:
+            return {}
+
+        comparison = {}
+
+        # Net comparison
+        net_values = [(i, r.get('net', 0)) for i, r in enumerate(daily_reports)]
+        comparison['net'] = {
+            'best': max(net_values, key=lambda x: x[1])[0],
+            'worst': min(net_values, key=lambda x: x[1])[0],
+            'best_value': max(net_values, key=lambda x: x[1])[1],
+            'worst_value': min(net_values, key=lambda x: x[1])[1],
+        }
+
+        # ROI comparison
+        roi_values = [(i, r.get('session_roi', 0)) for i, r in enumerate(daily_reports)]
+        comparison['roi'] = {
+            'best': max(roi_values, key=lambda x: x[1])[0],
+            'worst': min(roi_values, key=lambda x: x[1])[0],
+            'best_value': max(roi_values, key=lambda x: x[1])[1],
+            'worst_value': min(roi_values, key=lambda x: x[1])[1],
+        }
+
+        # ITM comparison
+        itm_values = [(i, r.get('itm_rate', 0)) for i, r in enumerate(daily_reports)]
+        comparison['itm'] = {
+            'best': max(itm_values, key=lambda x: x[1])[0],
+            'worst': min(itm_values, key=lambda x: x[1])[0],
+            'best_value': max(itm_values, key=lambda x: x[1])[1],
+            'worst_value': min(itm_values, key=lambda x: x[1])[1],
+        }
+
+        # Hands count comparison
+        hands_values = [(i, r.get('total_hands', 0)) for i, r in enumerate(daily_reports)]
+        comparison['hands'] = {
+            'best': max(hands_values, key=lambda x: x[1])[0],
+            'worst': min(hands_values, key=lambda x: x[1])[0],
+            'best_value': max(hands_values, key=lambda x: x[1])[1],
+            'worst_value': min(hands_values, key=lambda x: x[1])[1],
+        }
+
+        # Stats comparison (VPIP, PFR, AF from day_stats)
+        for stat_key in ('vpip', 'pfr', 'af'):
+            stat_values = [
+                (i, r.get('day_stats', {}).get(stat_key, 0))
+                for i, r in enumerate(daily_reports)
+                if r.get('day_stats', {}).get('total_hands', 0) > 0
+            ]
+            if len(stat_values) >= 2:
+                comparison[stat_key] = {
+                    'best': max(stat_values, key=lambda x: x[1])[0],
+                    'worst': min(stat_values, key=lambda x: x[1])[0],
+                    'best_value': max(stat_values, key=lambda x: x[1])[1],
+                    'worst_value': min(stat_values, key=lambda x: x[1])[1],
+                }
+
+        return comparison
 
     def _get_tournament_detail(self, tournament: dict, tournament_id: str) -> dict:
         """Build full detail for a single tournament including stats and sparkline."""
@@ -142,6 +229,149 @@ class TournamentAnalyzer:
             cumulative += (h.get('net') or 0)
             points.append({'hand': i, 'chips': cumulative})
         return points
+
+    @staticmethod
+    def _get_session_sparkline(tournament_details: list[dict]) -> list[dict]:
+        """Generate aggregated sparkline for all tournaments in a day session.
+
+        Merges chip data from all tournaments into a single cumulative line.
+        """
+        all_nets = []
+        for td in tournament_details:
+            sparkline = td.get('sparkline', [])
+            for point in sparkline:
+                all_nets.append(point.get('chips', 0) - (
+                    sparkline[sparkline.index(point) - 1].get('chips', 0)
+                    if sparkline.index(point) > 0 else 0
+                ))
+        if not all_nets:
+            return []
+        cumulative = 0
+        points = []
+        for i, net in enumerate(all_nets, 1):
+            cumulative += net
+            points.append({'hand': i, 'chips': cumulative})
+        return points
+
+    @staticmethod
+    def _get_daily_notable_hands(tournament_details: list[dict]) -> dict:
+        """Find biggest win and biggest loss across all tournaments of a day."""
+        biggest_win = None
+        biggest_loss = None
+        for td in tournament_details:
+            bw = td.get('biggest_win')
+            bl = td.get('biggest_loss')
+            if bw:
+                net = bw.get('net', 0) or 0
+                if biggest_win is None or net > (biggest_win.get('net', 0) or 0):
+                    biggest_win = bw
+            if bl:
+                net = bl.get('net', 0) or 0
+                if biggest_loss is None or net < (biggest_loss.get('net', 0) or 0):
+                    biggest_loss = bl
+        return {
+            'biggest_win': biggest_win,
+            'biggest_loss': biggest_loss,
+        }
+
+    def _get_daily_ev_analysis(self, day: str) -> dict:
+        """Calculate EV analysis for a single day's tournament hands.
+
+        Returns same structure as get_ev_analysis but filtered to one day.
+        """
+        all_hands = self.repo.get_tournament_hands(self.year)
+        allin_hands = self.repo.get_tournament_allin_hands(self.year)
+
+        # Filter to the specific day
+        day_hands = [h for h in all_hands if (h.get('date') or '')[:10] == day]
+        day_allin = [h for h in allin_hands if (h.get('date') or '')[:10] == day]
+
+        if not day_hands:
+            return {
+                'total_hands': 0, 'allin_hands': 0,
+                'real_net': 0, 'ev_net': 0, 'luck_factor': 0,
+                'bb100_real': 0, 'bb100_ev': 0,
+            }
+
+        # Calculate equity for each all-in hand
+        allin_ev = {}
+        for h in day_allin:
+            ev_data = self._compute_hand_ev(h)
+            if ev_data is not None:
+                allin_ev[h['hand_id']] = ev_data
+
+        cumulative_real = 0.0
+        cumulative_ev = 0.0
+        total_bb_real = 0.0
+        total_bb_ev = 0.0
+
+        for h in day_hands:
+            net = h.get('net', 0) or 0
+            bb = h.get('blinds_bb') or 100
+            if bb <= 0:
+                bb = 100
+
+            cumulative_real += net
+            if h['hand_id'] in allin_ev:
+                ev_net_hand = allin_ev[h['hand_id']]['ev_net']
+                cumulative_ev += ev_net_hand
+            else:
+                ev_net_hand = net
+                cumulative_ev += net
+
+            total_bb_real += net / bb
+            total_bb_ev += ev_net_hand / bb
+
+        total_hands = len(day_hands)
+        total_allin = len(allin_ev)
+        luck_factor = cumulative_real - cumulative_ev
+        bb100_real = (total_bb_real / total_hands * 100) if total_hands > 0 else 0
+        bb100_ev = (total_bb_ev / total_hands * 100) if total_hands > 0 else 0
+
+        return {
+            'total_hands': total_hands,
+            'allin_hands': total_allin,
+            'real_net': round(cumulative_real, 2),
+            'ev_net': round(cumulative_ev, 2),
+            'luck_factor': round(luck_factor, 2),
+            'bb100_real': round(bb100_real, 2),
+            'bb100_ev': round(bb100_ev, 2),
+        }
+
+    @staticmethod
+    def _aggregate_tournament_stats_with_health(tournament_details: list[dict]) -> dict:
+        """Compute weighted average stats across tournaments with health badges.
+
+        Like _aggregate_tournament_stats but includes health classification.
+        """
+        stats_keys = ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats',
+                       'af', 'wtsd', 'wsd', 'cbet', 'fold_to_cbet', 'check_raise']
+        total_hands = 0
+        weighted = {k: 0.0 for k in stats_keys}
+
+        for td in tournament_details:
+            st = td.get('stats', {})
+            h = st.get('total_hands', 0)
+            if h == 0:
+                continue
+            total_hands += h
+            for k in stats_keys:
+                weighted[k] += st.get(k, 0) * h
+
+        if total_hands == 0:
+            return {}
+
+        result = {'total_hands': total_hands}
+        preflop_keys = {'vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats'}
+        for k in stats_keys:
+            val = weighted[k] / total_hands
+            result[k] = val
+            if k in preflop_keys:
+                result[f'{k}_health'] = CashAnalyzer._classify_health(k, val)
+            else:
+                result[f'{k}_health'] = CashAnalyzer._classify_postflop_health(k, val)
+
+        return result
 
     def get_tournament_game_stats(self, tournament_id: str = None) -> dict:
         """Calculate preflop + postflop stats for a tournament (or all tournaments).
