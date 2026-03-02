@@ -9,7 +9,7 @@ class HandData:
     __slots__ = (
         'hand_id', 'platform', 'game_type', 'date', 'blinds_sb', 'blinds_bb',
         'hero_cards', 'hero_position', 'invested', 'won', 'net', 'rake',
-        'table_name', 'num_players', 'tournament_id',
+        'table_name', 'num_players', 'tournament_id', 'hero_stack',
     )
 
     def __init__(self, **kwargs):

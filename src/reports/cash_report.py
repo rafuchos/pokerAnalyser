@@ -19,6 +19,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     preflop_stats = analyzer.get_preflop_stats()
     postflop_stats = analyzer.get_postflop_stats()
     positional_stats = analyzer.get_positional_stats()
+    stack_depth_data = analyzer.get_stack_depth_stats()
     leak_analysis = analyzer.get_leak_analysis()
     redline_data = analyzer.get_redline_blueline()
     bet_sizing_data = analyzer.get_bet_sizing_analysis()
@@ -607,6 +608,10 @@ def generate_cash_report(analyzer: CashAnalyzer,
     # ── Positional Analysis Section ──────────────────────────────────
     if positional_stats.get('by_position'):
         html += _render_positional_analysis(positional_stats)
+
+    # ── Stack Depth Analysis Section ──────────────────────────────────
+    if stack_depth_data.get('by_tier'):
+        html += _render_stack_depth_analysis(stack_depth_data)
 
     # ── Leak Finder Section ───────────────────────────────────────────
     if leak_analysis and leak_analysis.get('total_leaks', 0) > 0:
@@ -2268,6 +2273,152 @@ def _render_radar_chart(radar_data: list) -> str:
 
     svg += '            </svg>\n'
     return svg
+
+
+# ── Stack Depth Analysis ──────────────────────────────────────────────────────
+
+def _render_stack_depth_analysis(stack_depth_data: dict) -> str:
+    """Render the Stack Depth Analysis section.
+
+    Includes:
+    - Stats table per stack tier (deep/medium/shallow/shove-zone)
+    - Health badges using tier-specific ranges
+    - Position x tier cross-table (VPIP, PFR, bb/100)
+    - Win rate per tier
+    - Coverage summary (how many hands had known stack)
+    """
+    by_tier = stack_depth_data.get('by_tier', {})
+    if not by_tier:
+        return ''
+
+    tier_order = stack_depth_data.get('tier_order', ['deep', 'medium', 'shallow', 'shove'])
+    tiers_present = [t for t in tier_order if t in by_tier]
+    hands_with_stack = stack_depth_data.get('hands_with_stack', 0)
+    hands_total = stack_depth_data.get('hands_total', 0)
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    coverage_pct = (hands_with_stack / hands_total * 100) if hands_total > 0 else 0
+
+    html = f"""
+        <div class="player-stats">
+            <h2>An\u00e1lise por Stack Depth (BB Count)</h2>
+            <h3 class="section-subtitle">Stats Segmentadas por Profundidade de Stack</h3>
+            <p style="color:#a0a0a0; margin-bottom:15px;">
+                {hands_with_stack} de {hands_total} m\u00e3os com stack inicial conhecido ({coverage_pct:.0f}%)
+            </p>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Stack Tier</th>
+                        <th>M\u00e3os</th>
+                        <th>VPIP</th>
+                        <th>PFR</th>
+                        <th>3-Bet</th>
+                        <th>AF</th>
+                        <th>CBet</th>
+                        <th>WTSD</th>
+                        <th>W$SD</th>
+                        <th>$/m\u00e3o</th>
+                        <th>bb/100</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+    for tier in tiers_present:
+        ts = by_tier[tier]
+        net_class = 'positive' if ts['net_per_hand'] >= 0 else 'negative'
+        bb_class = 'positive' if ts['bb_per_100'] >= 0 else 'negative'
+        html += f"""
+                    <tr>
+                        <td><strong>{ts['label']}</strong></td>
+                        <td>{ts['total_hands']}</td>
+                        <td>
+                            {ts['vpip']:.1f}%
+                            {badge_html(ts['vpip_health'])}
+                        </td>
+                        <td>
+                            {ts['pfr']:.1f}%
+                            {badge_html(ts['pfr_health'])}
+                        </td>
+                        <td>
+                            {ts['three_bet']:.1f}%
+                            {badge_html(ts['three_bet_health'])}
+                        </td>
+                        <td>
+                            {ts['af']:.2f}
+                            {badge_html(ts['af_health'])}
+                        </td>
+                        <td>
+                            {ts['cbet']:.1f}%
+                            {badge_html(ts['cbet_health'])}
+                        </td>
+                        <td>
+                            {ts['wtsd']:.1f}%
+                            {badge_html(ts['wtsd_health'])}
+                        </td>
+                        <td>
+                            {ts['wsd']:.1f}%
+                            {badge_html(ts['wsd_health'])}
+                        </td>
+                        <td class="{net_class}">${ts['net_per_hand']:.3f}</td>
+                        <td class="{bb_class}">{ts['bb_per_100']:+.1f}</td>
+                    </tr>
+"""
+
+    html += """
+                </tbody>
+            </table>
+"""
+
+    # ── Position x Stack Tier cross-table ──────────────────────────────
+    by_position_tier = stack_depth_data.get('by_position_tier', {})
+    if by_position_tier:
+        html += """
+            <h3 class="section-subtitle">VPIP e PFR por Posi\u00e7\u00e3o x Stack Depth</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Posi\u00e7\u00e3o</th>
+"""
+        for tier in tiers_present:
+            label = by_tier[tier]['label']
+            html += f'                        <th colspan="2">{label}</th>\n'
+
+        html += """                    </tr>
+                    <tr>
+                        <th></th>
+"""
+        for _ in tiers_present:
+            html += '                        <th>VPIP</th><th>PFR</th>\n'
+        html += '                    </tr>\n                </thead>\n                <tbody>\n'
+
+        position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+        for pos in position_order:
+            if pos not in by_position_tier:
+                continue
+            pos_tiers = by_position_tier[pos]
+            html += f'                    <tr>\n                        <td><strong>{pos}</strong></td>\n'
+            for tier in tiers_present:
+                if tier in pos_tiers:
+                    pt = pos_tiers[tier]
+                    html += f'                        <td>{pt["vpip"]:.1f}%</td>'
+                    html += f'<td>{pt["pfr"]:.1f}%</td>\n'
+                else:
+                    html += '                        <td>—</td><td>—</td>\n'
+            html += '                    </tr>\n'
+
+        html += """
+                </tbody>
+            </table>
+"""
+
+    html += """
+        </div>
+"""
+    return html
 
 
 # ── Red Line / Blue Line ──────────────────────────────────────────────────────

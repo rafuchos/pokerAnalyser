@@ -42,8 +42,8 @@ class Repository:
             self.conn.execute(
                 "INSERT INTO hands (hand_id, platform, game_type, date, blinds_sb, blinds_bb, "
                 "hero_cards, hero_position, invested, won, net, rake, table_name, num_players, "
-                "tournament_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "tournament_id, hero_stack) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     hand.hand_id, hand.platform, hand.game_type,
                     hand.date.isoformat() if isinstance(hand.date, datetime) else hand.date,
@@ -51,6 +51,7 @@ class Repository:
                     hand.invested, hand.won, hand.net, hand.rake,
                     hand.table_name, hand.num_players,
                     getattr(hand, 'tournament_id', None),
+                    getattr(hand, 'hero_stack', None),
                 )
             )
             return True
@@ -452,11 +453,12 @@ class Repository:
     def get_cash_hands_with_position(self, year: Optional[str] = None) -> list[dict]:
         """Get cash hands with position and financial data for positional win rate analysis.
 
-        Returns hand_id, hero_position, net, blinds_bb for each cash hand.
-        Used by CashAnalyzer.get_positional_stats() for bb/100 per position.
+        Returns hand_id, hero_position, net, blinds_bb, hero_stack for each cash hand.
+        Used by CashAnalyzer.get_positional_stats() for bb/100 per position and
+        get_stack_depth_stats() for stack tier classification.
         """
         query = """
-            SELECT hand_id, hero_position, net, blinds_bb, blinds_sb
+            SELECT hand_id, hero_position, net, blinds_bb, blinds_sb, hero_stack
             FROM hands
             WHERE game_type = 'cash'
         """

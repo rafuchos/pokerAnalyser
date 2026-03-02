@@ -35,6 +35,13 @@ class CashAnalyzer:
             self._pos_vpip_warning = config.position_vpip_warning
             self._pos_pfr_healthy = config.position_pfr_healthy
             self._pos_pfr_warning = config.position_pfr_warning
+            # Stack depth ranges
+            self._stack_vpip_healthy = config.stack_depth_vpip_healthy
+            self._stack_vpip_warning = config.stack_depth_vpip_warning
+            self._stack_pfr_healthy = config.stack_depth_pfr_healthy
+            self._stack_pfr_warning = config.stack_depth_pfr_warning
+            self._stack_3bet_healthy = config.stack_depth_three_bet_healthy
+            self._stack_3bet_warning = config.stack_depth_three_bet_warning
 
             # ── Override classify methods at the instance level ────────
             # Python instance attributes shadow class attributes (incl.
@@ -100,6 +107,13 @@ class CashAnalyzer:
             self._pos_vpip_warning = type(self).POSITION_VPIP_WARNING
             self._pos_pfr_healthy = type(self).POSITION_PFR_HEALTHY
             self._pos_pfr_warning = type(self).POSITION_PFR_WARNING
+            # Stack depth ranges (default)
+            self._stack_vpip_healthy = type(self).STACK_VPIP_HEALTHY
+            self._stack_vpip_warning = type(self).STACK_VPIP_WARNING
+            self._stack_pfr_healthy = type(self).STACK_PFR_HEALTHY
+            self._stack_pfr_warning = type(self).STACK_PFR_WARNING
+            self._stack_3bet_healthy = type(self).STACK_3BET_HEALTHY
+            self._stack_3bet_warning = type(self).STACK_3BET_WARNING
 
     def get_daily_reports(self) -> list[dict]:
         """Build daily report data for HTML generation."""
@@ -1128,6 +1142,32 @@ class CashAnalyzer:
         'SB':   (10, 32), 'BB': (5, 20),
     }
 
+    # Per-stack-tier healthy/warning ranges (deep=50+BB, medium=25-50, shallow=15-25, shove<15)
+    STACK_VPIP_HEALTHY = {
+        'deep':    (22, 30), 'medium': (20, 28),
+        'shallow': (18, 26), 'shove':  (25, 55),
+    }
+    STACK_VPIP_WARNING = {
+        'deep':    (18, 35), 'medium': (16, 33),
+        'shallow': (14, 32), 'shove':  (20, 70),
+    }
+    STACK_PFR_HEALTHY = {
+        'deep':    (17, 25), 'medium': (16, 24),
+        'shallow': (14, 22), 'shove':  (22, 50),
+    }
+    STACK_PFR_WARNING = {
+        'deep':    (14, 28), 'medium': (12, 28),
+        'shallow': (10, 28), 'shove':  (18, 65),
+    }
+    STACK_3BET_HEALTHY = {
+        'deep':    (7, 12), 'medium': (6, 11),
+        'shallow': (4, 10), 'shove':  (0, 5),
+    }
+    STACK_3BET_WARNING = {
+        'deep':    (4, 15), 'medium': (3, 14),
+        'shallow': (2, 14), 'shove':  (0, 10),
+    }
+
     @classmethod
     def _classify_positional_health(cls, stat: str, pos: str, value: float) -> str:
         """Classify a per-position stat using position-specific healthy ranges.
@@ -1473,6 +1513,277 @@ class CashAnalyzer:
             })
 
         return radar
+
+    # ── Stack Depth Analysis (BB Count Segmentation) ────────────────
+
+    # Ordered tiers: (name, label, min_bb, max_bb)
+    STACK_DEPTH_TIERS = [
+        ('deep',     '50+ BB',   50.0, float('inf')),
+        ('medium',   '25-50 BB', 25.0, 50.0),
+        ('shallow',  '15-25 BB', 15.0, 25.0),
+        ('shove',    '<15 BB',    0.0, 15.0),
+    ]
+
+    @staticmethod
+    def _classify_stack_tier(stack_bb: float) -> str:
+        """Return tier name for a stack size in big blinds."""
+        if stack_bb >= 50.0:
+            return 'deep'
+        if stack_bb >= 25.0:
+            return 'medium'
+        if stack_bb >= 15.0:
+            return 'shallow'
+        return 'shove'
+
+    def _classify_stack_depth_health(self, stat: str, tier: str,
+                                     value: float) -> str:
+        """Classify a stat's health against the tier-specific range.
+
+        Uses stack_depth config ranges when available, otherwise falls
+        back to the overall healthy/warning ranges.
+        """
+        if stat == 'vpip':
+            h = self._stack_vpip_healthy.get(tier, self._healthy_ranges.get('vpip'))
+            w = self._stack_vpip_warning.get(tier, self._warning_ranges.get('vpip'))
+        elif stat == 'pfr':
+            h = self._stack_pfr_healthy.get(tier, self._healthy_ranges.get('pfr'))
+            w = self._stack_pfr_warning.get(tier, self._warning_ranges.get('pfr'))
+        elif stat == 'three_bet':
+            h = self._stack_3bet_healthy.get(tier, self._healthy_ranges.get('three_bet'))
+            w = self._stack_3bet_warning.get(tier, self._warning_ranges.get('three_bet'))
+        else:
+            return self._classify_health(stat, value)
+
+        if h and h[0] <= value <= h[1]:
+            return 'good'
+        if w and w[0] <= value <= w[1]:
+            return 'warning'
+        return 'danger'
+
+    def get_stack_depth_stats(self) -> dict:
+        """Calculate stats segmented by stack depth (BB count) and position.
+
+        Stack depth tiers: deep (50+ BB), medium (25-50 BB),
+        shallow (15-25 BB), shove-zone (<15 BB).
+
+        Returns dict with:
+        - by_tier: {tier_name: {stats + health badges}}
+        - by_position_tier: {position: {tier_name: {vpip, pfr, ...}}}
+        - tier_order: ordered list of tier names
+        - tier_labels: tier_name → display label
+        - hands_with_stack: count of hands with known stack
+        - hands_total: total cash hands
+        """
+        sequences = self.repo.get_all_action_sequences(self.year)
+        hands_financial = self.repo.get_cash_hands_with_position(self.year)
+
+        # Build per-hand lookups
+        hand_info = {}
+        for h in hands_financial:
+            bb = h.get('blinds_bb') or 0.50
+            stack = h.get('hero_stack')
+            hand_info[h['hand_id']] = {
+                'bb': bb,
+                'stack_bb': (stack / bb) if (stack and bb > 0) else None,
+            }
+
+        # Group actions by hand_id
+        hands_actions = defaultdict(list)
+        hand_meta = {}
+        for action in sequences:
+            hand_id = action['hand_id']
+            hands_actions[hand_id].append(action)
+            if hand_id not in hand_meta:
+                hand_meta[hand_id] = {
+                    'hero_position': action.get('hero_position'),
+                    'hero_net': action.get('hero_net', 0) or 0,
+                }
+
+        # Per-tier counters
+        def _empty_tier():
+            return {
+                'total': 0, 'vpip': 0, 'pfr': 0,
+                'three_bet_opps': 0, 'three_bet': 0,
+                'saw_flop': 0, 'wtsd': 0, 'wsd': 0,
+                'cbet_opps': 0, 'cbet': 0,
+                'agg_br': 0, 'agg_calls': 0,
+                'net': 0.0, 'bb_net': 0.0,
+            }
+
+        tier_data = defaultdict(_empty_tier)
+
+        # Per-position x tier counters (only VPIP, PFR, net for cross-table)
+        def _empty_pos_tier():
+            return {
+                'total': 0, 'vpip': 0, 'pfr': 0,
+                'net': 0.0, 'bb_net': 0.0,
+            }
+
+        pos_tier_data = defaultdict(lambda: defaultdict(_empty_pos_tier))
+
+        total_hands = len(hands_financial)
+        hands_with_stack = 0
+
+        for hand_id, actions in hands_actions.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+
+            info = hand_info.get(hand_id, {})
+            stack_bb = info.get('stack_bb')
+            if stack_bb is None:
+                continue  # skip hands with unknown starting stack
+
+            hands_with_stack += 1
+            tier = self._classify_stack_tier(stack_bb)
+            meta = hand_meta[hand_id]
+            hero_pos = meta['hero_position'] or 'Unknown'
+            hero_net = meta['hero_net']
+            bb = info.get('bb', 0.50)
+
+            td = tier_data[tier]
+            td['total'] += 1
+            td['net'] += hero_net
+            td['bb_net'] += (hero_net / bb) if bb > 0 else 0.0
+
+            ptd = pos_tier_data[hero_pos][tier]
+            ptd['total'] += 1
+            ptd['net'] += hero_net
+            ptd['bb_net'] += (hero_net / bb) if bb > 0 else 0.0
+
+            # Preflop analysis
+            preflop_vol = [
+                a for a in actions
+                if a['street'] == 'preflop'
+                and a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')
+            ]
+            pre = self._analyze_preflop_hand(preflop_vol)
+
+            if pre['vpip']:
+                td['vpip'] += 1
+                ptd['vpip'] += 1
+            if pre['pfr']:
+                td['pfr'] += 1
+                ptd['pfr'] += 1
+            if pre['three_bet_opp']:
+                td['three_bet_opps'] += 1
+                if pre['three_bet']:
+                    td['three_bet'] += 1
+
+            # Postflop analysis
+            post = self._analyze_postflop_hand(actions, hero_net)
+            if post['saw_flop']:
+                td['saw_flop'] += 1
+            if post['went_to_showdown']:
+                td['wtsd'] += 1
+            if post['won_at_showdown']:
+                td['wsd'] += 1
+            if post['cbet_opp']:
+                td['cbet_opps'] += 1
+                if post['cbet']:
+                    td['cbet'] += 1
+            for street in ('flop', 'turn', 'river'):
+                if street in post['hero_aggression']:
+                    ha = post['hero_aggression'][street]
+                    td['agg_br'] += ha['bets'] + ha['raises']
+                    td['agg_calls'] += ha['calls']
+
+        return self._format_stack_depth_stats(
+            dict(tier_data), dict(pos_tier_data),
+            total_hands, hands_with_stack,
+        )
+
+    def _format_stack_depth_stats(self, tier_data: dict,
+                                   pos_tier_data: dict,
+                                   total_hands: int,
+                                   hands_with_stack: int) -> dict:
+        """Format raw stack depth counters into percentages with health badges."""
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        tier_order = ['deep', 'medium', 'shallow', 'shove']
+        tier_labels = {
+            'deep': '50+ BB',
+            'medium': '25-50 BB',
+            'shallow': '15-25 BB',
+            'shove': '<15 BB',
+        }
+
+        by_tier = {}
+        for tier in tier_order:
+            if tier not in tier_data:
+                continue
+            td = tier_data[tier]
+            t = td['total']
+            if t == 0:
+                continue
+
+            vpip = pct(td['vpip'], t)
+            pfr = pct(td['pfr'], t)
+            three_bet = pct(td['three_bet'], td['three_bet_opps'])
+            af = td['agg_br'] / td['agg_calls'] if td['agg_calls'] > 0 else 0.0
+            cbet = pct(td['cbet'], td['cbet_opps'])
+            wtsd = pct(td['wtsd'], td['saw_flop'])
+            wsd = pct(td['wsd'], td['wtsd'])
+            net_per_hand = td['net'] / t
+            bb_per_100 = (td['bb_net'] / t) * 100
+
+            by_tier[tier] = {
+                'label': tier_labels[tier],
+                'total_hands': t,
+                'vpip': vpip,
+                'vpip_health': self._classify_stack_depth_health('vpip', tier, vpip),
+                'pfr': pfr,
+                'pfr_health': self._classify_stack_depth_health('pfr', tier, pfr),
+                'three_bet': three_bet,
+                'three_bet_health': self._classify_stack_depth_health('three_bet', tier, three_bet),
+                'af': af,
+                'af_health': self._classify_postflop_health('af', af),
+                'cbet': cbet,
+                'cbet_health': self._classify_postflop_health('cbet', cbet),
+                'wtsd': wtsd,
+                'wtsd_health': self._classify_postflop_health('wtsd', wtsd),
+                'wsd': wsd,
+                'wsd_health': self._classify_postflop_health('wsd', wsd),
+                'net': td['net'],
+                'net_per_hand': net_per_hand,
+                'bb_per_100': bb_per_100,
+                'winrate_health': 'good' if net_per_hand >= 0 else 'danger',
+            }
+
+        # Per-position x tier: VPIP, PFR, bb/100
+        position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+        by_position_tier = {}
+        for pos in position_order:
+            if pos not in pos_tier_data:
+                continue
+            pos_tiers = {}
+            for tier in tier_order:
+                if tier not in pos_tier_data[pos]:
+                    continue
+                ptd = pos_tier_data[pos][tier]
+                t = ptd['total']
+                if t < 5:  # Skip very small samples
+                    continue
+                bb_per_100 = (ptd['bb_net'] / t) * 100
+                pos_tiers[tier] = {
+                    'label': tier_labels[tier],
+                    'total_hands': t,
+                    'vpip': pct(ptd['vpip'], t),
+                    'pfr': pct(ptd['pfr'], t),
+                    'bb_per_100': bb_per_100,
+                    'winrate_health': 'good' if bb_per_100 >= 0 else 'danger',
+                }
+            if pos_tiers:
+                by_position_tier[pos] = pos_tiers
+
+        return {
+            'by_tier': by_tier,
+            'by_position_tier': by_position_tier,
+            'tier_order': tier_order,
+            'tier_labels': tier_labels,
+            'hands_with_stack': hands_with_stack,
+            'hands_total': total_hands,
+        }
 
     # ── Hand Matrix (Preflop Range Visualization) ──────────────────
 

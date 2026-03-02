@@ -40,6 +40,7 @@ class TargetsConfig:
         preflop = self._data.get('preflop', {})
         postflop = self._data.get('postflop', {})
         positions = self._data.get('positions', {})
+        stack_depth = self._data.get('stack_depth', {})
 
         self.healthy_ranges: dict = {}
         self.warning_ranges: dict = {}
@@ -49,6 +50,15 @@ class TargetsConfig:
         self.position_vpip_warning: dict = {}
         self.position_pfr_healthy: dict = {}
         self.position_pfr_warning: dict = {}
+
+        # Stack depth ranges: tier → (low, high) per stat
+        self.stack_depth_tiers: dict = {}          # tier → min_bb
+        self.stack_depth_vpip_healthy: dict = {}   # tier → (low, high)
+        self.stack_depth_vpip_warning: dict = {}
+        self.stack_depth_pfr_healthy: dict = {}
+        self.stack_depth_pfr_warning: dict = {}
+        self.stack_depth_three_bet_healthy: dict = {}
+        self.stack_depth_three_bet_warning: dict = {}
 
         for stat, vals in preflop.items():
             if not isinstance(vals, dict):
@@ -89,6 +99,43 @@ class TargetsConfig:
                 self.position_pfr_healthy[pos] = tuple(h)
             if w:
                 self.position_pfr_warning[pos] = tuple(w)
+
+        # Stack depth tiers
+        for tier, vals in stack_depth.get('tiers', {}).items():
+            if isinstance(vals, dict):
+                min_bb = vals.get('min_bb')
+                if min_bb is not None:
+                    self.stack_depth_tiers[tier] = min_bb
+
+        for tier, vals in stack_depth.get('vpip', {}).items():
+            if not isinstance(vals, dict):
+                continue
+            h = vals.get('healthy')
+            w = vals.get('warning')
+            if h:
+                self.stack_depth_vpip_healthy[tier] = tuple(h)
+            if w:
+                self.stack_depth_vpip_warning[tier] = tuple(w)
+
+        for tier, vals in stack_depth.get('pfr', {}).items():
+            if not isinstance(vals, dict):
+                continue
+            h = vals.get('healthy')
+            w = vals.get('warning')
+            if h:
+                self.stack_depth_pfr_healthy[tier] = tuple(h)
+            if w:
+                self.stack_depth_pfr_warning[tier] = tuple(w)
+
+        for tier, vals in stack_depth.get('three_bet', {}).items():
+            if not isinstance(vals, dict):
+                continue
+            h = vals.get('healthy')
+            w = vals.get('warning')
+            if h:
+                self.stack_depth_three_bet_healthy[tier] = tuple(h)
+            if w:
+                self.stack_depth_three_bet_warning[tier] = tuple(w)
 
     # ── Loading ─────────────────────────────────────────────────────
 
@@ -448,6 +495,32 @@ def _default_data() -> dict:
                 'BB':    {'healthy': [8, 15],  'warning': [5, 20]},
             },
         },
+        'stack_depth': {
+            'tiers': {
+                'deep':    {'min_bb': 50},
+                'medium':  {'min_bb': 25},
+                'shallow': {'min_bb': 15},
+                'shove':   {'min_bb': 0},
+            },
+            'vpip': {
+                'deep':    {'healthy': [22, 30], 'warning': [18, 35]},
+                'medium':  {'healthy': [20, 28], 'warning': [16, 33]},
+                'shallow': {'healthy': [18, 26], 'warning': [14, 32]},
+                'shove':   {'healthy': [25, 55], 'warning': [20, 70]},
+            },
+            'pfr': {
+                'deep':    {'healthy': [17, 25], 'warning': [14, 28]},
+                'medium':  {'healthy': [16, 24], 'warning': [12, 28]},
+                'shallow': {'healthy': [14, 22], 'warning': [10, 28]},
+                'shove':   {'healthy': [22, 50], 'warning': [18, 65]},
+            },
+            'three_bet': {
+                'deep':    {'healthy': [7, 12], 'warning': [4, 15]},
+                'medium':  {'healthy': [6, 11], 'warning': [3, 14]},
+                'shallow': {'healthy': [4, 10], 'warning': [2, 14]},
+                'shove':   {'healthy': [0, 5],  'warning': [0, 10]},
+            },
+        },
     }
 
 
@@ -527,4 +600,28 @@ positions:
     BTN:   {healthy: [25, 40], warning: [19, 50]}
     SB:    {healthy: [15, 25], warning: [10, 32]}
     BB:    {healthy: [8, 15],  warning: [5, 20]}
+
+# ── Stack Depth Tiers (BB Count) ──────────────────────────────────────────
+# deep=50+BB, medium=25-50BB, shallow=15-25BB, shove=<15BB
+stack_depth:
+  tiers:
+    deep:    {min_bb: 50}
+    medium:  {min_bb: 25}
+    shallow: {min_bb: 15}
+    shove:   {min_bb: 0}
+  vpip:
+    deep:    {healthy: [22, 30], warning: [18, 35]}
+    medium:  {healthy: [20, 28], warning: [16, 33]}
+    shallow: {healthy: [18, 26], warning: [14, 32]}
+    shove:   {healthy: [25, 55], warning: [20, 70]}
+  pfr:
+    deep:    {healthy: [17, 25], warning: [14, 28]}
+    medium:  {healthy: [16, 24], warning: [12, 28]}
+    shallow: {healthy: [14, 22], warning: [10, 28]}
+    shove:   {healthy: [22, 50], warning: [18, 65]}
+  three_bet:
+    deep:    {healthy: [7, 12], warning: [4, 15]}
+    medium:  {healthy: [6, 11], warning: [3, 14]}
+    shallow: {healthy: [4, 10], warning: [2, 14]}
+    shove:   {healthy: [0, 5],  warning: [0, 10]}
 """

@@ -141,6 +141,7 @@ class GGPokerParser(BaseParser):
             rake=0.0,
             table_name=table_name,
             num_players=num_players,
+            hero_stack=hero_starting_stack if hero_starting_stack > 0 else None,
         )
 
     def parse_actions(self, hand_text: str, hand_id: str,
@@ -743,6 +744,7 @@ class GGPokerParser(BaseParser):
             table_name=table_name,
             num_players=num_players,
             tournament_id=tournament_id,
+            hero_stack=hero_starting_stack if hero_starting_stack > 0 else None,
         )
 
     def parse_tournament_file(self, filepath: str) -> list[dict]:

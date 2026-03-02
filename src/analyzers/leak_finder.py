@@ -55,6 +55,15 @@ class LeakFinder:
     # Min hands for leak detection
     MIN_HANDS_OVERALL = 50
     MIN_HANDS_POSITION = 20
+    MIN_HANDS_STACK_TIER = 15  # min per stack tier for leak detection
+
+    # Stack tier labels for human-readable messages
+    TIER_LABELS = {
+        'deep':    '50+ BB',
+        'medium':  '25-50 BB',
+        'shallow': '15-25 BB',
+        'shove':   '<15 BB',
+    }
 
     def __init__(self, analyzer: CashAnalyzer, repo: Repository, year: str = '2026'):
         self.analyzer = analyzer
@@ -79,6 +88,9 @@ class LeakFinder:
         overall_postflop = postflop_stats.get('overall', {})
         by_position = positional_stats.get('by_position', {})
 
+        stack_depth_stats = self.analyzer.get_stack_depth_stats()
+        by_tier = stack_depth_stats.get('by_tier', {})
+
         all_leaks = []
 
         # Detect preflop leaks
@@ -91,6 +103,9 @@ class LeakFinder:
 
         # Detect positional leaks
         all_leaks.extend(self._detect_positional_leaks(by_position))
+
+        # Detect stack depth leaks
+        all_leaks.extend(self._detect_stack_depth_leaks(by_tier))
 
         # Sort by cost (highest first)
         all_leaks.sort(key=lambda x: x.cost_bb100, reverse=True)
@@ -199,6 +214,58 @@ class LeakFinder:
 
         return leaks
 
+    def _detect_stack_depth_leaks(self, by_tier: dict) -> list[Leak]:
+        """Detect leaks per stack depth tier.
+
+        Checks VPIP, PFR, and 3-Bet against tier-specific healthy ranges.
+        Generates specific messages like 'Você está muito tight com 12-15 BB'.
+        """
+        leaks = []
+        for tier, stats in by_tier.items():
+            if stats.get('total_hands', 0) < self.MIN_HANDS_STACK_TIER:
+                continue
+
+            tier_label = self.TIER_LABELS.get(tier, tier)
+
+            # VPIP per tier
+            vpip_healthy = self.analyzer._stack_vpip_healthy.get(tier)
+            if vpip_healthy:
+                value = stats.get('vpip', 0)
+                leak = self._check_deviation(
+                    'vpip', value, vpip_healthy[0], vpip_healthy[1],
+                    self.POSITIONAL_WEIGHTS['vpip'], 'stack_depth',
+                    position=tier_label,
+                )
+                if leak:
+                    leaks.append(leak)
+
+            # PFR per tier
+            pfr_healthy = self.analyzer._stack_pfr_healthy.get(tier)
+            if pfr_healthy:
+                value = stats.get('pfr', 0)
+                leak = self._check_deviation(
+                    'pfr', value, pfr_healthy[0], pfr_healthy[1],
+                    self.POSITIONAL_WEIGHTS['pfr'], 'stack_depth',
+                    position=tier_label,
+                )
+                if leak:
+                    leaks.append(leak)
+
+            # 3-Bet per tier
+            three_bet_healthy = self.analyzer._stack_3bet_healthy.get(tier)
+            if three_bet_healthy:
+                value = stats.get('three_bet', 0)
+                if stats.get('total_hands', 0) >= self.MIN_HANDS_STACK_TIER:
+                    leak = self._check_deviation(
+                        'three_bet', value, three_bet_healthy[0], three_bet_healthy[1],
+                        self.PREFLOP_WEIGHTS['three_bet'], 'stack_depth',
+                        position=tier_label,
+                    )
+                    if leak:
+                        leaks.append(leak)
+
+        return leaks
+
     def _check_deviation(self, stat_name: str, value: float,
                          healthy_low: float, healthy_high: float,
                          weight: float, category: str,
@@ -247,14 +314,30 @@ class LeakFinder:
         }
         label = stat_labels.get(stat_name, stat_name)
         dir_label = 'muito alto' if direction == 'too_high' else 'muito baixo'
-        pos_suffix = f' no {position}' if position else ''
 
+        if category == 'stack_depth' and position:
+            return f'{label} {dir_label} com {position}'
+
+        pos_suffix = f' no {position}' if position else ''
         return f'{label} {dir_label}{pos_suffix}'
 
     @staticmethod
     def _leak_suggestion(stat_name: str, direction: str, category: str,
                          position: str = '') -> str:
         """Generate concrete study suggestion for a leak."""
+        if category == 'stack_depth' and position:
+            # position here is the tier label e.g. "25-50 BB" or "<15 BB"
+            stack_suggestions = {
+                ('vpip', 'too_high'): f'Com {position}: reduza range e jogue mais seletivo. Prefira mãos com boa equity de stack-off.',
+                ('vpip', 'too_low'): f'Com {position}: você está muito tight. Estude ranges de push/fold e abra mais.',
+                ('pfr', 'too_high'): f'Com {position}: muito agressivo no preflop. Selecione melhor os spots de raise.',
+                ('pfr', 'too_low'): f'Com {position}: seja mais agressivo. Com stack curto, raise ou fold — evite limp.',
+                ('three_bet', 'too_high'): f'Com {position}: reduza 3-bets; com stack curto, 3-bets criam spots ruins.',
+                ('three_bet', 'too_low'): f'Com {position}: pode adicionar mais 3-bets all-in com mãos fortes.',
+            }
+            key = (stat_name, direction)
+            return stack_suggestions.get(key, f'Ajuste {stat_name} para stack de {position}')
+
         pos_ctx = f' no {position}' if position else ''
 
         suggestions = {
@@ -438,6 +521,18 @@ class LeakFinder:
             return {
                 'title': f'Estudar {label} no {pos}',
                 'action': f'{dir_action} {label} no {pos}: range atual ({leak.current_value:.1f}%) fora do ideal ({leak.healthy_low:.0f}-{leak.healthy_high:.0f}%).',
+                'priority': 'média' if leak.cost_bb100 < 1.0 else 'alta',
+            }
+
+        # For stack depth leaks
+        if leak.category == 'stack_depth' and leak.position:
+            tier_label = leak.position
+            stat_labels = {'vpip': 'VPIP', 'pfr': 'PFR', 'three_bet': '3-Bet'}
+            label = stat_labels.get(leak.stat_name, leak.stat_name)
+            dir_action = 'Reduza' if leak.direction == 'too_high' else 'Aumente'
+            return {
+                'title': f'Ajustar {label} com {tier_label}',
+                'action': f'{dir_action} {label} com {tier_label}: atual {leak.current_value:.1f}%, ideal {leak.healthy_low:.0f}-{leak.healthy_high:.0f}%. {leak.suggestion}',
                 'priority': 'média' if leak.cost_bb100 < 1.0 else 'alta',
             }
 
