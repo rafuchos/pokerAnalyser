@@ -1198,7 +1198,8 @@
         "src/analyzers/leak_finder.py",
         "src/reports/cash_report.py",
         "src/reports/tournament_report.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-018",

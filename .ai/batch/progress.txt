@@ -229,3 +229,6 @@
 - Pattern: TargetsConfig._default_data() stack_depth section with tiers + per-tier stat ranges
 - Lesson: Previous attempt timed out; this attempt fixed 4 test issues: wrong assertion, HTML-escape mismatch, missing danger badge in test data
 - Lesson: Test HTML assertions should match actual output (raw '<15 BB' not '&lt;15 BB')
+
+=== US-017 completed at 2026-03-02T12:58:10.858Z ===
+- All quality gates passed
