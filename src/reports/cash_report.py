@@ -22,6 +22,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     leak_analysis = analyzer.get_leak_analysis()
     redline_data = analyzer.get_redline_blueline()
     bet_sizing_data = analyzer.get_bet_sizing_analysis()
+    tilt_data = analyzer.get_tilt_analysis()
     ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
     decision_ev_stats = ev_analyzer.get_decision_ev_analysis() if ev_analyzer else None
 
@@ -617,6 +618,10 @@ def generate_cash_report(analyzer: CashAnalyzer,
     # ── Bet Sizing & Pot-Type Segmentation Section ─────────────────────
     if bet_sizing_data and bet_sizing_data.get('total_hands', 0) >= 5:
         html += _render_bet_sizing_analysis(bet_sizing_data)
+
+    # ── Tilt Detection & Time/Duration Performance Section ─────────────
+    if tilt_data:
+        html += _render_tilt_analysis(tilt_data)
 
     # ── Decision-Tree EV Analysis Section ───────────────────────────
     _total_decisions = 0
@@ -2689,4 +2694,324 @@ def _render_bet_sizing_analysis(data: dict) -> str:
 
     html += """        </div>
 """
+    return html
+
+
+# ── Tilt Detection & Time/Duration Performance ────────────────────────────────
+
+def _render_tilt_analysis(data: dict) -> str:
+    """Render the Tilt Detection & Performance-Timing HTML section."""
+
+    def badge_html(severity: str, text: str = '') -> str:
+        colors = {'good': '#00ff88', 'warning': '#ffa500', 'danger': '#ff4444'}
+        bgs = {
+            'good': 'rgba(0,255,136,0.15)',
+            'warning': 'rgba(255,165,0,0.15)',
+            'danger': 'rgba(255,68,68,0.15)',
+        }
+        color = colors.get(severity, '#a0a0a0')
+        bg = bgs.get(severity, 'rgba(160,160,160,0.1)')
+        label = text or {'good': 'Normal', 'warning': 'Atenção', 'danger': 'Crítico'}.get(severity, severity)
+        return (
+            f'<span style="background:{bg};color:{color};border:1px solid {color};'
+            f'border-radius:4px;padding:2px 8px;font-size:0.8em;font-weight:600;">'
+            f'{label}</span>'
+        )
+
+    def diag_html(diagnostics: list) -> str:
+        if not diagnostics:
+            return ''
+        h = '<div style="margin-top:15px;">\n'
+        h += '<h4 style="color:#00ff88;margin-bottom:10px;">Diagnóstico Automático</h4>\n'
+        for d in diagnostics:
+            if d['type'] == 'good':
+                color, bg = '#00ff88', 'rgba(0,255,136,0.1)'
+            elif d['type'] == 'warning':
+                color, bg = '#ffa500', 'rgba(255,165,0,0.1)'
+            else:
+                color, bg = '#ff4444', 'rgba(255,68,68,0.1)'
+            h += (
+                f'<div style="background:{bg};border:1px solid {color};'
+                f'border-radius:8px;padding:10px;margin-bottom:8px;">'
+                f'<strong style="color:{color};">{d["title"]}</strong>'
+                f'<p style="color:#c0c0c0;font-size:0.9em;margin-top:4px;">{d["message"]}</p>'
+                f'</div>\n'
+            )
+        h += '</div>\n'
+        return h
+
+    tilt_count = data.get('tilt_sessions_count', 0)
+    session_tilt = data.get('session_tilt', [])
+    hourly = data.get('hourly', {})
+    duration = data.get('duration', {})
+    post_bb = data.get('post_bad_beat', {})
+    recommendation = data.get('recommendation', {})
+    diagnostics = data.get('diagnostics', [])
+
+    html = """
+        <div class="player-stats">
+            <h2>Detecção de Tilt &amp; Performance por Horário/Duração</h2>
+"""
+
+    # ── Tilt Sessions Summary ──
+    tilt_sessions_with_data = [
+        s for s in session_tilt
+        if s.get('total_hands', 0) >= 30
+    ]
+    tilt_detected_list = [s for s in session_tilt if s.get('tilt_detected')]
+
+    if tilt_sessions_with_data:
+        html += (
+            f'            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-bottom:20px;">\n'
+            f'                <div class="stat-card">\n'
+            f'                    <div class="stat-label">Sessões Analisadas</div>\n'
+            f'                    <div class="stat-value">{len(tilt_sessions_with_data)}</div>\n'
+            f'                </div>\n'
+            f'                <div class="stat-card">\n'
+            f'                    <div class="stat-label">Com Tilt Detectado</div>\n'
+            f'                    <div class="stat-value" style="color:#ff4444;">{tilt_count}</div>\n'
+            f'                </div>\n'
+        )
+        total_cost = sum(s.get('tilt_cost_bb', 0) for s in tilt_detected_list)
+        html += (
+            f'                <div class="stat-card">\n'
+            f'                    <div class="stat-label">Custo Estimado do Tilt</div>\n'
+            f'                    <div class="stat-value" style="color:#ffa500;">{total_cost:.0f} BB</div>\n'
+            f'                </div>\n'
+            f'            </div>\n'
+        )
+
+    # ── Session Tilt Table ──
+    tilt_table_rows = [
+        s for s in session_tilt
+        if s.get('total_hands', 0) >= 30 and s.get('tilt_detected')
+    ]
+    if tilt_table_rows:
+        html += """
+            <h3 class="section-subtitle">Sessões com Tilt</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Mãos</th>
+                        <th>ΔVPIP</th>
+                        <th>ΔPFR</th>
+                        <th>ΔAF</th>
+                        <th>Sinais</th>
+                        <th>Custo (BB)</th>
+                        <th>Badge</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        signal_labels = {
+            'vpip_spike': 'VPIP↑',
+            'pfr_spike': 'PFR↑',
+            'af_spike': 'AF↑',
+        }
+        for s in tilt_table_rows:
+            sev = s.get('severity', 'warning')
+            signals_str = ' '.join(
+                signal_labels.get(sig, sig)
+                for sig in s.get('tilt_signals', [])
+            )
+            vd = s.get('vpip_delta', 0)
+            pd_ = s.get('pfr_delta', 0)
+            ad = s.get('af_delta', 0)
+            cost = s.get('tilt_cost_bb', 0)
+            date_display = s.get('session_date', '')[:10]
+            html += (
+                f'                    <tr>\n'
+                f'                        <td>{date_display}</td>\n'
+                f'                        <td>{s.get("total_hands", 0)}</td>\n'
+                f'                        <td style="color:#ffa500;">{vd:+.1f}pp</td>\n'
+                f'                        <td style="color:#ffa500;">{pd_:+.1f}pp</td>\n'
+                f'                        <td style="color:#ffa500;">{ad:+.2f}</td>\n'
+                f'                        <td style="color:#ffa500;">{signals_str}</td>\n'
+                f'                        <td style="color:#ff4444;">{cost:.1f}</td>\n'
+                f'                        <td>{badge_html(sev, "Tilt Detected")}</td>\n'
+                f'                    </tr>\n'
+            )
+        html += """                </tbody>
+            </table>
+"""
+
+    # ── Hourly Performance Buckets ──
+    hourly_buckets = hourly.get('buckets', {})
+    hourly_per_hour = hourly.get('hourly', [])
+    if hourly_buckets:
+        html += """
+            <h3 class="section-subtitle">Performance por Horário do Dia</h3>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+"""
+        for name, _, _ in [('madrugada', 0, 6), ('manhã', 6, 12), ('tarde', 12, 18), ('noite', 18, 24)]:
+            b = hourly_buckets.get(name, {'hands': 0, 'win_rate_bb100': 0.0, 'net': 0.0})
+            hc = b.get('hands', 0)
+            wr = b.get('win_rate_bb100', 0.0)
+            net = b.get('net', 0.0)
+            health = b.get('health', 'good')
+            sev_color = {'good': '#00ff88', 'warning': '#ffa500', 'danger': '#ff4444'}.get(health, '#a0a0a0')
+            wr_sign = '+' if wr >= 0 else ''
+            net_sign = '+' if net >= 0 else ''
+            html += (
+                f'                <div class="stat-card">\n'
+                f'                    <div class="stat-label">{name.capitalize()}</div>\n'
+                f'                    <div class="stat-value" style="color:{sev_color};">'
+                f'{wr_sign}{wr:.1f} bb/100</div>\n'
+                f'                    <div style="color:#a0a0a0;font-size:0.85em;">'
+                f'{hc} mãos &bull; {net_sign}${net:.2f}</div>\n'
+                f'                    {badge_html(health)}\n'
+                f'                </div>\n'
+            )
+        html += '            </div>\n'
+
+    # ── Hourly Heat Map (simplified 24h grid) ──
+    if hourly_per_hour:
+        html += _render_hourly_heatmap(hourly_per_hour)
+
+    # ── Duration Performance ──
+    dur_buckets = duration.get('buckets', [])
+    if any(b.get('hands', 0) > 0 for b in dur_buckets):
+        html += """
+            <h3 class="section-subtitle">Win Rate por Duração de Sessão</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Período</th>
+                        <th>Mãos</th>
+                        <th>Net</th>
+                        <th>Win Rate (bb/100)</th>
+                        <th>Saúde</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        for b in dur_buckets:
+            hc = b.get('hands', 0)
+            if hc == 0:
+                continue
+            wr = b.get('win_rate_bb100', 0)
+            net = b.get('net', 0)
+            health = b.get('health', 'good')
+            wr_color = '#00ff88' if wr >= 0 else '#ff4444'
+            html += (
+                f'                    <tr>\n'
+                f'                        <td><strong>{b["label"]}</strong></td>\n'
+                f'                        <td>{hc}</td>\n'
+                f'                        <td class="{"positive" if net >= 0 else "negative"}">'
+                f'${net:+.2f}</td>\n'
+                f'                        <td style="color:{wr_color};">{wr:+.1f}</td>\n'
+                f'                        <td>{badge_html(health)}</td>\n'
+                f'                    </tr>\n'
+            )
+        html += """                </tbody>
+            </table>
+"""
+
+    # ── Post-Bad-Beat Analysis ──
+    bad_beats = post_bb.get('bad_beats', 0)
+    if bad_beats > 0:
+        post_wr = post_bb.get('post_bb_win_rate', 0.0)
+        baseline_wr = post_bb.get('baseline_win_rate', 0.0)
+        degradation = post_bb.get('degradation_bb100', 0.0)
+        post_hands = post_bb.get('post_hands_analyzed', 0)
+        deg_color = '#ff4444' if degradation < -5 else '#ffa500' if degradation < 0 else '#00ff88'
+        base_color = '#00ff88' if baseline_wr >= 0 else '#ff4444'
+        post_color = '#00ff88' if post_wr >= 0 else '#ff4444'
+        html += f"""
+            <h3 class="section-subtitle">Análise Pós-Bad-Beat</h3>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:15px;">
+                <div class="stat-card">
+                    <div class="stat-label">Bad Beats Detectados</div>
+                    <div class="stat-value" style="color:#ffa500;">{bad_beats}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Win Rate Baseline</div>
+                    <div class="stat-value" style="color:{base_color};">{baseline_wr:+.1f} bb/100</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Win Rate Pós-Bad-Beat</div>
+                    <div class="stat-value" style="color:{post_color};">{post_wr:+.1f} bb/100</div>
+                    <div style="color:#a0a0a0;font-size:0.8em;">{post_hands} mãos analisadas</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Degradação</div>
+                    <div class="stat-value" style="color:{deg_color};">{degradation:+.1f} bb/100</div>
+                </div>
+            </div>
+"""
+
+    # ── Recommendation ──
+    rec_text = recommendation.get('text', '')
+    ideal = recommendation.get('ideal_duration')
+    if rec_text:
+        html += """
+            <h3 class="section-subtitle">Recomendação de Duração de Sessão</h3>
+            <div style="background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.3);
+                        border-radius:10px;padding:15px;margin-bottom:15px;">
+"""
+        if ideal:
+            html += (
+                f'                <div style="color:#00ff88;font-weight:600;margin-bottom:8px;">'
+                f'Duração Ideal: {ideal}</div>\n'
+            )
+        html += (
+            f'                <p style="color:#c0c0c0;line-height:1.6;">{rec_text}</p>\n'
+            f'            </div>\n'
+        )
+
+    # ── Diagnostics ──
+    html += diag_html(diagnostics)
+
+    html += """        </div>
+"""
+    return html
+
+
+def _render_hourly_heatmap(hourly_data: list[dict]) -> str:
+    """Render a simplified 24-hour heat-map grid of win rates.
+
+    Each cell represents one hour (0-23).  Colour intensity scales with the
+    absolute win rate; green = positive, red = negative, grey = no data.
+    """
+    if not hourly_data:
+        return ''
+
+    max_wr = max((abs(h.get('win_rate_bb100', 0)) for h in hourly_data), default=1.0)
+    if max_wr == 0:
+        max_wr = 1.0
+
+    html = """
+            <h3 class="section-subtitle">Mapa de Calor por Hora (24h)</h3>
+            <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px;margin-bottom:20px;">
+"""
+    for entry in hourly_data:
+        hour = entry['hour']
+        hc = entry['hands']
+        wr = entry.get('win_rate_bb100', 0.0)
+
+        if hc == 0:
+            bg = 'rgba(255,255,255,0.05)'
+            color = '#555'
+            tooltip = f'{hour:02d}h: sem dados'
+        else:
+            intensity = min(1.0, abs(wr) / max_wr)
+            if wr >= 0:
+                r, g, b = 0, int(180 * intensity + 20), int(60 * intensity)
+            else:
+                r, g, b = int(180 * intensity + 40), 0, 0
+            bg = f'rgba({r},{g},{b},0.6)'
+            color = '#ffffff'
+            tooltip = f'{hour:02d}h: {wr:+.1f} bb/100 ({hc} mãos)'
+
+        html += (
+            f'                <div title="{tooltip}" style="background:{bg};border-radius:4px;'
+            f'padding:6px 2px;text-align:center;cursor:default;">\n'
+            f'                    <div style="color:#a0a0a0;font-size:0.7em;">{hour:02d}h</div>\n'
+            f'                    <div style="color:{color};font-size:0.75em;font-weight:600;">'
+            f'{"—" if hc == 0 else f"{wr:+.0f}"}</div>\n'
+            f'                </div>\n'
+        )
+
+    html += '            </div>\n'
     return html

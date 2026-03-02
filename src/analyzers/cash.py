@@ -1401,6 +1401,18 @@ class CashAnalyzer:
         finder = LeakFinder(self, self.repo, self.year)
         return finder.find_leaks()
 
+    # ── Tilt Detection & Time/Duration Performance ────────────────────
+
+    def get_tilt_analysis(self) -> dict:
+        """Run tilt detection and performance-timing analysis.
+
+        Returns dict with session_tilt, hourly, duration, post_bad_beat,
+        recommendation, diagnostics, and tilt_sessions_count.
+        """
+        from src.analyzers.tilt import TiltAnalyzer
+        tilt = TiltAnalyzer(self.repo, self.year)
+        return tilt.get_tilt_analysis()
+
     # ── Bet Sizing & Pot-Type Segmentation ───────────────────────────
 
     def get_bet_sizing_analysis(self) -> dict:
