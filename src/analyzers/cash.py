@@ -1015,3 +1015,376 @@ class CashAnalyzer:
                         total += diff
             prev_cash_out = co
         return total
+
+    # ── Positional Analysis ──────────────────────────────────────────
+
+    # Per-position VPIP healthy/warning ranges for 6-max NL
+    # UTG is tightest (early position), BTN is loosest (button)
+    POSITION_VPIP_HEALTHY = {
+        'UTG':  (12, 18), 'UTG+1': (13, 20), 'MP': (15, 22), 'MP+1': (16, 23),
+        'HJ':   (17, 24), 'CO': (22, 30), 'BTN': (30, 45),
+        'SB':   (20, 32), 'BB': (25, 42),
+    }
+    POSITION_VPIP_WARNING = {
+        'UTG':  (9, 24), 'UTG+1': (10, 26), 'MP': (11, 28), 'MP+1': (12, 29),
+        'HJ':   (13, 31), 'CO': (17, 37), 'BTN': (24, 55),
+        'SB':   (15, 40), 'BB': (19, 52),
+    }
+
+    # Per-position PFR healthy/warning ranges
+    POSITION_PFR_HEALTHY = {
+        'UTG':  (10, 16), 'UTG+1': (11, 17), 'MP': (12, 19), 'MP+1': (13, 20),
+        'HJ':   (14, 21), 'CO': (18, 27), 'BTN': (25, 40),
+        'SB':   (15, 25), 'BB': (8, 15),
+    }
+    POSITION_PFR_WARNING = {
+        'UTG':  (7, 20), 'UTG+1': (8, 21), 'MP': (9, 24), 'MP+1': (10, 25),
+        'HJ':   (11, 26), 'CO': (13, 33), 'BTN': (19, 50),
+        'SB':   (10, 32), 'BB': (5, 20),
+    }
+
+    @classmethod
+    def _classify_positional_health(cls, stat: str, pos: str, value: float) -> str:
+        """Classify a per-position stat using position-specific healthy ranges.
+
+        Falls back to overall healthy/warning ranges if no per-position entry exists.
+        """
+        if stat == 'vpip':
+            healthy = cls.POSITION_VPIP_HEALTHY.get(pos, cls.HEALTHY_RANGES.get('vpip'))
+            warning = cls.POSITION_VPIP_WARNING.get(pos, cls.WARNING_RANGES.get('vpip'))
+        elif stat == 'pfr':
+            healthy = cls.POSITION_PFR_HEALTHY.get(pos, cls.HEALTHY_RANGES.get('pfr'))
+            warning = cls.POSITION_PFR_WARNING.get(pos, cls.WARNING_RANGES.get('pfr'))
+        else:
+            return cls._classify_health(stat, value)
+
+        if healthy and healthy[0] <= value <= healthy[1]:
+            return 'good'
+        if warning and warning[0] <= value <= warning[1]:
+            return 'warning'
+        return 'danger'
+
+    @staticmethod
+    def _analyze_blinds_defense(voluntary_actions: list[dict], hero_pos: str) -> dict:
+        """Analyze blinds defense for BB/SB: detect steal attempts and hero's response.
+
+        A steal attempt is a single raise from CO/BTN/SB into BB, or CO/BTN into SB,
+        with all other non-raiser players having folded (no limpers).
+
+        Returns dict with steal_opp, fold_to_steal, three_bet_vs_steal, call_vs_steal.
+        """
+        steal_positions = {
+            'BB': ('CO', 'BTN', 'SB'),
+            'SB': ('CO', 'BTN'),
+        }
+        valid_stealers = steal_positions.get(hero_pos, ())
+
+        hero_first_acted = False
+        all_others_folded = True   # True until a non-fold, non-raise action appears
+        raises_before_hero = 0
+        raiser_position = None
+
+        for action in voluntary_actions:
+            is_raise = action['action_type'] in ('raise', 'bet')
+
+            if action['is_hero']:
+                if not hero_first_acted:
+                    hero_first_acted = True
+                    # Steal opportunity: exactly one raise from a steal position,
+                    # with all other players having folded (no limpers).
+                    steal_opp = (
+                        raises_before_hero == 1
+                        and all_others_folded
+                        and raiser_position in valid_stealers
+                    )
+                    if not steal_opp:
+                        return {
+                            'steal_opp': False, 'fold_to_steal': False,
+                            'three_bet_vs_steal': False, 'call_vs_steal': False,
+                        }
+                    # Classify hero response
+                    fold_to_steal = action['action_type'] == 'fold'
+                    three_bet_vs_steal = action['action_type'] in ('raise', 'bet', 'all-in')
+                    call_vs_steal = action['action_type'] == 'call'
+                    return {
+                        'steal_opp': True,
+                        'fold_to_steal': fold_to_steal,
+                        'three_bet_vs_steal': three_bet_vs_steal,
+                        'call_vs_steal': call_vs_steal,
+                    }
+            else:
+                if not hero_first_acted:
+                    if is_raise or action['action_type'] == 'all-in':
+                        raises_before_hero += 1
+                        raiser_position = action.get('position')
+                    elif action['action_type'] != 'fold':
+                        # Someone called (limped) - not a clean steal
+                        all_others_folded = False
+
+        return {
+            'steal_opp': False, 'fold_to_steal': False,
+            'three_bet_vs_steal': False, 'call_vs_steal': False,
+        }
+
+    def get_positional_stats(self) -> dict:
+        """Calculate per-position stats: VPIP, PFR, 3-Bet, AF, CBet, WTSD, W$SD, win rate.
+
+        Also computes:
+        - Health badges using position-specific ranges
+        - ATS% per steal position (CO, BTN, SB)
+        - Blinds defense: fold-to-steal%, 3-bet-vs-steal%, call-vs-steal% for BB/SB
+        - Most profitable vs most deficitary position comparison
+        - Radar chart data (normalized stats per position)
+
+        Returns dict with by_position, blinds_defense, ats_by_pos, comparison, radar.
+        Works for both cash games (game_type='cash') and is structured for reuse.
+        """
+        sequences = self.repo.get_all_action_sequences(self.year)
+        hands_financial = self.repo.get_cash_hands_with_position(self.year)
+
+        # Build hand-level financial lookup: hand_id → (blinds_bb, hero_position)
+        hand_bb = {}
+        for h in hands_financial:
+            hand_bb[h['hand_id']] = h.get('blinds_bb') or 0.50
+
+        # Group actions by hand_id
+        hands_actions = defaultdict(list)
+        hand_meta = {}
+        for action in sequences:
+            hand_id = action['hand_id']
+            hands_actions[hand_id].append(action)
+            if hand_id not in hand_meta:
+                hand_meta[hand_id] = {
+                    'hero_position': action.get('hero_position'),
+                    'hero_net': action.get('hero_net', 0) or 0,
+                }
+
+        # Per-position counters
+        pos_data = defaultdict(lambda: {
+            'total': 0,
+            'vpip': 0, 'pfr': 0,
+            'three_bet_opps': 0, 'three_bet': 0,
+            'ats_opps': 0, 'ats': 0,
+            'fold_steal_opps': 0, 'fold_steal': 0,
+            'three_bet_steal_opps': 0, 'three_bet_steal': 0,
+            'call_steal_opps': 0, 'call_steal': 0,
+            'saw_flop': 0, 'wtsd': 0, 'wsd': 0,
+            'cbet_opps': 0, 'cbet': 0,
+            'agg_br': 0, 'agg_calls': 0,
+            'net': 0.0, 'bb_net': 0.0,
+        })
+
+        for hand_id, actions in hands_actions.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+
+            meta = hand_meta[hand_id]
+            hero_pos = meta['hero_position']
+            hero_net = meta['hero_net']
+            if not hero_pos:
+                hero_pos = 'Unknown'
+
+            pd = pos_data[hero_pos]
+            pd['total'] += 1
+            pd['net'] += hero_net
+            bb = hand_bb.get(hand_id, 0.50)
+            pd['bb_net'] += (hero_net / bb) if bb > 0 else 0.0
+
+            # Preflop analysis
+            preflop_vol = [
+                a for a in actions
+                if a['street'] == 'preflop'
+                and a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')
+            ]
+            pre = self._analyze_preflop_hand(preflop_vol)
+
+            if pre['vpip']:
+                pd['vpip'] += 1
+            if pre['pfr']:
+                pd['pfr'] += 1
+            if pre['three_bet_opp']:
+                pd['three_bet_opps'] += 1
+                if pre['three_bet']:
+                    pd['three_bet'] += 1
+            if pre['ats_opp']:
+                pd['ats_opps'] += 1
+                if pre['ats']:
+                    pd['ats'] += 1
+
+            # Blinds defense for BB/SB
+            if hero_pos in ('BB', 'SB'):
+                bd = self._analyze_blinds_defense(preflop_vol, hero_pos)
+                if bd['steal_opp']:
+                    pd['fold_steal_opps'] += 1
+                    pd['three_bet_steal_opps'] += 1
+                    pd['call_steal_opps'] += 1
+                    if bd['fold_to_steal']:
+                        pd['fold_steal'] += 1
+                    if bd['three_bet_vs_steal']:
+                        pd['three_bet_steal'] += 1
+                    if bd['call_vs_steal']:
+                        pd['call_steal'] += 1
+
+            # Postflop analysis
+            post = self._analyze_postflop_hand(actions, hero_net)
+            if post['saw_flop']:
+                pd['saw_flop'] += 1
+            if post['went_to_showdown']:
+                pd['wtsd'] += 1
+            if post['won_at_showdown']:
+                pd['wsd'] += 1
+            if post['cbet_opp']:
+                pd['cbet_opps'] += 1
+                if post['cbet']:
+                    pd['cbet'] += 1
+            for street in ('flop', 'turn', 'river'):
+                if street in post['hero_aggression']:
+                    ha = post['hero_aggression'][street]
+                    pd['agg_br'] += ha['bets'] + ha['raises']
+                    pd['agg_calls'] += ha['calls']
+
+        return self._format_positional_stats(dict(pos_data))
+
+    def _format_positional_stats(self, pos_data: dict) -> dict:
+        """Format raw positional counters into percentages with health badges.
+
+        Returns dict with by_position, blinds_defense, ats_by_pos, comparison, radar.
+        """
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+
+        by_position = {}
+        for pos in position_order:
+            if pos not in pos_data:
+                continue
+            pd = pos_data[pos]
+            t = pd['total']
+            if t == 0:
+                continue
+
+            vpip = pct(pd['vpip'], t)
+            pfr = pct(pd['pfr'], t)
+            three_bet = pct(pd['three_bet'], pd['three_bet_opps'])
+            af = pd['agg_br'] / pd['agg_calls'] if pd['agg_calls'] > 0 else 0.0
+            cbet = pct(pd['cbet'], pd['cbet_opps'])
+            wtsd = pct(pd['wtsd'], pd['saw_flop'])
+            wsd = pct(pd['wsd'], pd['wtsd'])
+            net_per_hand = pd['net'] / t
+            bb_per_100 = (pd['bb_net'] / t) * 100  # bb/100
+
+            by_position[pos] = {
+                'total_hands': t,
+                'vpip': vpip,
+                'vpip_health': self._classify_positional_health('vpip', pos, vpip),
+                'pfr': pfr,
+                'pfr_health': self._classify_positional_health('pfr', pos, pfr),
+                'three_bet': three_bet,
+                'three_bet_health': self._classify_health('three_bet', three_bet),
+                'af': af,
+                'af_health': self._classify_postflop_health('af', af),
+                'cbet': cbet,
+                'cbet_health': self._classify_postflop_health('cbet', cbet),
+                'wtsd': wtsd,
+                'wtsd_health': self._classify_postflop_health('wtsd', wtsd),
+                'wsd': wsd,
+                'wsd_health': self._classify_postflop_health('wsd', wsd),
+                'net': pd['net'],
+                'net_per_hand': net_per_hand,
+                'bb_per_100': bb_per_100,
+                'winrate_health': 'good' if net_per_hand >= 0 else 'danger',
+                'ats': pct(pd['ats'], pd['ats_opps']),
+                'ats_opps': pd['ats_opps'],
+                'ats_count': pd['ats'],
+            }
+
+        # Blinds defense breakdown (BB and SB only)
+        blinds_defense = {}
+        for pos in ('BB', 'SB'):
+            if pos not in pos_data:
+                continue
+            pd = pos_data[pos]
+            opps = pd['fold_steal_opps']
+            if opps > 0:
+                blinds_defense[pos] = {
+                    'steal_opps': opps,
+                    'fold_to_steal': pct(pd['fold_steal'], opps),
+                    'fold_to_steal_count': pd['fold_steal'],
+                    'three_bet_vs_steal': pct(pd['three_bet_steal'], opps),
+                    'three_bet_vs_steal_count': pd['three_bet_steal'],
+                    'call_vs_steal': pct(pd['call_steal'], opps),
+                    'call_vs_steal_count': pd['call_steal'],
+                }
+
+        # ATS by steal position (CO, BTN, SB)
+        ats_by_pos = {}
+        for pos in ('CO', 'BTN', 'SB'):
+            if pos in by_position and by_position[pos]['ats_opps'] > 0:
+                ats_by_pos[pos] = {
+                    'ats': by_position[pos]['ats'],
+                    'ats_opps': by_position[pos]['ats_opps'],
+                    'ats_count': by_position[pos]['ats_count'],
+                }
+
+        # Most profitable vs most deficitary comparison
+        comparison = {}
+        if by_position:
+            profitable = max(by_position.items(), key=lambda x: x[1]['bb_per_100'])
+            deficitary = min(by_position.items(), key=lambda x: x[1]['bb_per_100'])
+            if profitable[0] != deficitary[0]:
+                comparison = {
+                    'most_profitable': {'position': profitable[0], **profitable[1]},
+                    'most_deficitary': {'position': deficitary[0], **deficitary[1]},
+                }
+
+        # Radar chart data: normalized key stats per position
+        radar = self._build_radar_data(by_position)
+
+        return {
+            'by_position': by_position,
+            'blinds_defense': blinds_defense,
+            'ats_by_pos': ats_by_pos,
+            'comparison': comparison,
+            'radar': radar,
+        }
+
+    @staticmethod
+    def _build_radar_data(by_position: dict) -> list[dict]:
+        """Build radar/spider chart data: normalized key stats per position.
+
+        Stats normalized to 0-100 scale relative to the observed range.
+        Returns list of dicts with position and normalized axis values.
+        """
+        if not by_position:
+            return []
+
+        # Axes: stat_key, display_label, max expected value for normalization
+        axes = [
+            ('vpip', 'VPIP', 60.0),
+            ('pfr', 'PFR', 50.0),
+            ('three_bet', '3-Bet', 20.0),
+            ('af', 'AF', 5.0),
+            ('cbet', 'CBet', 100.0),
+            ('wtsd', 'WTSD', 50.0),
+            ('wsd', 'W$SD', 70.0),
+        ]
+
+        radar = []
+        position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+        for pos in position_order:
+            if pos not in by_position:
+                continue
+            pd = by_position[pos]
+            normalized = {}
+            for key, label, max_val in axes:
+                raw = pd.get(key, 0)
+                normalized[key] = min(raw / max_val * 100, 100) if max_val > 0 else 0
+            radar.append({
+                'position': pos,
+                'values': normalized,
+                'hands': pd['total_hands'],
+                'bb_per_100': pd['bb_per_100'],
+            })
+
+        return radar

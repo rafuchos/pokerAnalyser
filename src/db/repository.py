@@ -372,11 +372,12 @@ class Repository:
         """Get all actions across all streets for cash hands.
 
         Joins with hands table to include hero_position, net, and date.
-        Used by CashAnalyzer to compute postflop stats (AF, WTSD, W$SD, CBet, etc.).
+        Used by CashAnalyzer to compute postflop stats (AF, WTSD, W$SD, CBet, etc.)
+        and positional analysis (VPIP requires is_voluntary).
         """
         query = """
             SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
-                   ha.is_hero, ha.sequence_order, ha.position,
+                   ha.is_hero, ha.sequence_order, ha.position, ha.is_voluntary,
                    h.hero_position, h.net as hero_net, substr(h.date, 1, 10) as day
             FROM hand_actions ha
             JOIN hands h ON ha.hand_id = h.hand_id
@@ -446,6 +447,25 @@ class Repository:
         rows = self.conn.execute(
             query, (session['start_time'], session['end_time'])
         ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_cash_hands_with_position(self, year: Optional[str] = None) -> list[dict]:
+        """Get cash hands with position and financial data for positional win rate analysis.
+
+        Returns hand_id, hero_position, net, blinds_bb for each cash hand.
+        Used by CashAnalyzer.get_positional_stats() for bb/100 per position.
+        """
+        query = """
+            SELECT hand_id, hero_position, net, blinds_bb, blinds_sb
+            FROM hands
+            WHERE game_type = 'cash'
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
     # ── Tournament Hand Queries ─────────────────────────────────────

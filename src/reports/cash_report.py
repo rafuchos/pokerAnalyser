@@ -18,6 +18,7 @@ def generate_cash_report(analyzer: CashAnalyzer,
     daily_reports = analyzer.get_daily_reports_with_sessions(ev_analyzer=ev_analyzer)
     preflop_stats = analyzer.get_preflop_stats()
     postflop_stats = analyzer.get_postflop_stats()
+    positional_stats = analyzer.get_positional_stats()
     ev_stats = ev_analyzer.get_ev_analysis() if ev_analyzer else None
     decision_ev_stats = ev_analyzer.get_decision_ev_analysis() if ev_analyzer else None
 
@@ -597,6 +598,10 @@ def generate_cash_report(analyzer: CashAnalyzer,
             postflop_stats.get('by_street', {}),
             postflop_stats.get('by_week', {}),
         )
+
+    # ── Positional Analysis Section ──────────────────────────────────
+    if positional_stats.get('by_position'):
+        html += _render_positional_analysis(positional_stats)
 
     # ── Decision-Tree EV Analysis Section ───────────────────────────
     _total_decisions = 0
@@ -1747,4 +1752,298 @@ def _render_ev_chart(chart_data: list) -> str:
                       fill="#e0e0e0" font-size="11">EV-Adjusted</text>
             </svg>
 """
+    return svg
+
+
+def _render_positional_analysis(positional_stats: dict) -> str:
+    """Render the full Positional Analysis section.
+
+    Includes:
+    - Main stats table: VPIP, PFR, 3-Bet, AF, CBet, WTSD, W$SD, win rate per position
+    - Health badges per position (position-specific ranges)
+    - Most profitable vs most deficitary comparison
+    - ATS per steal position (CO, BTN, SB)
+    - Blinds defense analysis (BB and SB)
+    - Radar/spider chart showing player profile per position
+    """
+    by_position = positional_stats.get('by_position', {})
+    if not by_position:
+        return ''
+
+    def badge_html(health: str) -> str:
+        label = {'good': 'Saud\u00e1vel', 'warning': 'Aten\u00e7\u00e3o', 'danger': 'Cr\u00edtico'}
+        return f'<span class="badge badge-{health}">{label.get(health, health)}</span>'
+
+    position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+    positions_present = [p for p in position_order if p in by_position]
+
+    # ── Main Position Stats Table ──────────────────────────────────
+    html = """
+        <div class="player-stats">
+            <h2>An\u00e1lise Posicional Completa</h2>
+            <h3 class="section-subtitle">Stats por Posi\u00e7\u00e3o (VPIP, PFR, 3-Bet, AF, CBet, WTSD, W$SD, Win Rate)</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Posi\u00e7\u00e3o</th>
+                        <th>M\u00e3os</th>
+                        <th>VPIP</th>
+                        <th>PFR</th>
+                        <th>3-Bet</th>
+                        <th>AF</th>
+                        <th>CBet</th>
+                        <th>WTSD</th>
+                        <th>W$SD</th>
+                        <th>$/m\u00e3o</th>
+                        <th>bb/100</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+    for pos in positions_present:
+        ps = by_position[pos]
+        net_class = 'positive' if ps['net_per_hand'] >= 0 else 'negative'
+        bb_class = 'positive' if ps['bb_per_100'] >= 0 else 'negative'
+        html += f"""
+                    <tr>
+                        <td><strong>{pos}</strong></td>
+                        <td>{ps['total_hands']}</td>
+                        <td>
+                            {ps['vpip']:.1f}%
+                            {badge_html(ps['vpip_health'])}
+                        </td>
+                        <td>
+                            {ps['pfr']:.1f}%
+                            {badge_html(ps['pfr_health'])}
+                        </td>
+                        <td>
+                            {ps['three_bet']:.1f}%
+                            {badge_html(ps['three_bet_health'])}
+                        </td>
+                        <td>
+                            {ps['af']:.2f}
+                            {badge_html(ps['af_health'])}
+                        </td>
+                        <td>
+                            {ps['cbet']:.1f}%
+                            {badge_html(ps['cbet_health'])}
+                        </td>
+                        <td>
+                            {ps['wtsd']:.1f}%
+                            {badge_html(ps['wtsd_health'])}
+                        </td>
+                        <td>
+                            {ps['wsd']:.1f}%
+                            {badge_html(ps['wsd_health'])}
+                        </td>
+                        <td class="{net_class}">${ps['net_per_hand']:.3f}</td>
+                        <td class="{bb_class}">{ps['bb_per_100']:+.1f}</td>
+                    </tr>
+"""
+
+    html += """
+                </tbody>
+            </table>
+"""
+
+    # ── Most Profitable vs Most Deficitary ──────────────────────────
+    comparison = positional_stats.get('comparison', {})
+    if comparison:
+        most_p = comparison.get('most_profitable', {})
+        most_d = comparison.get('most_deficitary', {})
+        html += f"""
+            <h3 class="section-subtitle">Posi\u00e7\u00e3o mais Lucrativa vs. mais Deficit\u00e1ria</h3>
+            <div class="stats-grid" style="grid-template-columns:1fr 1fr;">
+                <div class="stat-card" style="border-left:4px solid #00ff88;">
+                    <div class="stat-label">Mais Lucrativa</div>
+                    <div class="stat-value positive">{most_p.get('position', '-')}</div>
+                    <div class="stat-detail">{most_p.get('bb_per_100', 0):+.1f} bb/100 ({most_p.get('total_hands', 0)} m\u00e3os)</div>
+                    <div class="stat-detail">VPIP {most_p.get('vpip', 0):.1f}% | PFR {most_p.get('pfr', 0):.1f}%</div>
+                </div>
+                <div class="stat-card" style="border-left:4px solid #ff4444;">
+                    <div class="stat-label">Mais Deficit\u00e1ria</div>
+                    <div class="stat-value negative">{most_d.get('position', '-')}</div>
+                    <div class="stat-detail">{most_d.get('bb_per_100', 0):+.1f} bb/100 ({most_d.get('total_hands', 0)} m\u00e3os)</div>
+                    <div class="stat-detail">VPIP {most_d.get('vpip', 0):.1f}% | PFR {most_d.get('pfr', 0):.1f}%</div>
+                </div>
+            </div>
+"""
+
+    # ── ATS per Steal Position ──────────────────────────────────────
+    ats_by_pos = positional_stats.get('ats_by_pos', {})
+    if ats_by_pos:
+        html += """
+            <h3 class="section-subtitle">ATS (Attempt to Steal) por Posi\u00e7\u00e3o de Steal</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Posi\u00e7\u00e3o</th>
+                        <th>Oportunidades</th>
+                        <th>Steals</th>
+                        <th>ATS%</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        for pos in ('CO', 'BTN', 'SB'):
+            if pos not in ats_by_pos:
+                continue
+            ad = ats_by_pos[pos]
+            html += f"""
+                    <tr>
+                        <td><strong>{pos}</strong></td>
+                        <td>{ad['ats_opps']}</td>
+                        <td>{ad['ats_count']}</td>
+                        <td>{ad['ats']:.1f}%</td>
+                    </tr>
+"""
+        html += """
+                </tbody>
+            </table>
+"""
+
+    # ── Blinds Defense Analysis ──────────────────────────────────────
+    blinds_defense = positional_stats.get('blinds_defense', {})
+    if blinds_defense:
+        html += """
+            <h3 class="section-subtitle">Defesa das Blinds (BB e SB vs. Steal)</h3>
+            <table class="position-table">
+                <thead>
+                    <tr>
+                        <th>Posi\u00e7\u00e3o</th>
+                        <th>Situa\u00e7\u00f5es de Steal</th>
+                        <th>Fold to Steal%</th>
+                        <th>3-Bet vs Steal%</th>
+                        <th>Call vs Steal%</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        for pos in ('BB', 'SB'):
+            if pos not in blinds_defense:
+                continue
+            bd = blinds_defense[pos]
+            html += f"""
+                    <tr>
+                        <td><strong>{pos}</strong></td>
+                        <td>{bd['steal_opps']}</td>
+                        <td>{bd['fold_to_steal']:.1f}% ({bd['fold_to_steal_count']})</td>
+                        <td>{bd['three_bet_vs_steal']:.1f}% ({bd['three_bet_vs_steal_count']})</td>
+                        <td>{bd['call_vs_steal']:.1f}% ({bd['call_vs_steal_count']})</td>
+                    </tr>
+"""
+        html += """
+                </tbody>
+            </table>
+"""
+
+    # ── Radar Chart ──────────────────────────────────────────────────
+    radar_data = positional_stats.get('radar', [])
+    if radar_data:
+        html += _render_radar_chart(radar_data)
+
+    html += """
+        </div>
+"""
+    return html
+
+
+def _render_radar_chart(radar_data: list) -> str:
+    """Render inline SVG radar/spider chart showing player profile per position.
+
+    Each position is plotted as a polygon on 7 normalized axes:
+    VPIP, PFR, 3-Bet, AF, CBet, WTSD, W$SD (each 0-100 normalized).
+    """
+    import math
+
+    axes = ['vpip', 'pfr', 'three_bet', 'af', 'cbet', 'wtsd', 'wsd']
+    axis_labels = ['VPIP', 'PFR', '3-Bet', 'AF', 'CBet', 'WTSD', 'W$SD']
+    n_axes = len(axes)
+
+    width = 500
+    height = 400
+    cx = width // 2
+    cy = height // 2 - 10
+    radius = 140
+    label_r = radius + 22
+
+    def angle(i):
+        return math.pi / 2 - (2 * math.pi * i / n_axes)
+
+    def polar(r, i):
+        a = angle(i)
+        return cx + r * math.cos(a), cy - r * math.sin(a)
+
+    svg = f'''
+            <h3 class="section-subtitle">Radar: Perfil do Jogador por Posi\u00e7\u00e3o</h3>
+            <svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg"
+                 style="width:100%;max-width:{width}px;background:rgba(0,0,0,0.2);border-radius:10px;margin:15px 0;">
+'''
+
+    # Draw grid polygons
+    for level in (20, 40, 60, 80, 100):
+        r = radius * level / 100
+        pts = ' '.join(f'{polar(r, i)[0]:.1f},{polar(r, i)[1]:.1f}' for i in range(n_axes))
+        svg += f'        <polygon points="{pts}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="0.8"/>\n'
+        lx, ly = polar(r, 0)
+        svg += f'        <text x="{lx + 3:.1f}" y="{ly:.1f}" fill="#666" font-size="8">{level}%</text>\n'
+
+    # Draw axis lines
+    for i in range(n_axes):
+        x1, y1 = polar(0, i)
+        x2, y2 = polar(radius, i)
+        svg += f'        <line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="rgba(255,255,255,0.15)" stroke-width="0.8"/>\n'
+
+    # Draw axis labels
+    for i, label in enumerate(axis_labels):
+        lx, ly = polar(label_r, i)
+        svg += f'        <text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" fill="#b0b0b0" font-size="10">{label}</text>\n'
+
+    # Color palette for positions
+    pos_stroke = {
+        'UTG': '#ff6464', 'UTG+1': '#ff8c64',
+        'MP': '#ffc832', 'MP+1': '#c8ff32',
+        'HJ': '#64ff64', 'CO': '#32ffc8',
+        'BTN': '#00aaff', 'SB': '#b464ff',
+        'BB': '#ff64c8',
+    }
+    pos_fill = {
+        'UTG': 'rgba(255,100,100,0.25)', 'UTG+1': 'rgba(255,140,100,0.25)',
+        'MP': 'rgba(255,200,50,0.25)', 'MP+1': 'rgba(200,255,50,0.25)',
+        'HJ': 'rgba(100,255,100,0.25)', 'CO': 'rgba(50,255,200,0.25)',
+        'BTN': 'rgba(0,170,255,0.25)', 'SB': 'rgba(180,100,255,0.25)',
+        'BB': 'rgba(255,100,200,0.25)',
+    }
+
+    # Draw position polygons
+    for entry in radar_data:
+        pos = entry['position']
+        vals = entry['values']
+        pts_list = []
+        for i, key in enumerate(axes):
+            r = radius * vals.get(key, 0) / 100
+            px, py = polar(r, i)
+            pts_list.append(f'{px:.1f},{py:.1f}')
+        pts = ' '.join(pts_list)
+        fill = pos_fill.get(pos, 'rgba(200,200,200,0.25)')
+        stroke = pos_stroke.get(pos, '#ccc')
+        svg += (
+            f'        <polygon points="{pts}" fill="{fill}" '
+            f'stroke="{stroke}" stroke-width="1.5"/>\n'
+        )
+
+    # Legend
+    legend_x = width - 95
+    legend_y = 30
+    svg += f'        <rect x="{legend_x - 5}" y="{legend_y - 5}" width="95" height="{len(radar_data) * 16 + 10}" fill="rgba(0,0,0,0.5)" rx="4"/>\n'
+    for k, entry in enumerate(radar_data):
+        pos = entry['position']
+        bb = entry['bb_per_100']
+        color = pos_stroke.get(pos, '#ccc')
+        ly = legend_y + k * 16
+        svg += f'        <rect x="{legend_x}" y="{ly}" width="10" height="10" fill="{color}"/>\n'
+        bb_str = f'{bb:+.0f}'
+        svg += f'        <text x="{legend_x + 13}" y="{ly + 9}" fill="#c0c0c0" font-size="9">{pos} ({bb_str})</text>\n'
+
+    svg += '            </svg>\n'
     return svg

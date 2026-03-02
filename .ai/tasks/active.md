@@ -74,10 +74,25 @@ Update this section weekly with sprint goals and dates.
 - [x] US-007: Relatório de Torneios por Sessão (2026-03-02)
 - [x] US-008: EV Analysis por Sessão (Cash e Torneio) (2026-03-02)
 - [x] US-009: EV Completo para Todas as Decisões (Decision-Tree EV) (2026-03-02)
+- [x] US-010: Análise Posicional Completa (Stats + Win Rate por Posição) (2026-03-02)
 
 ---
 
 ## Completed
+
+- [x] US-010: Análise Posicional Completa (Stats + Win Rate por Posição) (2026-03-02)
+  - Repository: get_cash_hands_with_position() for hand-level financial data per position
+  - Repository: get_all_action_sequences() now includes ha.is_voluntary (VPIP fix)
+  - CashAnalyzer: POSITION_VPIP_HEALTHY/WARNING + POSITION_PFR_HEALTHY/WARNING dicts
+  - CashAnalyzer: _classify_positional_health() with position-specific thresholds
+  - CashAnalyzer: _analyze_blinds_defense() detecting steal attempts for BB/SB
+  - CashAnalyzer: get_positional_stats() computing full stats per position
+  - CashAnalyzer: _format_positional_stats() returning by_position, blinds_defense, ats_by_pos, comparison, radar
+  - CashAnalyzer: _build_radar_data() generating normalized radar chart data
+  - cash_report.py: _render_positional_analysis() with full HTML section
+  - cash_report.py: _render_radar_chart() generating inline SVG spider chart
+  - Integrated into generate_cash_report() after postflop stats section
+  - 65 new tests (587 total)
 
 - [x] US-009: EV Completo para Todas as Decisões (Decision-Tree EV) (2026-03-02)
   - EVAnalyzer.get_decision_ev_analysis: per-street EV for fold/call/raise decisions
