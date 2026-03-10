@@ -287,3 +287,20 @@ US-020 (2026-03-02): Botão Resumo de Leaks por Sessão (Consolidação de Todas
 
 === US-020 completed at 2026-03-02T13:36:00.088Z ===
 - All quality gates passed
+
+---
+US-021 (2026-03-10): Tournament Backend: Repository Queries + Analyzer Preflop/Postflop Stats
+- Repository: get_tournament_hands_with_position(year, tournament_id) → hand_id, hero_position, net, blinds_bb, hero_stack
+- Repository: get_tournament_hands_with_cards(year, tournament_id) → hand_id, hero_cards, hero_position, net, blinds_bb
+- Repository: get_tournament_daily_stats(year) → day aggregation (hands, won, lost, net) for LeakFinder period comparison
+- Fix: get_tournament_all_actions() was missing ha.is_voluntary in SELECT, blocking VPIP in positional analysis
+- TournamentAnalyzer: game_type = 'tournament' class attribute added
+- TournamentAnalyzer.__init__: _healthy_ranges, _postflop_healthy_ranges instance attributes (point to class-level dicts)
+- TournamentAnalyzer.get_preflop_stats(): overall + by_position + by_day with health badges, reuses CashAnalyzer._analyze_preflop_hand()
+- TournamentAnalyzer.get_postflop_stats(): overall + by_street + by_week with health badges, reuses CashAnalyzer._analyze_postflop_hand()
+- Pattern: TournamentAnalyzer has own _format_preflop_stats/_format_postflop_stats (not inherited, uses CashAnalyzer._classify_health classmethod)
+- Pattern: TournamentAnalyzer._get_week() duplicated from CashAnalyzer (static, no shared base class)
+- 53 new tests (1429 total). All quality gates passed.
+
+=== US-021 completed at 2026-03-10 ===
+- All quality gates passed
