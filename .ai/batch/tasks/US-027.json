@@ -1,7 +1,7 @@
 {
   "id": "US-027",
   "title": "Web App Flask: Estrutura Base + Servidor Local + Layout com Tabs",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -41,7 +41,7 @@
     "requirements.txt"
   ],
   "created_at": "2026-03-10T04:43:03.604Z",
-  "completed_at": null,
+  "completed_at": "2026-03-10T04:54:35.996Z",
   "failure_reason": null,
   "branch": "feat/US-027"
 }
