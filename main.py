@@ -4,7 +4,7 @@
 Poker Hand Tracking & Analysis Suite - CLI Entry Point
 
 Replaces generate_reports.py as the unified CLI interface.
-Subcommands: import, report, stats
+Subcommands: import, report, stats, analyze
 """
 
 import sys
@@ -163,6 +163,44 @@ def cmd_config(args):
         print("(using built-in defaults — run 'python main.py config --init' to create a file)")
 
 
+def cmd_analyze(args):
+    """Run all analyzers and persist results to analytics.db."""
+    from src.analytics_pipeline import run_analysis
+
+    print("=" * 60)
+    print("POKER ANALYZER - Analytics Pipeline")
+    print("=" * 60)
+    print()
+
+    analytics_db = getattr(args, 'analytics_db', None) or 'analytics.db'
+
+    print(f"Source DB:    {args.db}")
+    print(f"Analytics DB: {analytics_db}")
+    print(f"Type:         {args.type}")
+    print(f"Force:        {args.force}")
+    print()
+
+    result = run_analysis(
+        poker_db_path=args.db,
+        analytics_db_path=analytics_db,
+        force=args.force,
+        analysis_type=args.type,
+    )
+
+    if result['skipped']:
+        print(result['reason'])
+    else:
+        if result['cash_processed']:
+            print("  Cash analysis:       completed")
+        if result['tournament_processed']:
+            print("  Tournament analysis: completed")
+        print()
+        print(f"Results persisted to: {analytics_db}")
+
+    print()
+    print("=" * 60)
+
+
 def cmd_stats(args):
     """Show quick stats in the terminal."""
     from src.db.connection import get_connection
@@ -279,6 +317,23 @@ def main():
         help='Path to config file (default: config/targets.yaml)'
     )
 
+    # analyze subcommand
+    analyze_parser = subparsers.add_parser(
+        'analyze', help='Run all analyzers and persist results to analytics.db'
+    )
+    analyze_parser.add_argument(
+        '--force', action='store_true',
+        help='Recalculate everything even if no new imports'
+    )
+    analyze_parser.add_argument(
+        '--type', choices=['cash', 'tournament', 'all'],
+        default='all', help='Type of analysis to run (default: all)'
+    )
+    analyze_parser.add_argument(
+        '--analytics-db', dest='analytics_db', default='analytics.db',
+        help='Path to analytics database (default: analytics.db)'
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -293,6 +348,8 @@ def main():
         cmd_stats(args)
     elif args.command == 'config':
         cmd_config(args)
+    elif args.command == 'analyze':
+        cmd_analyze(args)
 
 
 if __name__ == '__main__':
