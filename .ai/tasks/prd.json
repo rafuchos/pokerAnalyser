@@ -323,7 +323,7 @@
         "src/web/templates/tournament/sessions.html",
         "src/web/templates/tournament/session_detail.html"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-030",
