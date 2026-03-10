@@ -51,7 +51,7 @@
         "src/db/repository.py",
         "src/analyzers/tournament.py"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-022",
@@ -75,7 +75,9 @@
         "Stack depth é CRÍTICO para torneios (blinds escalantes)."
       ],
       "estimated_points": 13,
-      "dependencies": ["US-021"],
+      "dependencies": [
+        "US-021"
+      ],
       "files_affected": [
         "src/analyzers/tournament.py",
         "src/analyzers/cash.py"
@@ -105,7 +107,10 @@
         "EVAnalyzer: extrair core em _compute_decision_ev(), novo get_tournament_decision_ev_analysis()."
       ],
       "estimated_points": 13,
-      "dependencies": ["US-021", "US-022"],
+      "dependencies": [
+        "US-021",
+        "US-022"
+      ],
       "files_affected": [
         "src/analyzers/leak_finder.py",
         "src/analyzers/tilt.py",
@@ -149,7 +154,11 @@
         "src/analyzer_runner.py orquestra todos os analyzers e salva resultados."
       ],
       "estimated_points": 13,
-      "dependencies": ["US-021", "US-022", "US-023"],
+      "dependencies": [
+        "US-021",
+        "US-022",
+        "US-023"
+      ],
       "files_affected": [
         "NEW: src/db/analytics_schema.py",
         "NEW: src/db/analytics.py",
@@ -217,7 +226,9 @@
         "main.py: adicionar subcomando 'serve' que chama create_app().run()"
       ],
       "estimated_points": 13,
-      "dependencies": ["US-026"],
+      "dependencies": [
+        "US-026"
+      ],
       "files_affected": [
         "NEW: src/web/__init__.py",
         "NEW: src/web/routes/__init__.py",
@@ -263,7 +274,9 @@
         "Filtro de período: re-query analytics.db com WHERE date BETWEEN."
       ],
       "estimated_points": 8,
-      "dependencies": ["US-027"],
+      "dependencies": [
+        "US-027"
+      ],
       "files_affected": [
         "src/web/routes/cash.py",
         "src/web/routes/tournament.py",
@@ -299,7 +312,9 @@
         "Para torneios: cada tournament_id é uma 'sessão'."
       ],
       "estimated_points": 8,
-      "dependencies": ["US-027"],
+      "dependencies": [
+        "US-027"
+      ],
       "files_affected": [
         "src/web/routes/cash.py",
         "src/web/routes/tournament.py",
@@ -334,7 +349,9 @@
         "Reusar health classification do config/targets.yaml."
       ],
       "estimated_points": 13,
-      "dependencies": ["US-027"],
+      "dependencies": [
+        "US-027"
+      ],
       "files_affected": [
         "src/web/routes/cash.py",
         "src/web/routes/tournament.py",
@@ -368,7 +385,9 @@
         "Heatmap: CSS grid com cores calculadas (reusar padrão existente)."
       ],
       "estimated_points": 13,
-      "dependencies": ["US-027"],
+      "dependencies": [
+        "US-027"
+      ],
       "files_affected": [
         "src/web/routes/cash.py",
         "src/web/routes/tournament.py",
