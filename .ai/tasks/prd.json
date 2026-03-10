@@ -117,7 +117,7 @@
         "src/analyzers/ev.py",
         "src/analyzers/tournament.py"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-026",
