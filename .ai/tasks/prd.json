@@ -284,7 +284,7 @@
         "src/web/templates/tournament/overview.html",
         "src/web/static/css/style.css"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-029",
