@@ -1,7 +1,7 @@
 {
   "id": "US-022",
   "title": "Tournament Backend: Positional Stats, Stack Depth, Hand Matrix, Bet Sizing",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -25,7 +25,7 @@
     ".ai/tasks/active.md"
   ],
   "created_at": "2026-03-10T04:06:08.508Z",
-  "completed_at": null,
+  "completed_at": "2026-03-10T04:17:18.183Z",
   "failure_reason": null,
   "branch": "feat/US-022"
 }
