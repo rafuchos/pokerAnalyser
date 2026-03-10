@@ -12,6 +12,19 @@ from src.analyzers.cash import (
     CashAnalyzer,
     _downsample_redline,
     _generate_redline_diagnostics,
+    _categorize_hand,
+    _classify_preflop_action,
+    _classify_pot_type,
+    _count_active_players,
+    _compute_bet_sizing,
+    _empty_pt_acc,
+    _accumulate_pt,
+    _format_pt_stats,
+    _classify_winrate_health,
+    _format_sizing_data,
+    _generate_bet_sizing_diagnostics,
+    _PREFLOP_BUCKETS,
+    _POSTFLOP_BUCKETS,
 )
 from src.analyzers.ev import EVAnalyzer, parse_cards, calculate_equity
 from src.db.repository import Repository
@@ -28,11 +41,35 @@ class TournamentAnalyzer:
     POSTFLOP_HEALTHY_RANGES = CashAnalyzer.POSTFLOP_HEALTHY_RANGES
     POSTFLOP_WARNING_RANGES = CashAnalyzer.POSTFLOP_WARNING_RANGES
 
+    # Reuse positional/stack depth ranges from CashAnalyzer
+    POSITION_VPIP_HEALTHY = CashAnalyzer.POSITION_VPIP_HEALTHY
+    POSITION_VPIP_WARNING = CashAnalyzer.POSITION_VPIP_WARNING
+    POSITION_PFR_HEALTHY = CashAnalyzer.POSITION_PFR_HEALTHY
+    POSITION_PFR_WARNING = CashAnalyzer.POSITION_PFR_WARNING
+    STACK_VPIP_HEALTHY = CashAnalyzer.STACK_VPIP_HEALTHY
+    STACK_VPIP_WARNING = CashAnalyzer.STACK_VPIP_WARNING
+    STACK_PFR_HEALTHY = CashAnalyzer.STACK_PFR_HEALTHY
+    STACK_PFR_WARNING = CashAnalyzer.STACK_PFR_WARNING
+    STACK_3BET_HEALTHY = CashAnalyzer.STACK_3BET_HEALTHY
+    STACK_3BET_WARNING = CashAnalyzer.STACK_3BET_WARNING
+
     def __init__(self, repo: Repository, year: str = '2026'):
         self.repo = repo
         self.year = year
         self._healthy_ranges = type(self).HEALTHY_RANGES
+        self._warning_ranges = type(self).WARNING_RANGES
         self._postflop_healthy_ranges = type(self).POSTFLOP_HEALTHY_RANGES
+        self._postflop_warning_ranges = type(self).POSTFLOP_WARNING_RANGES
+        self._pos_vpip_healthy = type(self).POSITION_VPIP_HEALTHY
+        self._pos_vpip_warning = type(self).POSITION_VPIP_WARNING
+        self._pos_pfr_healthy = type(self).POSITION_PFR_HEALTHY
+        self._pos_pfr_warning = type(self).POSITION_PFR_WARNING
+        self._stack_vpip_healthy = type(self).STACK_VPIP_HEALTHY
+        self._stack_vpip_warning = type(self).STACK_VPIP_WARNING
+        self._stack_pfr_healthy = type(self).STACK_PFR_HEALTHY
+        self._stack_pfr_warning = type(self).STACK_PFR_WARNING
+        self._stack_3bet_healthy = type(self).STACK_3BET_HEALTHY
+        self._stack_3bet_warning = type(self).STACK_3BET_WARNING
 
     # ── Preflop Stats ──────────────────────────────────────────────
 
@@ -1298,4 +1335,721 @@ class TournamentAnalyzer:
             'nonshowdown_net': round(nonshowdown_net, 2),
             'diagnostics': diagnostics,
             'by_session': by_session,
+        }
+
+    # ── Positional Stats ─────────────────────────────────────────────
+
+    def get_positional_stats(self) -> dict:
+        """Calculate per-position stats for tournament hands.
+
+        Computes VPIP, PFR, 3-Bet, AF, CBet, WTSD, W$SD, win rate per position.
+        Also computes blinds defense, ATS, comparison, radar data, and 3-bet matrix.
+
+        Returns dict with by_position, blinds_defense, ats_by_pos, comparison, radar,
+        three_bet_matrix.
+        """
+        sequences = self.repo.get_tournament_all_actions(self.year)
+        hands_financial = self.repo.get_tournament_hands_with_position(self.year)
+
+        # Build hand-level financial lookup
+        hand_bb = {}
+        for h in hands_financial:
+            hand_bb[h['hand_id']] = h.get('blinds_bb') or 200
+
+        # Group actions by hand_id
+        hands_actions = defaultdict(list)
+        hand_meta = {}
+        for action in sequences:
+            hand_id = action['hand_id']
+            hands_actions[hand_id].append(action)
+            if hand_id not in hand_meta:
+                hand_meta[hand_id] = {
+                    'hero_position': action.get('hero_position'),
+                    'hero_net': action.get('hero_net', 0) or 0,
+                }
+
+        # Per-position counters
+        pos_data = defaultdict(lambda: {
+            'total': 0,
+            'vpip': 0, 'pfr': 0,
+            'three_bet_opps': 0, 'three_bet': 0,
+            'ats_opps': 0, 'ats': 0,
+            'fold_steal_opps': 0, 'fold_steal': 0,
+            'three_bet_steal_opps': 0, 'three_bet_steal': 0,
+            'call_steal_opps': 0, 'call_steal': 0,
+            'saw_flop': 0, 'wtsd': 0, 'wsd': 0,
+            'cbet_opps': 0, 'cbet': 0,
+            'agg_br': 0, 'agg_calls': 0,
+            'net': 0.0, 'bb_net': 0.0,
+        })
+
+        # Position vs position matrix for 3-bet drill-down
+        pos_vs_pos: dict = defaultdict(lambda: defaultdict(lambda: {
+            'three_bet_opps': 0, 'three_bet': 0,
+        }))
+
+        for hand_id, actions in hands_actions.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+
+            meta = hand_meta[hand_id]
+            hero_pos = meta['hero_position']
+            hero_net = meta['hero_net']
+            if not hero_pos:
+                hero_pos = 'Unknown'
+
+            pd = pos_data[hero_pos]
+            pd['total'] += 1
+            pd['net'] += hero_net
+            bb = hand_bb.get(hand_id, 200)
+            pd['bb_net'] += (hero_net / bb) if bb > 0 else 0.0
+
+            # Preflop analysis
+            preflop_vol = [
+                a for a in actions
+                if a['street'] == 'preflop'
+                and a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')
+            ]
+            pre = CashAnalyzer._analyze_preflop_hand(preflop_vol)
+
+            if pre['vpip']:
+                pd['vpip'] += 1
+            if pre['pfr']:
+                pd['pfr'] += 1
+            if pre['three_bet_opp']:
+                pd['three_bet_opps'] += 1
+                if pre['three_bet']:
+                    pd['three_bet'] += 1
+                raiser_pos = pre.get('raiser_position')
+                if raiser_pos:
+                    cell = pos_vs_pos[hero_pos][raiser_pos]
+                    cell['three_bet_opps'] += 1
+                    if pre['three_bet']:
+                        cell['three_bet'] += 1
+            if pre['ats_opp']:
+                pd['ats_opps'] += 1
+                if pre['ats']:
+                    pd['ats'] += 1
+
+            # Blinds defense for BB/SB
+            if hero_pos in ('BB', 'SB'):
+                bd = CashAnalyzer._analyze_blinds_defense(preflop_vol, hero_pos)
+                if bd['steal_opp']:
+                    pd['fold_steal_opps'] += 1
+                    pd['three_bet_steal_opps'] += 1
+                    pd['call_steal_opps'] += 1
+                    if bd['fold_to_steal']:
+                        pd['fold_steal'] += 1
+                    if bd['three_bet_vs_steal']:
+                        pd['three_bet_steal'] += 1
+                    if bd['call_vs_steal']:
+                        pd['call_steal'] += 1
+
+            # Postflop analysis
+            post = CashAnalyzer._analyze_postflop_hand(actions, hero_net)
+            if post['saw_flop']:
+                pd['saw_flop'] += 1
+            if post['went_to_showdown']:
+                pd['wtsd'] += 1
+            if post['won_at_showdown']:
+                pd['wsd'] += 1
+            if post['cbet_opp']:
+                pd['cbet_opps'] += 1
+                if post['cbet']:
+                    pd['cbet'] += 1
+            for street in ('flop', 'turn', 'river'):
+                if street in post['hero_aggression']:
+                    ha = post['hero_aggression'][street]
+                    pd['agg_br'] += ha['bets'] + ha['raises']
+                    pd['agg_calls'] += ha['calls']
+
+        result = self._format_positional_stats(dict(pos_data))
+        result['three_bet_matrix'] = self._format_three_bet_matrix(
+            {hp: dict(opps) for hp, opps in pos_vs_pos.items()}
+        )
+        return result
+
+    def _format_positional_stats(self, pos_data: dict) -> dict:
+        """Format raw positional counters into percentages with health badges."""
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+
+        by_position = {}
+        for pos in position_order:
+            if pos not in pos_data:
+                continue
+            pd = pos_data[pos]
+            t = pd['total']
+            if t == 0:
+                continue
+
+            vpip = pct(pd['vpip'], t)
+            pfr = pct(pd['pfr'], t)
+            three_bet = pct(pd['three_bet'], pd['three_bet_opps'])
+            af = pd['agg_br'] / pd['agg_calls'] if pd['agg_calls'] > 0 else 0.0
+            cbet = pct(pd['cbet'], pd['cbet_opps'])
+            wtsd = pct(pd['wtsd'], pd['saw_flop'])
+            wsd = pct(pd['wsd'], pd['wtsd'])
+            net_per_hand = pd['net'] / t
+            bb_per_100 = (pd['bb_net'] / t) * 100
+
+            by_position[pos] = {
+                'total_hands': t,
+                'vpip': vpip,
+                'vpip_health': CashAnalyzer._classify_positional_health('vpip', pos, vpip),
+                'pfr': pfr,
+                'pfr_health': CashAnalyzer._classify_positional_health('pfr', pos, pfr),
+                'three_bet': three_bet,
+                'three_bet_health': CashAnalyzer._classify_health('three_bet', three_bet),
+                'af': af,
+                'af_health': CashAnalyzer._classify_postflop_health('af', af),
+                'cbet': cbet,
+                'cbet_health': CashAnalyzer._classify_postflop_health('cbet', cbet),
+                'wtsd': wtsd,
+                'wtsd_health': CashAnalyzer._classify_postflop_health('wtsd', wtsd),
+                'wsd': wsd,
+                'wsd_health': CashAnalyzer._classify_postflop_health('wsd', wsd),
+                'net': pd['net'],
+                'net_per_hand': net_per_hand,
+                'bb_per_100': bb_per_100,
+                'winrate_health': 'good' if net_per_hand >= 0 else 'danger',
+                'ats': pct(pd['ats'], pd['ats_opps']),
+                'ats_opps': pd['ats_opps'],
+                'ats_count': pd['ats'],
+            }
+
+        # Blinds defense breakdown (BB and SB only)
+        blinds_defense = {}
+        for pos in ('BB', 'SB'):
+            if pos not in pos_data:
+                continue
+            pd = pos_data[pos]
+            opps = pd['fold_steal_opps']
+            if opps > 0:
+                blinds_defense[pos] = {
+                    'steal_opps': opps,
+                    'fold_to_steal': pct(pd['fold_steal'], opps),
+                    'fold_to_steal_count': pd['fold_steal'],
+                    'three_bet_vs_steal': pct(pd['three_bet_steal'], opps),
+                    'three_bet_vs_steal_count': pd['three_bet_steal'],
+                    'call_vs_steal': pct(pd['call_steal'], opps),
+                    'call_vs_steal_count': pd['call_steal'],
+                }
+
+        # ATS by steal position (CO, BTN, SB)
+        ats_by_pos = {}
+        for pos in ('CO', 'BTN', 'SB'):
+            if pos in by_position and by_position[pos]['ats_opps'] > 0:
+                ats_by_pos[pos] = {
+                    'ats': by_position[pos]['ats'],
+                    'ats_opps': by_position[pos]['ats_opps'],
+                    'ats_count': by_position[pos]['ats_count'],
+                }
+
+        # Most profitable vs most deficitary comparison
+        comparison = {}
+        if by_position:
+            profitable = max(by_position.items(), key=lambda x: x[1]['bb_per_100'])
+            deficitary = min(by_position.items(), key=lambda x: x[1]['bb_per_100'])
+            if profitable[0] != deficitary[0]:
+                comparison = {
+                    'most_profitable': {'position': profitable[0], **profitable[1]},
+                    'most_deficitary': {'position': deficitary[0], **deficitary[1]},
+                }
+
+        # Radar chart data
+        radar = CashAnalyzer._build_radar_data(by_position)
+
+        return {
+            'by_position': by_position,
+            'blinds_defense': blinds_defense,
+            'ats_by_pos': ats_by_pos,
+            'comparison': comparison,
+            'radar': radar,
+        }
+
+    @staticmethod
+    def _format_three_bet_matrix(raw: dict) -> dict:
+        """Format position-vs-position 3-bet counters into a percentage matrix."""
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        matrix: dict = {}
+        position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+        for h_pos in position_order:
+            if h_pos not in raw:
+                continue
+            row: dict = {}
+            for o_pos in position_order:
+                cell = raw[h_pos].get(o_pos)
+                if not cell or cell['three_bet_opps'] == 0:
+                    continue
+                row[o_pos] = {
+                    'three_bet_opps': cell['three_bet_opps'],
+                    'three_bet_count': cell['three_bet'],
+                    'three_bet_pct': pct(cell['three_bet'], cell['three_bet_opps']),
+                }
+            if row:
+                matrix[h_pos] = row
+        return matrix
+
+    # ── Stack Depth Analysis ─────────────────────────────────────────
+
+    def get_stack_depth_stats(self) -> dict:
+        """Calculate stats segmented by stack depth (BB count) and position.
+
+        Stack depth tiers: deep (50+ BB), medium (25-50 BB),
+        shallow (15-25 BB), shove-zone (<15 BB).
+
+        Returns dict with by_tier, by_position_tier, tier_order, tier_labels,
+        hands_with_stack, hands_total.
+        """
+        sequences = self.repo.get_tournament_all_actions(self.year)
+        hands_financial = self.repo.get_tournament_hands_with_position(self.year)
+
+        # Build per-hand lookups
+        hand_info = {}
+        for h in hands_financial:
+            bb = h.get('blinds_bb') or 200
+            stack = h.get('hero_stack')
+            hand_info[h['hand_id']] = {
+                'bb': bb,
+                'stack_bb': (stack / bb) if (stack and bb > 0) else None,
+            }
+
+        # Group actions by hand_id
+        hands_actions = defaultdict(list)
+        hand_meta = {}
+        for action in sequences:
+            hand_id = action['hand_id']
+            hands_actions[hand_id].append(action)
+            if hand_id not in hand_meta:
+                hand_meta[hand_id] = {
+                    'hero_position': action.get('hero_position'),
+                    'hero_net': action.get('hero_net', 0) or 0,
+                }
+
+        # Per-tier counters
+        def _empty_tier():
+            return {
+                'total': 0, 'vpip': 0, 'pfr': 0,
+                'three_bet_opps': 0, 'three_bet': 0,
+                'saw_flop': 0, 'wtsd': 0, 'wsd': 0,
+                'cbet_opps': 0, 'cbet': 0,
+                'agg_br': 0, 'agg_calls': 0,
+                'net': 0.0, 'bb_net': 0.0,
+            }
+
+        tier_data = defaultdict(_empty_tier)
+
+        # Per-position x tier counters
+        def _empty_pos_tier():
+            return {
+                'total': 0, 'vpip': 0, 'pfr': 0,
+                'net': 0.0, 'bb_net': 0.0,
+            }
+
+        pos_tier_data = defaultdict(lambda: defaultdict(_empty_pos_tier))
+
+        total_hands = len(hands_financial)
+        hands_with_stack = 0
+
+        for hand_id, actions in hands_actions.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+
+            info = hand_info.get(hand_id, {})
+            stack_bb = info.get('stack_bb')
+            if stack_bb is None:
+                continue
+
+            hands_with_stack += 1
+            tier = CashAnalyzer._classify_stack_tier(stack_bb)
+            meta = hand_meta[hand_id]
+            hero_pos = meta['hero_position'] or 'Unknown'
+            hero_net = meta['hero_net']
+            bb = info.get('bb', 200)
+
+            td = tier_data[tier]
+            td['total'] += 1
+            td['net'] += hero_net
+            td['bb_net'] += (hero_net / bb) if bb > 0 else 0.0
+
+            ptd = pos_tier_data[hero_pos][tier]
+            ptd['total'] += 1
+            ptd['net'] += hero_net
+            ptd['bb_net'] += (hero_net / bb) if bb > 0 else 0.0
+
+            # Preflop analysis
+            preflop_vol = [
+                a for a in actions
+                if a['street'] == 'preflop'
+                and a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')
+            ]
+            pre = CashAnalyzer._analyze_preflop_hand(preflop_vol)
+
+            if pre['vpip']:
+                td['vpip'] += 1
+                ptd['vpip'] += 1
+            if pre['pfr']:
+                td['pfr'] += 1
+                ptd['pfr'] += 1
+            if pre['three_bet_opp']:
+                td['three_bet_opps'] += 1
+                if pre['three_bet']:
+                    td['three_bet'] += 1
+
+            # Postflop analysis
+            post = CashAnalyzer._analyze_postflop_hand(actions, hero_net)
+            if post['saw_flop']:
+                td['saw_flop'] += 1
+            if post['went_to_showdown']:
+                td['wtsd'] += 1
+            if post['won_at_showdown']:
+                td['wsd'] += 1
+            if post['cbet_opp']:
+                td['cbet_opps'] += 1
+                if post['cbet']:
+                    td['cbet'] += 1
+            for street in ('flop', 'turn', 'river'):
+                if street in post['hero_aggression']:
+                    ha = post['hero_aggression'][street]
+                    td['agg_br'] += ha['bets'] + ha['raises']
+                    td['agg_calls'] += ha['calls']
+
+        return self._format_stack_depth_stats(
+            dict(tier_data), dict(pos_tier_data),
+            total_hands, hands_with_stack,
+        )
+
+    def _format_stack_depth_stats(self, tier_data: dict,
+                                   pos_tier_data: dict,
+                                   total_hands: int,
+                                   hands_with_stack: int) -> dict:
+        """Format raw stack depth counters into percentages with health badges."""
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        tier_order = ['deep', 'medium', 'shallow', 'shove']
+        tier_labels = {
+            'deep': '50+ BB',
+            'medium': '25-50 BB',
+            'shallow': '15-25 BB',
+            'shove': '<15 BB',
+        }
+
+        by_tier = {}
+        for tier in tier_order:
+            if tier not in tier_data:
+                continue
+            td = tier_data[tier]
+            t = td['total']
+            if t == 0:
+                continue
+
+            vpip = pct(td['vpip'], t)
+            pfr = pct(td['pfr'], t)
+            three_bet = pct(td['three_bet'], td['three_bet_opps'])
+            af = td['agg_br'] / td['agg_calls'] if td['agg_calls'] > 0 else 0.0
+            cbet = pct(td['cbet'], td['cbet_opps'])
+            wtsd = pct(td['wtsd'], td['saw_flop'])
+            wsd = pct(td['wsd'], td['wtsd'])
+            net_per_hand = td['net'] / t
+            bb_per_100 = (td['bb_net'] / t) * 100
+
+            by_tier[tier] = {
+                'label': tier_labels[tier],
+                'total_hands': t,
+                'vpip': vpip,
+                'vpip_health': self._classify_stack_depth_health('vpip', tier, vpip),
+                'pfr': pfr,
+                'pfr_health': self._classify_stack_depth_health('pfr', tier, pfr),
+                'three_bet': three_bet,
+                'three_bet_health': self._classify_stack_depth_health('three_bet', tier, three_bet),
+                'af': af,
+                'af_health': CashAnalyzer._classify_postflop_health('af', af),
+                'cbet': cbet,
+                'cbet_health': CashAnalyzer._classify_postflop_health('cbet', cbet),
+                'wtsd': wtsd,
+                'wtsd_health': CashAnalyzer._classify_postflop_health('wtsd', wtsd),
+                'wsd': wsd,
+                'wsd_health': CashAnalyzer._classify_postflop_health('wsd', wsd),
+                'net': td['net'],
+                'net_per_hand': net_per_hand,
+                'bb_per_100': bb_per_100,
+                'winrate_health': 'good' if net_per_hand >= 0 else 'danger',
+            }
+
+        # Per-position x tier
+        position_order = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+        by_position_tier = {}
+        for pos in position_order:
+            if pos not in pos_tier_data:
+                continue
+            pos_tiers = {}
+            for tier in tier_order:
+                if tier not in pos_tier_data[pos]:
+                    continue
+                ptd = pos_tier_data[pos][tier]
+                t = ptd['total']
+                if t < 5:
+                    continue
+                bb_per_100 = (ptd['bb_net'] / t) * 100
+                pos_tiers[tier] = {
+                    'label': tier_labels[tier],
+                    'total_hands': t,
+                    'vpip': pct(ptd['vpip'], t),
+                    'pfr': pct(ptd['pfr'], t),
+                    'bb_per_100': bb_per_100,
+                    'winrate_health': 'good' if bb_per_100 >= 0 else 'danger',
+                }
+            if pos_tiers:
+                by_position_tier[pos] = pos_tiers
+
+        return {
+            'by_tier': by_tier,
+            'by_position_tier': by_position_tier,
+            'tier_order': tier_order,
+            'tier_labels': tier_labels,
+            'hands_with_stack': hands_with_stack,
+            'hands_total': total_hands,
+        }
+
+    def _classify_stack_depth_health(self, stat: str, tier: str,
+                                     value: float) -> str:
+        """Classify a stat's health against the tier-specific range."""
+        if stat == 'vpip':
+            h = self._stack_vpip_healthy.get(tier, self._healthy_ranges.get('vpip'))
+            w = self._stack_vpip_warning.get(tier, self._warning_ranges.get('vpip'))
+        elif stat == 'pfr':
+            h = self._stack_pfr_healthy.get(tier, self._healthy_ranges.get('pfr'))
+            w = self._stack_pfr_warning.get(tier, self._warning_ranges.get('pfr'))
+        elif stat == 'three_bet':
+            h = self._stack_3bet_healthy.get(tier, self._healthy_ranges.get('three_bet'))
+            w = self._stack_3bet_warning.get(tier, self._warning_ranges.get('three_bet'))
+        else:
+            return CashAnalyzer._classify_health(stat, value)
+
+        if h and h[0] <= value <= h[1]:
+            return 'good'
+        if w and w[0] <= value <= w[1]:
+            return 'warning'
+        return 'danger'
+
+    # ── Hand Matrix ──────────────────────────────────────────────────
+
+    def get_hand_matrix(self) -> dict:
+        """Build 13x13 hand matrix data grouped by position for tournament hands.
+
+        For each position and each hand category (e.g. 'AKs', 'AKo', 'AA'),
+        computes times_dealt, times_played, frequency, action breakdown,
+        net and win_rate (bb/100).
+
+        Returns dict with overall, by_position, top_profitable, top_deficit, total_hands.
+        """
+        hands = self.repo.get_tournament_hands_with_cards(self.year)
+        preflop_seqs = self.repo.get_tournament_preflop_actions(self.year)
+
+        # Group preflop actions by hand_id
+        hand_preflop = defaultdict(list)
+        for a in preflop_seqs:
+            hand_preflop[a['hand_id']].append(a)
+
+        # Accumulators: overall and per-position
+        overall = defaultdict(lambda: {
+            'dealt': 0, 'played': 0,
+            'open_raise': 0, 'call': 0, 'three_bet': 0,
+            'net': 0.0, 'bb_net': 0.0,
+        })
+        by_position = defaultdict(lambda: defaultdict(lambda: {
+            'dealt': 0, 'played': 0,
+            'open_raise': 0, 'call': 0, 'three_bet': 0,
+            'net': 0.0, 'bb_net': 0.0,
+        }))
+
+        for hand in hands:
+            hero_cards = hand.get('hero_cards')
+            if not hero_cards:
+                continue
+            cat = _categorize_hand(hero_cards)
+            if not cat:
+                continue
+
+            pos = hand.get('hero_position') or 'Unknown'
+            net = hand.get('net') or 0.0
+            bb = hand.get('blinds_bb') or 200
+            bb_net = net / bb if bb > 0 else 0.0
+
+            overall[cat]['dealt'] += 1
+            by_position[pos][cat]['dealt'] += 1
+
+            actions = hand_preflop.get(hand['hand_id'], [])
+            action_type = _classify_preflop_action(actions)
+
+            if action_type:
+                overall[cat]['played'] += 1
+                by_position[pos][cat]['played'] += 1
+                if action_type == 'open_raise':
+                    overall[cat]['open_raise'] += 1
+                    by_position[pos][cat]['open_raise'] += 1
+                elif action_type == 'call':
+                    overall[cat]['call'] += 1
+                    by_position[pos][cat]['call'] += 1
+                elif action_type == 'three_bet':
+                    overall[cat]['three_bet'] += 1
+                    by_position[pos][cat]['three_bet'] += 1
+
+            overall[cat]['net'] += net
+            overall[cat]['bb_net'] += bb_net
+            by_position[pos][cat]['net'] += net
+            by_position[pos][cat]['bb_net'] += bb_net
+
+        # Format results
+        def _format_matrix(data):
+            result = {}
+            for cat, d in data.items():
+                dealt = d['dealt']
+                played = d['played']
+                result[cat] = {
+                    'dealt': dealt,
+                    'played': played,
+                    'frequency': round(played / dealt * 100, 1) if dealt > 0 else 0.0,
+                    'open_raise': d['open_raise'],
+                    'call': d['call'],
+                    'three_bet': d['three_bet'],
+                    'net': round(d['net'], 2),
+                    'bb_net': round(d['bb_net'], 2),
+                    'win_rate': round(d['bb_net'] / dealt * 100, 2) if dealt > 0 else 0.0,
+                }
+            return result
+
+        overall_formatted = _format_matrix(overall)
+        by_pos_formatted = {}
+        for pos, cats in by_position.items():
+            by_pos_formatted[pos] = _format_matrix(cats)
+
+        # Top 10 most profitable and top 10 most deficit
+        sorted_by_winrate = sorted(
+            overall_formatted.items(),
+            key=lambda x: x[1]['win_rate'],
+            reverse=True,
+        )
+        top_profitable = [
+            {'hand': cat, **stats}
+            for cat, stats in sorted_by_winrate
+            if stats['dealt'] >= 3 and stats['win_rate'] > 0
+        ][:10]
+        top_deficit = [
+            {'hand': cat, **stats}
+            for cat, stats in reversed(sorted_by_winrate)
+            if stats['dealt'] >= 3 and stats['win_rate'] < 0
+        ][:10]
+
+        return {
+            'overall': overall_formatted,
+            'by_position': dict(by_pos_formatted),
+            'top_profitable': top_profitable,
+            'top_deficit': top_deficit,
+            'total_hands': sum(d['dealt'] for d in overall_formatted.values()),
+        }
+
+    # ── Bet Sizing & Pot-Type Segmentation ───────────────────────────
+
+    def get_bet_sizing_analysis(self) -> dict:
+        """Compute bet sizing and pot-type segmentation for tournament hands.
+
+        Classifies each hand by pot type (limped, SRP, 3-bet, 4-bet+) and
+        computes per-type stats: VPIP, PFR, AF, CBet, WTSD, W$SD, win rate.
+        Also tracks bet sizing distributions by street and separates
+        heads-up vs multiway results.
+
+        Returns dict with pot_types, sizing, hu_vs_multiway, diagnostics.
+        """
+        hands = self.repo.get_tournament_hands(self.year)
+        actions_list = self.repo.get_tournament_all_actions(self.year)
+
+        # Build per-hand lookup
+        hand_meta = {h['hand_id']: h for h in hands}
+        hand_acts = defaultdict(list)
+        for a in actions_list:
+            hand_acts[a['hand_id']].append(a)
+
+        pot_type_keys = ('limped', 'srp', '3bet', '4bet_plus')
+        pt_data = {k: _empty_pt_acc() for k in pot_type_keys}
+        hu_data = _empty_pt_acc()
+        mw_data = _empty_pt_acc()
+
+        preflop_sizes: list[float] = []
+        flop_sizes: list[float] = []
+        turn_sizes: list[float] = []
+        river_sizes: list[float] = []
+
+        total_hands = 0
+
+        for hand_id, actions in hand_acts.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+            meta = hand_meta.get(hand_id)
+            if not meta:
+                continue
+
+            total_hands += 1
+            net = meta['net'] or 0.0
+            blinds_bb = meta['blinds_bb'] or 200
+
+            preflop = [a for a in actions if a['street'] == 'preflop']
+            pot_type = _classify_pot_type(preflop)
+
+            # Determine HU vs multiway
+            flop_players = {a['player'] for a in actions if a['street'] == 'flop'}
+            if flop_players:
+                is_hu = len(flop_players) <= 2
+            else:
+                is_hu = _count_active_players(preflop) <= 2
+
+            # Preflop analysis
+            voluntary = [a for a in preflop
+                         if a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')]
+            pf_pre = CashAnalyzer._analyze_preflop_hand(voluntary)
+
+            # Postflop analysis
+            hero_net = (actions[0].get('hero_net') or 0.0) if actions else 0.0
+            pf_post = CashAnalyzer._analyze_postflop_hand(actions, hero_net)
+
+            # Accumulate pot-type stats
+            _accumulate_pt(pt_data[pot_type], net, blinds_bb, is_hu, pf_pre, pf_post)
+
+            # Accumulate HU / multiway
+            if is_hu:
+                _accumulate_pt(hu_data, net, blinds_bb, True, pf_pre, pf_post)
+            else:
+                _accumulate_pt(mw_data, net, blinds_bb, False, pf_pre, pf_post)
+
+            # Collect sizing data
+            sizing = _compute_bet_sizing(actions, blinds_bb)
+            if sizing['preflop_raise_bb'] is not None:
+                preflop_sizes.append(sizing['preflop_raise_bb'])
+            for street, lst in (('flop', flop_sizes), ('turn', turn_sizes), ('river', river_sizes)):
+                val = sizing.get(f'{street}_bet_pct')
+                if val is not None:
+                    lst.append(val)
+
+        pot_types_fmt = {k: _format_pt_stats(pt_data[k]) for k in pot_type_keys}
+
+        return {
+            'total_hands': total_hands,
+            'pot_types': pot_types_fmt,
+            'sizing': {
+                'preflop': _format_sizing_data(preflop_sizes, _PREFLOP_BUCKETS),
+                'flop': _format_sizing_data(flop_sizes, _POSTFLOP_BUCKETS),
+                'turn': _format_sizing_data(turn_sizes, _POSTFLOP_BUCKETS),
+                'river': _format_sizing_data(river_sizes, _POSTFLOP_BUCKETS),
+            },
+            'hu_vs_multiway': {
+                'heads_up': _format_pt_stats(hu_data),
+                'multiway': _format_pt_stats(mw_data),
+            },
+            'diagnostics': _generate_bet_sizing_diagnostics(pot_types_fmt, preflop_sizes, total_hands),
         }
