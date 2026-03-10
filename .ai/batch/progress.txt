@@ -329,3 +329,20 @@ US-021 (2026-03-10): Tournament Backend: Repository Queries + Analyzer Preflop/P
 
 === US-026 completed at 2026-03-10T04:42:46.779Z ===
 - All quality gates passed
+
+=== US-027 completed at 2026-03-10 ===
+- All 1676 tests passing (76 new)
+- Pattern: Flask app factory (create_app) with lazy blueprint imports to avoid circular imports
+- Pattern: Data layer (src/web/data.py) separated from app.py to prevent circular import with route blueprints
+- Pattern: load_analytics_data(db_path, game_type) reads all analytics tables into a single flat dict
+- Pattern: Route blueprints (cash_bp, tournament_bp) use current_app.config['ANALYTICS_DB_PATH'] for DB access
+- Pattern: VALID_TABS tuple in each route module; invalid tabs fall back to 'overview'
+- Pattern: base.html template with context_processor injecting app_title and sub_tabs list
+- Pattern: Empty state with guidance text when no data available (python main.py analyze)
+- Pattern: Dark theme CSS variables (--bg-primary: #0d1117) with responsive breakpoints at 768px and 480px
+- Pattern: cmd_serve() uses threading.Timer(1.0) for delayed browser.open to let Flask start first
+- Lesson: *.html in .gitignore catches template files; need !src/web/templates/**/*.html exception
+- Lesson: C*/ glob in .gitignore matches src/web/static/css/; use /C*/ (anchored) instead
+
+=== US-027 completed at 2026-03-10T04:54:35.277Z ===
+- All quality gates passed

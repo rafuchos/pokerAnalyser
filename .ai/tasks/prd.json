@@ -240,7 +240,7 @@
         "main.py",
         "requirements.txt"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-028",
