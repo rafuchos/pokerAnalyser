@@ -2,12 +2,22 @@
 
 Automatically detects leaks by comparing player stats against healthy benchmarks,
 estimates cost in bb/100, and generates prioritized study spots.
+
+Accepts any analyzer via duck typing (CashAnalyzer or TournamentAnalyzer).
+The analyzer must expose:
+  - game_type: str ('cash' or 'tournament')
+  - get_preflop_stats() -> dict
+  - get_postflop_stats() -> dict
+  - get_positional_stats() -> dict
+  - get_stack_depth_stats() -> dict
+  - _healthy_ranges, _postflop_healthy_ranges, _pos_vpip_healthy,
+    _pos_pfr_healthy, _stack_vpip_healthy, _stack_pfr_healthy,
+    _stack_3bet_healthy (dict attributes)
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from src.analyzers.cash import CashAnalyzer
 from src.db.repository import Repository
 
 
@@ -65,7 +75,7 @@ class LeakFinder:
         'shove':   '<15 BB',
     }
 
-    def __init__(self, analyzer: CashAnalyzer, repo: Repository, year: str = '2026'):
+    def __init__(self, analyzer, repo: Repository, year: str = '2026'):
         self.analyzer = analyzer
         self.repo = repo
         self.year = year
@@ -558,12 +568,18 @@ class LeakFinder:
         """Compare stats from last 30 days vs overall.
 
         Returns dict with both period stats for comparison.
+        Uses get_tournament_daily_stats() when analyzer.game_type == 'tournament'.
         """
+        is_tournament = getattr(self.analyzer, 'game_type', 'cash') == 'tournament'
+
         # Calculate date threshold (30 days ago)
         today = datetime.strptime(f'{self.year}-12-31', '%Y-%m-%d')
         try:
             # Try to get actual latest date from hands
-            daily_stats = self.repo.get_cash_daily_stats(self.year)
+            if is_tournament:
+                daily_stats = self.repo.get_tournament_daily_stats(self.year)
+            else:
+                daily_stats = self.repo.get_cash_daily_stats(self.year)
             if daily_stats:
                 latest = daily_stats[-1]['day']
                 today = datetime.strptime(latest, '%Y-%m-%d')
@@ -601,8 +617,13 @@ class LeakFinder:
     def _get_recent_preflop_stats(self, date_from: str) -> dict:
         """Compute preflop stats for hands from date_from onwards."""
         from collections import defaultdict
+        from src.analyzers.cash import CashAnalyzer
 
-        sequences = self.repo.get_preflop_action_sequences(self.year)
+        is_tournament = getattr(self.analyzer, 'game_type', 'cash') == 'tournament'
+        if is_tournament:
+            sequences = self.repo.get_tournament_preflop_actions(self.year)
+        else:
+            sequences = self.repo.get_preflop_action_sequences(self.year)
         # Filter by date
         recent = [a for a in sequences if (a.get('day') or '') >= date_from]
         if not recent:
@@ -668,8 +689,13 @@ class LeakFinder:
     def _get_recent_postflop_stats(self, date_from: str) -> dict:
         """Compute postflop stats for hands from date_from onwards."""
         from collections import defaultdict
+        from src.analyzers.cash import CashAnalyzer
 
-        sequences = self.repo.get_all_action_sequences(self.year)
+        is_tournament = getattr(self.analyzer, 'game_type', 'cash') == 'tournament'
+        if is_tournament:
+            sequences = self.repo.get_tournament_all_actions(self.year)
+        else:
+            sequences = self.repo.get_all_action_sequences(self.year)
         recent = [a for a in sequences if (a.get('day') or '') >= date_from]
         if not recent:
             return {}

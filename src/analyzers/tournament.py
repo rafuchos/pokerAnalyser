@@ -2053,3 +2053,421 @@ class TournamentAnalyzer:
             },
             'diagnostics': _generate_bet_sizing_diagnostics(pot_types_fmt, preflop_sizes, total_hands),
         }
+
+    # ── Leak Finder Integration ──────────────────────────────────────
+
+    def get_leak_analysis(self) -> dict:
+        """Run leak finder analysis for tournament hands.
+
+        LeakFinder accepts this analyzer via duck typing (not coupled to CashAnalyzer).
+        Uses get_tournament_daily_stats() for period comparison.
+
+        Returns dict with:
+        - health_score: 0-100 overall health score
+        - top5: top 5 leaks sorted by cost
+        - study_spots: concrete study actions
+        - period_comparison: last 30 days vs overall
+        - leaks: all detected leaks
+        - total_leaks: count
+        """
+        from src.analyzers.leak_finder import LeakFinder
+        finder = LeakFinder(self, self.repo, self.year)
+        return finder.find_leaks()
+
+    # ── Tilt Analysis Integration ────────────────────────────────────
+
+    def get_tilt_analysis(self) -> dict:
+        """Run tilt detection for tournament hands.
+
+        Each tournament_id is treated as a pseudo-session for tilt detection.
+        Hourly/duration analysis uses all tournament hands.
+
+        Returns dict with:
+        - session_tilt: per-tournament tilt detection (each tournament = session)
+        - tilt_sessions_count: tournaments with tilt detected
+        - hourly: performance by hour/bucket
+        - duration: performance by pseudo-duration bucket
+        - post_bad_beat: post-bad-beat performance stats
+        - recommendation: session duration advice
+        - diagnostics: auto-generated diagnostic messages
+        """
+        from src.analyzers.tilt import (
+            TiltAnalyzer, _compute_segment_stats, _classify_tilt_severity,
+            _generate_tilt_diagnostics, _get_hour, _get_avg_bb,
+            _classify_tilt_wr_health, _MIN_HANDS_SEGMENT,
+            _TILT_VPIP_DELTA, _TILT_PFR_DELTA, _TILT_AF_DELTA,
+            _HOUR_BUCKETS, _DURATION_BUCKETS,
+            _BAD_BEAT_BB, _POST_BAD_BEAT_WINDOW,
+        )
+        from collections import defaultdict
+
+        all_hands = self.repo.get_tournament_hands(self.year)
+        if not all_hands:
+            return {}
+
+        # Build pseudo-sessions: one per tournament_id
+        tournaments_map = defaultdict(list)
+        for h in all_hands:
+            tid = h.get('tournament_id') or 'unknown'
+            tournaments_map[tid].append(h)
+
+        all_actions = self.repo.get_tournament_all_actions(self.year)
+        actions_by_tid = defaultdict(list)
+        for a in all_actions:
+            tid = a.get('tournament_id') or 'unknown'
+            actions_by_tid[tid].append(a)
+
+        # Per-tournament tilt detection (pseudo-session)
+        session_tilt_list = []
+        for tid, hands in tournaments_map.items():
+            hands_sorted = sorted(hands, key=lambda x: x.get('date', ''))
+            tid_actions = actions_by_tid.get(tid, [])
+            n = len(hands_sorted)
+
+            if n < _MIN_HANDS_SEGMENT * 2:
+                session_tilt_list.append({
+                    'session_id': tid,
+                    'session_date': hands_sorted[0].get('date', '')[:10] if hands_sorted else '',
+                    'start_time': hands_sorted[0].get('date', '') if hands_sorted else '',
+                    'tilt_detected': False,
+                    'tilt_signals': [],
+                    'severity': 'good',
+                    'total_hands': n,
+                    'reason': 'insufficient_hands',
+                })
+                continue
+
+            mid = n // 2
+            first_half = hands_sorted[:mid]
+            second_half = hands_sorted[mid:]
+
+            first_stats = _compute_segment_stats(first_half, tid_actions)
+            second_stats = _compute_segment_stats(second_half, tid_actions)
+
+            vpip_delta = second_stats['vpip'] - first_stats['vpip']
+            pfr_delta = second_stats['pfr'] - first_stats['pfr']
+            af_delta = second_stats['af'] - first_stats['af']
+
+            tilt_signals = []
+            if vpip_delta >= _TILT_VPIP_DELTA:
+                tilt_signals.append('vpip_spike')
+            if pfr_delta >= _TILT_PFR_DELTA:
+                tilt_signals.append('pfr_spike')
+            if af_delta >= _TILT_AF_DELTA:
+                tilt_signals.append('af_spike')
+
+            tilt_detected = len(tilt_signals) >= 2
+            severity = _classify_tilt_severity(tilt_signals)
+
+            tilt_cost_bb = 0.0
+            if tilt_detected:
+                avg_bb = _get_avg_bb(hands_sorted)
+                n_first = first_stats['total_hands']
+                n_second = second_stats['total_hands']
+                if avg_bb > 0 and n_first > 0 and n_second > 0:
+                    first_bb100 = (first_stats['net'] / avg_bb) / (n_first / 100)
+                    second_bb100 = (second_stats['net'] / avg_bb) / (n_second / 100)
+                    degradation_bb100 = max(0.0, first_bb100 - second_bb100)
+                    tilt_cost_bb = round(degradation_bb100 * n_second / 100, 1)
+
+            session_tilt_list.append({
+                'session_id': tid,
+                'session_date': hands_sorted[0].get('date', '')[:10] if hands_sorted else '',
+                'start_time': hands_sorted[0].get('date', '') if hands_sorted else '',
+                'tilt_detected': tilt_detected,
+                'tilt_signals': tilt_signals,
+                'severity': severity,
+                'total_hands': n,
+                'first_stats': first_stats,
+                'second_stats': second_stats,
+                'vpip_delta': round(vpip_delta, 1),
+                'pfr_delta': round(pfr_delta, 1),
+                'af_delta': round(af_delta, 2),
+                'tilt_cost_bb': tilt_cost_bb,
+            })
+
+        # Hourly performance (all tournament hands)
+        by_hour = defaultdict(lambda: {'hands': 0, 'net': 0.0, 'net_bb': 0.0})
+        by_bucket = defaultdict(lambda: {'hands': 0, 'net': 0.0, 'net_bb': 0.0})
+
+        for h in all_hands:
+            hour = _get_hour(h.get('date', ''))
+            if hour < 0:
+                continue
+            net = h.get('net') or 0
+            bb = h.get('blinds_bb') or 1.0
+            net_bb = net / bb
+
+            by_hour[hour]['hands'] += 1
+            by_hour[hour]['net'] += net
+            by_hour[hour]['net_bb'] += net_bb
+
+            bucket_name = 'noite'
+            for name, start, end in _HOUR_BUCKETS:
+                if start <= hour < end:
+                    bucket_name = name
+                    break
+            by_bucket[bucket_name]['hands'] += 1
+            by_bucket[bucket_name]['net'] += net
+            by_bucket[bucket_name]['net_bb'] += net_bb
+
+        hourly_data = []
+        for hour_num in range(24):
+            d = by_hour[hour_num]
+            hc = d['hands']
+            wr = (d['net_bb'] / hc * 100) if hc > 0 else 0.0
+            hourly_data.append({
+                'hour': hour_num, 'hands': hc,
+                'net': round(d['net'], 2),
+                'win_rate_bb100': round(wr, 1),
+            })
+
+        buckets = {}
+        for name, _, _ in _HOUR_BUCKETS:
+            d = by_bucket.get(name, {'hands': 0, 'net': 0.0, 'net_bb': 0.0})
+            hc = d['hands']
+            wr = (d['net_bb'] / hc * 100) if hc > 0 else 0.0
+            buckets[name] = {
+                'hands': hc, 'net': round(d['net'], 2),
+                'win_rate_bb100': round(wr, 1),
+                'health': _classify_tilt_wr_health(wr),
+            }
+
+        hourly = {'hourly': hourly_data, 'buckets': buckets}
+
+        # Duration: use per-tournament elapsed time
+        dur_acc = defaultdict(lambda: {'hands': 0, 'net': 0.0, 'net_bb': 0.0})
+        for tid, hands in tournaments_map.items():
+            hands_sorted = sorted(hands, key=lambda x: x.get('date', ''))
+            if not hands_sorted:
+                continue
+            try:
+                start_dt = datetime.fromisoformat(hands_sorted[0].get('date', ''))
+            except (ValueError, TypeError):
+                continue
+            for h in hands_sorted:
+                try:
+                    hand_dt = datetime.fromisoformat(h.get('date', ''))
+                except (ValueError, TypeError):
+                    continue
+                elapsed_min = max(0.0, (hand_dt - start_dt).total_seconds() / 60)
+                net = h.get('net') or 0
+                bb = h.get('blinds_bb') or 1.0
+                for label, lo, hi in _DURATION_BUCKETS:
+                    if lo <= elapsed_min < hi:
+                        dur_acc[label]['hands'] += 1
+                        dur_acc[label]['net'] += net
+                        dur_acc[label]['net_bb'] += net / bb
+                        break
+
+        dur_buckets = []
+        for label, _, _ in _DURATION_BUCKETS:
+            d = dur_acc.get(label, {'hands': 0, 'net': 0.0, 'net_bb': 0.0})
+            hc = d['hands']
+            wr = (d['net_bb'] / hc * 100) if hc > 0 else 0.0
+            dur_buckets.append({
+                'label': label, 'hands': hc,
+                'net': round(d['net'], 2),
+                'win_rate_bb100': round(wr, 1),
+                'health': _classify_tilt_wr_health(wr),
+            })
+        duration = {'buckets': dur_buckets}
+
+        # Post-bad-beat
+        all_hands_sorted = sorted(all_hands, key=lambda x: x.get('date', ''))
+        if not all_hands_sorted:
+            post_bad_beat = {
+                'bad_beats': 0, 'post_bb_win_rate': 0.0,
+                'baseline_win_rate': 0.0, 'post_hands_analyzed': 0,
+                'degradation_bb100': 0.0,
+            }
+        else:
+            total_net_bb = sum(
+                (h.get('net') or 0) / (h.get('blinds_bb') or 1.0)
+                for h in all_hands_sorted
+            )
+            baseline_wr = round(total_net_bb / len(all_hands_sorted) * 100, 1)
+            bad_beat_indices = [
+                i for i, h in enumerate(all_hands_sorted)
+                if (h.get('net') or 0) / (h.get('blinds_bb') or 1.0) <= -_BAD_BEAT_BB
+            ]
+            if not bad_beat_indices:
+                post_bad_beat = {
+                    'bad_beats': 0, 'post_bb_win_rate': 0.0,
+                    'baseline_win_rate': baseline_wr, 'post_hands_analyzed': 0,
+                    'degradation_bb100': 0.0,
+                }
+            else:
+                post_net_bb = 0.0
+                post_count = 0
+                for idx in bad_beat_indices:
+                    window = all_hands_sorted[idx + 1: idx + 1 + _POST_BAD_BEAT_WINDOW]
+                    for h in window:
+                        post_net_bb += (h.get('net') or 0) / (h.get('blinds_bb') or 1.0)
+                        post_count += 1
+                post_wr = round(post_net_bb / post_count * 100, 1) if post_count > 0 else 0.0
+                post_bad_beat = {
+                    'bad_beats': len(bad_beat_indices),
+                    'post_bb_win_rate': post_wr,
+                    'baseline_win_rate': baseline_wr,
+                    'post_hands_analyzed': post_count,
+                    'degradation_bb100': round(post_wr - baseline_wr, 1),
+                }
+
+        # Recommendation
+        valid_dur = [b for b in dur_buckets if b.get('hands', 0) >= 10]
+        if not valid_dur:
+            recommendation = {
+                'text': 'Dados insuficientes para recomendação (mínimo 10 mãos por período).',
+                'ideal_duration': None,
+            }
+        else:
+            best = max(valid_dur, key=lambda b: b['win_rate_bb100'])
+            positive = [b for b in valid_dur if b['win_rate_bb100'] >= 0]
+            if not positive:
+                recommendation = {
+                    'text': (
+                        'Performance negativa em todos os períodos analisados. '
+                        'Considere revisar a estratégia geral antes de aumentar volume.'
+                    ),
+                    'ideal_duration': None,
+                }
+            else:
+                degradation = any(
+                    valid_dur[i + 1]['win_rate_bb100'] < valid_dur[i]['win_rate_bb100'] - 5
+                    for i in range(len(valid_dur) - 1)
+                )
+                last_positive = positive[-1]
+                if degradation:
+                    text = (
+                        f'Melhor desempenho no período {best["label"]} '
+                        f'({best["win_rate_bb100"]:+.1f} bb/100). '
+                        f'Performance degrada após {last_positive["label"]}. '
+                        'Encerrar sessões dentro desse período para maximizar resultados.'
+                    )
+                else:
+                    text = (
+                        f'Performance consistente até {last_positive["label"]}. '
+                        f'Melhor período: {best["label"]} ({best["win_rate_bb100"]:+.1f} bb/100). '
+                        'Continue monitorando conforme o volume de sessões longas aumenta.'
+                    )
+                recommendation = {
+                    'text': text,
+                    'ideal_duration': best['label'],
+                    'best_bucket': best,
+                }
+
+        diagnostics = _generate_tilt_diagnostics(session_tilt_list, hourly, duration)
+
+        return {
+            'session_tilt': session_tilt_list,
+            'tilt_sessions_count': sum(
+                1 for s in session_tilt_list if s.get('tilt_detected')
+            ),
+            'hourly': hourly,
+            'duration': duration,
+            'post_bad_beat': post_bad_beat,
+            'recommendation': recommendation,
+            'diagnostics': diagnostics,
+        }
+
+    # ── Decision EV Integration ──────────────────────────────────────
+
+    def get_decision_ev_analysis(self) -> dict:
+        """Run decision-tree EV analysis for tournament hands.
+
+        Uses EVAnalyzer._compute_decision_ev() with tournament data.
+
+        Returns dict with total_hands, by_street, leaks, chart_data.
+        """
+        ev = EVAnalyzer(self.repo, self.year)
+        return ev.get_tournament_decision_ev_analysis()
+
+    # ── Session Leak Summary ─────────────────────────────────────────
+
+    def get_session_leak_summary(self, stats: dict) -> list[dict]:
+        """Compute a leak summary for a single tournament's stats.
+
+        Checks VPIP, PFR, 3-Bet, AF, WTSD, W$SD, CBet against healthy ranges.
+        Returns a list of dicts for stats that are 'warning' or 'danger',
+        sorted by estimated cost in bb/100 (highest first).
+
+        Each entry contains:
+          stat_name, label, value, health, healthy_low, healthy_high,
+          cost_bb100, direction ('too_high'|'too_low'), suggestion.
+        """
+        if not stats or stats.get('total_hands', 0) == 0:
+            return []
+
+        STAT_META = {
+            'vpip':      ('VPIP',  'preflop',  0.15),
+            'pfr':       ('PFR',   'preflop',  0.18),
+            'three_bet': ('3-Bet', 'preflop',  0.12),
+            'af':        ('AF',    'postflop', 0.40),
+            'wtsd':      ('WTSD%', 'postflop', 0.12),
+            'wsd':       ('W$SD%', 'postflop', 0.10),
+            'cbet':      ('CBet%', 'postflop', 0.10),
+        }
+
+        SUGGESTIONS = {
+            ('vpip', 'too_high'):      'Reduza range de abertura: revise mãos marginais que está jogando.',
+            ('vpip', 'too_low'):       'Amplie range de abertura: adicione mãos com bom playability.',
+            ('pfr', 'too_high'):       'Reduza frequência de raise: identifique spots de call ou limp.',
+            ('pfr', 'too_low'):        'Aumente agressividade preflop: substitua calls por raises.',
+            ('three_bet', 'too_high'): 'Reduza 3-bets: polarize entre value e bluffs equilibrados.',
+            ('three_bet', 'too_low'):  'Aumente 3-bets: adicione bluffs com Axs e suited connectors.',
+            ('af', 'too_high'):        'Reduza agressividade postflop: adicione mais checks e calls ao range.',
+            ('af', 'too_low'):         'Aumente agressividade postflop: aposte mais com value e bluffs.',
+            ('wtsd', 'too_high'):      'Vá ao showdown menos: folde mãos fracas no river.',
+            ('wtsd', 'too_low'):       'Defenda mais: não folde em excesso com mãos com equity suficiente.',
+            ('wsd', 'too_high'):       'W$SD alto indica range tight: considere adicionar bluffs ao showdown.',
+            ('wsd', 'too_low'):        'Melhore seleção de mãos para showdown: folde bluff-catchers fracos.',
+            ('cbet', 'too_high'):      'Reduza c-bets: check em boards wet/low desfavoráveis ao seu range.',
+            ('cbet', 'too_low'):       'Aumente c-bets: aposte mais em boards favoráveis como PFA.',
+        }
+
+        leaks = []
+        for stat_name, (label, category, weight) in STAT_META.items():
+            if stat_name not in stats:
+                continue
+            value = stats[stat_name]
+            health = stats.get(f'{stat_name}_health', 'good')
+            if health == 'good':
+                continue
+
+            healthy = (
+                self._healthy_ranges.get(stat_name)
+                if category == 'preflop'
+                else self._postflop_healthy_ranges.get(stat_name)
+            )
+            if not healthy:
+                continue
+
+            low, high = healthy
+            if value < low:
+                direction = 'too_low'
+                deviation = low - value
+            else:
+                direction = 'too_high'
+                deviation = value - high
+
+            cost = round(deviation * weight, 2)
+            suggestion = SUGGESTIONS.get(
+                (stat_name, direction),
+                f'Ajuste {label} neste torneio.',
+            )
+
+            leaks.append({
+                'stat_name': stat_name,
+                'label': label,
+                'value': value,
+                'health': health,
+                'healthy_low': low,
+                'healthy_high': high,
+                'cost_bb100': cost,
+                'direction': direction,
+                'suggestion': suggestion,
+            })
+
+        leaks.sort(key=lambda x: x['cost_bb100'], reverse=True)
+        return leaks

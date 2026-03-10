@@ -494,24 +494,26 @@ class EVAnalyzer:
 
     # ── Decision-Tree EV Analysis ─────────────────────────────────────
 
-    def get_decision_ev_analysis(self) -> dict:
-        """Calculate decision-tree EV for fold, call, and raise decisions.
+    @staticmethod
+    def _compute_decision_ev(actions: list[dict], hands: list[dict]) -> dict:
+        """Compute decision-tree EV from action sequences and hands.
 
-        Analyzes all cash hands, groups hero decisions by type and street,
-        computes average net outcomes per decision context, and identifies
-        EV leaks.
+        Shared logic for both cash and tournament decision EV analysis.
+        Groups hero decisions by type and street, computes average net outcomes
+        per decision context, and identifies EV leaks.
+
+        Args:
+            actions: list of action dicts (from repo query)
+            hands: list of hand dicts (from repo query)
 
         Returns dict with:
-        - total_hands: count of cash hands analyzed
+        - total_hands: count of hands analyzed
         - by_street: per-street metrics for fold/call/raise decisions
         - leaks: top 5 EV leaks with descriptions and suggestions
         - chart_data: list of dicts for decision EV bar chart
         """
-        actions = self.repo.get_all_action_sequences(self.year)
-        hands = self.repo.get_cash_hands(self.year)
-
         if not hands:
-            return self._empty_decision_ev_result()
+            return EVAnalyzer._empty_decision_ev_result()
 
         hand_lookup = {h['hand_id']: h for h in hands}
 
@@ -596,7 +598,7 @@ class EVAnalyzer:
                     'avg_net': round(net / cnt, 2) if cnt > 0 else 0.0,
                 }
 
-        leaks = self._identify_ev_leaks(dict(contexts))
+        leaks = EVAnalyzer._identify_ev_leaks(dict(contexts))
 
         chart_data = [
             {
@@ -614,6 +616,26 @@ class EVAnalyzer:
             'leaks': leaks,
             'chart_data': chart_data,
         }
+
+    def get_decision_ev_analysis(self) -> dict:
+        """Calculate decision-tree EV for fold, call, and raise decisions on cash hands.
+
+        Returns dict with total_hands, by_street, leaks, chart_data.
+        """
+        actions = self.repo.get_all_action_sequences(self.year)
+        hands = self.repo.get_cash_hands(self.year)
+        return self._compute_decision_ev(actions, hands)
+
+    def get_tournament_decision_ev_analysis(self) -> dict:
+        """Calculate decision-tree EV for fold/call/raise on tournament hands.
+
+        Uses tournament action sequences and hands. Net values are in chips.
+
+        Returns dict with total_hands, by_street, leaks, chart_data.
+        """
+        actions = self.repo.get_tournament_all_actions(self.year)
+        hands = self.repo.get_tournament_hands(self.year)
+        return self._compute_decision_ev(actions, hands)
 
     @staticmethod
     def _identify_ev_leaks(contexts: dict) -> list:
