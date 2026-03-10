@@ -4,8 +4,30 @@
 {% block content %}
 <h1 class="page-title">Tournament EV Analysis</h1>
 
-{% if data and data.get('allin_ev') %}
-{% set ev = data['allin_ev'] %}
+{% if data and (data.get('allin_ev') or data.get('ev_chart')) %}
+
+{# ── Period Filter ─────────────────────────────────────────── #}
+<div class="overview-filters">
+    <div class="period-filter">
+        <a href="?period=1m" class="filter-btn {% if data.get('active_period') == '1m' %}active{% endif %}">Last Month</a>
+        <a href="?period=3m" class="filter-btn {% if data.get('active_period') == '3m' %}active{% endif %}">Last 3 Months</a>
+        <a href="?period=year" class="filter-btn {% if data.get('active_period', 'year') == 'year' %}active{% endif %}">Full Year</a>
+        <button class="filter-btn {% if data.get('active_period') == 'custom' %}active{% endif %}" onclick="toggleCustomFilter()">Custom</button>
+    </div>
+</div>
+<div id="custom-filter" class="custom-filter-row" style="display: {% if data.get('active_period') == 'custom' %}flex{% else %}none{% endif %};">
+    <form method="get" class="custom-filter-form">
+        <input type="hidden" name="period" value="custom">
+        <label class="filter-label">From</label>
+        <input type="date" name="from" value="{{ data.get('custom_from', '') }}" class="date-input">
+        <label class="filter-label">To</label>
+        <input type="date" name="to" value="{{ data.get('custom_to', '') }}" class="date-input">
+        <button type="submit" class="filter-btn active">Apply</button>
+    </form>
+</div>
+
+{# ── Summary Cards ─────────────────────────────────────────── #}
+{% set ev = data.get('ev_summary', {}) %}
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-label">Real bb/100</div>
@@ -27,14 +49,214 @@
     </div>
     <div class="stat-card">
         <div class="stat-label">All-In Hands</div>
-        <div class="stat-value neutral">{{ ev.get('allin_count', 0)|int }}</div>
+        <div class="stat-value neutral">{{ (ev.get('allin_count', 0) or 0)|int }}</div>
     </div>
 </div>
+
+{# ── EV vs Real Line Chart ────────────────────────────────── #}
+{% if data.get('ev_chart', {}).get('real_points') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">EV Line vs Real Line</div>
+    <div class="chart-container">
+        {% set ec = data['ev_chart'] %}
+        <svg viewBox="0 0 700 200" class="overview-chart" xmlns="http://www.w3.org/2000/svg">
+            <line x1="40" y1="160" x2="660" y2="160" stroke="var(--border-color)" stroke-width="0.5"/>
+            <line x1="40" y1="100" x2="660" y2="100" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="4"/>
+            <line x1="40" y1="40" x2="660" y2="40" stroke="var(--border-color)" stroke-width="0.5"/>
+
+            {% if ec.y_min < 0 and ec.y_max > 0 %}
+            {% set zero_y = 160.0 - ((0 - ec.y_min) / (ec.y_max - ec.y_min)) * 120.0 %}
+            <line x1="40" y1="{{ '{:.1f}'.format(zero_y) }}" x2="660" y2="{{ '{:.1f}'.format(zero_y) }}"
+                  stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="2"/>
+            {% endif %}
+
+            <polyline points="{{ ec.real_points }}" fill="none"
+                      stroke="{{ 'var(--accent-green)' if ec.final_real >= 0 else 'var(--accent-red)' }}"
+                      stroke-width="2"/>
+            <polyline points="{{ ec.ev_points }}" fill="none"
+                      stroke="var(--accent-purple)" stroke-width="2" stroke-dasharray="6,3"/>
+
+            {# Legend #}
+            <rect x="500" y="8" width="10" height="10" fill="{{ 'var(--accent-green)' if ec.final_real >= 0 else 'var(--accent-red)' }}"/>
+            <text x="514" y="17" fill="var(--text-secondary)" font-size="10">Real (${{ '{:+,.0f}'.format(ec.final_real) }})</text>
+            <rect x="590" y="8" width="10" height="10" fill="var(--accent-purple)"/>
+            <text x="604" y="17" fill="var(--text-secondary)" font-size="10">EV (${{ '{:+,.0f}'.format(ec.final_ev) }})</text>
+
+            <text x="36" y="44" text-anchor="end" fill="var(--text-secondary)" font-size="10">${{ '{:,.0f}'.format(ec.y_max) }}</text>
+            <text x="36" y="164" text-anchor="end" fill="var(--text-secondary)" font-size="10">${{ '{:,.0f}'.format(ec.y_min) }}</text>
+
+            {% if ec.dates|length > 0 %}
+            <text x="40" y="180" text-anchor="start" fill="var(--text-muted)" font-size="9">{{ ec.dates[0] }}</text>
+            <text x="660" y="180" text-anchor="end" fill="var(--text-muted)" font-size="9">{{ ec.dates[-1] }}</text>
+            {% endif %}
+        </svg>
+    </div>
+</div>
+{% endif %}
+
+{# ── bb/100 Real vs EV Comparison ──────────────────────────── #}
+{% if data.get('ev_bb_comparison') %}
+{% set bbc = data['ev_bb_comparison'] %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">bb/100 Real vs EV</div>
+    <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="stat-card">
+            <div class="stat-label">Real bb/100</div>
+            <div class="stat-value {{ 'positive' if bbc['real'] >= 0 else 'negative' }}">
+                {{ '{:+.2f}'.format(bbc['real']) }}
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">EV bb/100</div>
+            <div class="stat-value {{ 'positive' if bbc['ev'] >= 0 else 'negative' }}">
+                {{ '{:+.2f}'.format(bbc['ev']) }}
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Difference (Luck)</div>
+            <div class="stat-value {{ 'positive' if bbc['diff'] >= 0 else 'negative' }}">
+                {{ '{:+.2f}'.format(bbc['diff']) }}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ── Decision Tree EV by Street ────────────────────────────── #}
+{% set dev = data.get('decision_ev_data', {}) %}
+{% if dev.get('by_street') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Decision EV by Street</div>
+    <div class="table-responsive">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Street</th>
+                <th>Decision</th>
+                <th class="num">Count</th>
+                <th class="num">Total Net</th>
+                <th class="num">Avg Net</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sd in dev['by_street'] %}
+            <tr>
+                <td>{{ sd.get('street', '') }}</td>
+                <td>{{ sd.get('decision', '') }}</td>
+                <td class="num">{{ (sd.get('count', 0) or 0)|int }}</td>
+                <td class="num {{ 'positive' if (sd.get('total_net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(sd.get('total_net', 0) or 0) }}
+                </td>
+                <td class="num {{ 'positive' if (sd.get('avg_net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(sd.get('avg_net', 0) or 0) }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{# ── EV Leaks ──────────────────────────────────────────────── #}
+{% if dev.get('leaks') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">EV Leaks</div>
+    <div class="leak-list">
+        {% for leak in dev['leaks'] %}
+        <div class="leak-card high">
+            <div class="leak-name">#{{ loop.index }} — {{ leak.get('description', '') }}</div>
+            <div class="leak-detail">
+                Count: {{ leak.get('count', 0) }} |
+                Total: <span class="leak-cost">${{ '{:+,.2f}'.format(leak.get('total_net', 0) or 0) }}</span> |
+                Avg: ${{ '{:+,.2f}'.format(leak.get('avg_net', 0) or 0) }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{# ── By Stakes ─────────────────────────────────────────────── #}
+{% if ev.get('by_stakes') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">By Stakes</div>
+    <div class="table-responsive">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Stakes</th>
+                <th class="num">Hands</th>
+                <th class="num">Real Net</th>
+                <th class="num">EV Net</th>
+                <th class="num">Luck</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stake, sd in ev['by_stakes'].items() %}
+            <tr>
+                <td>{{ stake }}</td>
+                <td class="num">{{ (sd.get('count', 0) or 0)|int }}</td>
+                <td class="num {{ 'positive' if (sd.get('real_net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(sd.get('real_net', 0) or 0) }}
+                </td>
+                <td class="num {{ 'positive' if (sd.get('ev_net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(sd.get('ev_net', 0) or 0) }}
+                </td>
+                <td class="num {{ 'positive' if (sd.get('luck', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(sd.get('luck', 0) or 0) }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{# ── Red/Blue Line Chart ──────────────────────────────────── #}
+{% if data.get('ev_redline_chart', {}).get('total_points') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Red Line / Blue Line</div>
+    <div class="chart-container">
+        {% set rl = data['ev_redline_chart'] %}
+        <svg viewBox="0 0 700 200" class="overview-chart" xmlns="http://www.w3.org/2000/svg">
+            <line x1="40" y1="160" x2="660" y2="160" stroke="var(--border-color)" stroke-width="0.5"/>
+            <line x1="40" y1="100" x2="660" y2="100" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="4"/>
+            <line x1="40" y1="40" x2="660" y2="40" stroke="var(--border-color)" stroke-width="0.5"/>
+
+            <polyline points="{{ rl.total_points }}" fill="none" stroke="var(--accent-green)" stroke-width="2"/>
+            <polyline points="{{ rl.showdown_points }}" fill="none" stroke="var(--accent-blue)" stroke-width="1.5"/>
+            <polyline points="{{ rl.non_showdown_points }}" fill="none" stroke="var(--accent-red)" stroke-width="1.5"/>
+
+            <rect x="480" y="8" width="10" height="10" fill="var(--accent-green)"/>
+            <text x="494" y="17" fill="var(--text-secondary)" font-size="10">Total</text>
+            <rect x="540" y="8" width="10" height="10" fill="var(--accent-blue)"/>
+            <text x="554" y="17" fill="var(--text-secondary)" font-size="10">Showdown</text>
+            <rect x="620" y="8" width="10" height="10" fill="var(--accent-red)"/>
+            <text x="634" y="17" fill="var(--text-secondary)" font-size="10">Non-SD</text>
+
+            <text x="36" y="44" text-anchor="end" fill="var(--text-secondary)" font-size="10">{{ '{:,.0f}'.format(rl.y_max) }}</text>
+            <text x="36" y="164" text-anchor="end" fill="var(--text-secondary)" font-size="10">{{ '{:,.0f}'.format(rl.y_min) }}</text>
+        </svg>
+    </div>
+</div>
+{% endif %}
+
 {% else %}
 <div class="empty-state">
     <div class="empty-state-icon">&#128200;</div>
-    <div class="empty-state-text">No tournament EV data available</div>
+    <div class="empty-state-text">No EV analysis data available</div>
     <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCustomFilter() {
+    var el = document.getElementById('custom-filter');
+    if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+</script>
 {% endblock %}

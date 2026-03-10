@@ -931,8 +931,14 @@ class TestRenderWithData(unittest.TestCase):
         self.assertIn('EV Leaks', html)
         self.assertIn('Folding too much on river', html)
 
-    def test_cash_range_shows_sizing(self):
+    def test_cash_range_shows_matrix(self):
         r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('Hand Matrix', html)
+        self.assertIn('hand-matrix', html)
+
+    def test_cash_sizing_shows_data(self):
+        r = self.client.get('/cash/sizing')
         html = r.data.decode()
         self.assertIn('Preflop Sizing', html)
         self.assertIn('2-2.5x', html)
@@ -941,7 +947,7 @@ class TestRenderWithData(unittest.TestCase):
     def test_cash_tilt_shows_session_tilt(self):
         r = self.client.get('/cash/tilt')
         html = r.data.decode()
-        self.assertIn('Session Tilt Detection', html)
+        self.assertIn('Sessions Analyzed', html)
         self.assertIn('Tilt Sessions', html)
 
     def test_cash_tilt_shows_hourly(self):
@@ -953,7 +959,7 @@ class TestRenderWithData(unittest.TestCase):
     def test_cash_tilt_shows_recommendation(self):
         r = self.client.get('/cash/tilt')
         html = r.data.decode()
-        self.assertIn('Recommendations', html)
+        self.assertIn('Ideal Session Recommendation', html)
         self.assertIn('90 minutes', html)
 
     def test_cash_tilt_shows_diagnostics(self):
@@ -2475,6 +2481,600 @@ class TestStatsCSS(unittest.TestCase):
         r = self.client.get('/static/css/style.css')
         css = r.data.decode()
         self.assertIn('.table-scroll', css)
+
+
+# ── US-031: Leaks, EV, Range, Tilt, Sizing pages ────────────────
+
+
+class TestPrepareLeaksData(unittest.TestCase):
+    """Test prepare_leaks_data enrichment."""
+
+    def setUp(self):
+        from src.web.data import prepare_leaks_data
+        self.prepare = prepare_leaks_data
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path)
+
+    def _load(self):
+        from src.web.data import load_analytics_data
+        return load_analytics_data(self.db_path, 'cash')
+
+    def test_health_score_from_db(self):
+        data = self._load()
+        self.prepare(data)
+        self.assertEqual(data['health_score_val'], 78)
+        self.assertEqual(data['health_score_class'], 'good')
+
+    def test_health_score_computed_when_missing(self):
+        data = {'leaks': [{'cost_bb100': 5.0}]}
+        self.prepare(data)
+        self.assertIn('health_score_val', data)
+        self.assertLessEqual(data['health_score_val'], 100)
+        self.assertGreaterEqual(data['health_score_val'], 0)
+
+    def test_health_score_default_when_no_leaks(self):
+        data = {}
+        self.prepare(data)
+        self.assertEqual(data['health_score_val'], 100)
+
+    def test_top_leaks_sorted_by_cost(self):
+        data = self._load()
+        self.prepare(data)
+        top = data['top_leaks']
+        self.assertIsInstance(top, list)
+        self.assertTrue(len(top) <= 5)
+        if len(top) > 1:
+            self.assertGreaterEqual(
+                abs(top[0].get('cost_bb100', 0)),
+                abs(top[1].get('cost_bb100', 0)),
+            )
+
+    def test_study_spots_have_suggestions(self):
+        data = self._load()
+        self.prepare(data)
+        for spot in data.get('study_spots', []):
+            self.assertTrue(spot.get('suggestion'))
+
+    def test_period_comparison_has_stats(self):
+        data = self._load()
+        self.prepare(data)
+        comp = data.get('period_comparison', [])
+        self.assertIsInstance(comp, list)
+        if comp:
+            for row in comp:
+                self.assertIn('stat', row)
+                self.assertIn('label', row)
+
+    def test_active_period_set(self):
+        data = self._load()
+        self.prepare(data, period='3m')
+        self.assertEqual(data['active_period'], '3m')
+
+
+class TestPrepareEvData(unittest.TestCase):
+    """Test prepare_ev_data enrichment."""
+
+    def setUp(self):
+        from src.web.data import prepare_ev_data
+        self.prepare = prepare_ev_data
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path)
+
+    def _load(self):
+        from src.web.data import load_analytics_data
+        return load_analytics_data(self.db_path, 'cash')
+
+    def test_ev_summary_populated(self):
+        data = self._load()
+        self.prepare(data)
+        ev = data.get('ev_summary', {})
+        self.assertAlmostEqual(ev.get('bb100_real'), 8.5, places=1)
+        self.assertAlmostEqual(ev.get('bb100_ev'), 6.2, places=1)
+
+    def test_ev_chart_built(self):
+        data = self._load()
+        self.prepare(data)
+        ec = data.get('ev_chart', {})
+        self.assertIn('real_points', ec)
+        self.assertIn('ev_points', ec)
+
+    def test_bb_comparison(self):
+        data = self._load()
+        self.prepare(data)
+        bbc = data.get('ev_bb_comparison', {})
+        self.assertIn('real', bbc)
+        self.assertIn('ev', bbc)
+        self.assertIn('diff', bbc)
+        expected_diff = round(8.5 - 6.2, 2)
+        self.assertAlmostEqual(bbc['diff'], expected_diff, places=2)
+
+    def test_decision_ev_data(self):
+        data = self._load()
+        self.prepare(data)
+        dev = data.get('decision_ev_data', {})
+        self.assertIn('by_street', dev)
+
+    def test_active_period_set(self):
+        data = self._load()
+        self.prepare(data, period='1m')
+        self.assertEqual(data['active_period'], '1m')
+
+
+class TestPrepareRangeData(unittest.TestCase):
+    """Test prepare_range_data enrichment."""
+
+    def setUp(self):
+        from src.web.data import prepare_range_data
+        self.prepare = prepare_range_data
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path)
+
+    def _load(self):
+        from src.web.data import load_analytics_data
+        return load_analytics_data(self.db_path, 'cash')
+
+    def test_positions_populated(self):
+        data = self._load()
+        self.prepare(data)
+        positions = data.get('range_positions', [])
+        self.assertIsInstance(positions, list)
+        self.assertTrue(len(positions) > 0)
+
+    def test_hand_ranks(self):
+        data = self._load()
+        self.prepare(data)
+        ranks = data.get('hand_ranks', [])
+        self.assertEqual(len(ranks), 13)
+        self.assertEqual(ranks[0], 'A')
+        self.assertEqual(ranks[-1], '2')
+
+    def test_matrix_13x13(self):
+        data = self._load()
+        self.prepare(data)
+        matrices = data.get('range_matrices', {})
+        for pos, matrix in matrices.items():
+            self.assertEqual(len(matrix), 13)
+            for row in matrix:
+                self.assertEqual(len(row), 13)
+
+    def test_matrix_hand_types(self):
+        data = self._load()
+        self.prepare(data)
+        matrices = data.get('range_matrices', {})
+        for pos, matrix in matrices.items():
+            # Diagonal = pairs
+            self.assertEqual(matrix[0][0]['type'], 'pair')
+            self.assertEqual(matrix[0][0]['hand'], 'AA')
+            # Upper triangle = suited
+            self.assertEqual(matrix[0][1]['type'], 'suited')
+            self.assertEqual(matrix[0][1]['hand'], 'AKs')
+            # Lower triangle = offsuit
+            self.assertEqual(matrix[1][0]['type'], 'offsuit')
+            self.assertEqual(matrix[1][0]['hand'], 'AKo')
+            break
+
+    def test_top_profitable_and_deficit(self):
+        data = self._load()
+        self.prepare(data)
+        self.assertIsInstance(data.get('top_profitable'), list)
+        self.assertIsInstance(data.get('top_deficit'), list)
+
+
+class TestPrepareTiltData(unittest.TestCase):
+    """Test prepare_tilt_data enrichment."""
+
+    def setUp(self):
+        from src.web.data import prepare_tilt_data
+        self.prepare = prepare_tilt_data
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path)
+
+    def _load(self):
+        from src.web.data import load_analytics_data
+        return load_analytics_data(self.db_path, 'cash')
+
+    def test_session_summary(self):
+        data = self._load()
+        self.prepare(data)
+        summary = data.get('tilt_session_summary', {})
+        self.assertEqual(summary.get('total_sessions'), 10)
+        self.assertEqual(summary.get('tilt_sessions'), 2)
+
+    def test_heatmap_24_entries(self):
+        data = self._load()
+        self.prepare(data)
+        heatmap = data.get('tilt_heatmap', [])
+        self.assertEqual(len(heatmap), 24)
+
+    def test_heatmap_intensity_classification(self):
+        data = self._load()
+        self.prepare(data)
+        heatmap = data.get('tilt_heatmap', [])
+        for cell in heatmap:
+            self.assertIn(cell['intensity'],
+                          ('none', 'neutral', 'warm', 'hot', 'cool', 'cold'))
+
+    def test_heatmap_active_hours(self):
+        data = self._load()
+        self.prepare(data)
+        heatmap = data.get('tilt_heatmap', [])
+        # Hours 20 and 21 should have data
+        h20 = heatmap[20]
+        self.assertEqual(h20['hands'], 100)
+        self.assertAlmostEqual(h20['bb100'], 5.0, places=1)
+        h21 = heatmap[21]
+        self.assertEqual(h21['hands'], 80)
+        self.assertAlmostEqual(h21['bb100'], -3.0, places=1)
+
+    def test_heatmap_no_data_hours(self):
+        data = self._load()
+        self.prepare(data)
+        heatmap = data.get('tilt_heatmap', [])
+        # Hour 0 should have no data
+        self.assertEqual(heatmap[0]['hands'], 0)
+        self.assertEqual(heatmap[0]['intensity'], 'none')
+
+    def test_recommendation(self):
+        data = self._load()
+        self.prepare(data)
+        rec = data.get('tilt_recommendation', {})
+        self.assertEqual(rec.get('message'), 'Play shorter sessions')
+        self.assertEqual(rec.get('ideal_duration'), '90 minutes')
+
+
+class TestPrepareSizingData(unittest.TestCase):
+    """Test prepare_sizing_data enrichment."""
+
+    def setUp(self):
+        from src.web.data import prepare_sizing_data
+        self.prepare = prepare_sizing_data
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path)
+
+    def _load(self):
+        from src.web.data import load_analytics_data
+        return load_analytics_data(self.db_path, 'cash')
+
+    def test_preflop_sizing(self):
+        data = self._load()
+        self.prepare(data)
+        pf = data.get('sizing_preflop', [])
+        self.assertIsInstance(pf, list)
+        self.assertTrue(len(pf) > 0)
+        self.assertEqual(pf[0]['label'], '2-2.5x')
+
+    def test_postflop_sizing(self):
+        data = self._load()
+        self.prepare(data)
+        post = data.get('sizing_postflop', [])
+        self.assertIsInstance(post, list)
+        self.assertTrue(len(post) > 0)
+
+    def test_active_period_set(self):
+        data = self._load()
+        self.prepare(data, period='1m')
+        self.assertEqual(data['active_period'], '1m')
+
+
+class TestLeaksRoutes(unittest.TestCase):
+    """Test leaks page routes for cash and tournament."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def test_cash_leaks_200(self):
+        r = self.client.get('/cash/leaks')
+        self.assertEqual(r.status_code, 200)
+
+    def test_cash_leaks_has_health_bar(self):
+        r = self.client.get('/cash/leaks')
+        html = r.data.decode()
+        self.assertIn('health-bar', html)
+        self.assertIn('Health Score', html)
+
+    def test_cash_leaks_has_top_leaks(self):
+        r = self.client.get('/cash/leaks')
+        html = r.data.decode()
+        self.assertIn('Top', html)
+        self.assertIn('VPIP too high', html)
+
+    def test_cash_leaks_has_period_filter(self):
+        r = self.client.get('/cash/leaks')
+        html = r.data.decode()
+        self.assertIn('period-filter', html)
+        self.assertIn('Last Month', html)
+
+    def test_cash_leaks_period_param(self):
+        r = self.client.get('/cash/leaks?period=3m')
+        self.assertEqual(r.status_code, 200)
+
+    def test_tournament_leaks_200(self):
+        r = self.client.get('/tournament/leaks')
+        self.assertEqual(r.status_code, 200)
+
+
+class TestEvRoutes(unittest.TestCase):
+    """Test EV page routes for cash and tournament."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def test_cash_ev_200(self):
+        r = self.client.get('/cash/ev')
+        self.assertEqual(r.status_code, 200)
+
+    def test_cash_ev_has_summary_cards(self):
+        r = self.client.get('/cash/ev')
+        html = r.data.decode()
+        self.assertIn('Real bb/100', html)
+        self.assertIn('EV bb/100', html)
+        self.assertIn('Luck Factor', html)
+
+    def test_cash_ev_has_decision_tree(self):
+        r = self.client.get('/cash/ev')
+        html = r.data.decode()
+        self.assertIn('Decision EV by Street', html)
+
+    def test_cash_ev_has_ev_leaks(self):
+        r = self.client.get('/cash/ev')
+        html = r.data.decode()
+        self.assertIn('EV Leaks', html)
+
+    def test_cash_ev_has_period_filter(self):
+        r = self.client.get('/cash/ev')
+        html = r.data.decode()
+        self.assertIn('period-filter', html)
+
+    def test_cash_ev_period_param(self):
+        r = self.client.get('/cash/ev?period=1m')
+        self.assertEqual(r.status_code, 200)
+
+    def test_tournament_ev_200(self):
+        r = self.client.get('/tournament/ev')
+        self.assertEqual(r.status_code, 200)
+
+
+class TestRangeRoutes(unittest.TestCase):
+    """Test range page routes for cash and tournament."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def test_cash_range_200(self):
+        r = self.client.get('/cash/range')
+        self.assertEqual(r.status_code, 200)
+
+    def test_cash_range_has_matrix(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('hand-matrix', html)
+        self.assertIn('Hand Matrix', html)
+
+    def test_cash_range_has_position_tabs(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('stats-subtab', html)
+
+    def test_cash_range_has_period_filter(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('period-filter', html)
+
+    def test_cash_range_pos_param(self):
+        r = self.client.get('/cash/range?pos=BTN')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('BTN', html)
+
+    def test_tournament_range_200(self):
+        r = self.client.get('/tournament/range')
+        self.assertEqual(r.status_code, 200)
+
+
+class TestTiltRoutes(unittest.TestCase):
+    """Test tilt page routes for cash and tournament."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def test_cash_tilt_200(self):
+        r = self.client.get('/cash/tilt')
+        self.assertEqual(r.status_code, 200)
+
+    def test_cash_tilt_has_session_summary(self):
+        r = self.client.get('/cash/tilt')
+        html = r.data.decode()
+        self.assertIn('Sessions Analyzed', html)
+
+    def test_cash_tilt_has_heatmap(self):
+        r = self.client.get('/cash/tilt')
+        html = r.data.decode()
+        self.assertIn('heatmap-grid', html)
+        self.assertIn('Hourly Performance Heatmap', html)
+
+    def test_cash_tilt_has_recommendation(self):
+        r = self.client.get('/cash/tilt')
+        html = r.data.decode()
+        self.assertIn('Ideal Session Recommendation', html)
+        self.assertIn('Play shorter sessions', html)
+
+    def test_cash_tilt_has_period_filter(self):
+        r = self.client.get('/cash/tilt')
+        html = r.data.decode()
+        self.assertIn('period-filter', html)
+
+    def test_cash_tilt_period_param(self):
+        r = self.client.get('/cash/tilt?period=3m')
+        self.assertEqual(r.status_code, 200)
+
+    def test_tournament_tilt_200(self):
+        r = self.client.get('/tournament/tilt')
+        self.assertEqual(r.status_code, 200)
+
+
+class TestSizingRoutes(unittest.TestCase):
+    """Test sizing page routes for cash and tournament."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def test_cash_sizing_200(self):
+        r = self.client.get('/cash/sizing')
+        self.assertEqual(r.status_code, 200)
+
+    def test_cash_sizing_has_preflop(self):
+        r = self.client.get('/cash/sizing')
+        html = r.data.decode()
+        self.assertIn('Preflop Sizing', html)
+
+    def test_cash_sizing_has_postflop(self):
+        r = self.client.get('/cash/sizing')
+        html = r.data.decode()
+        self.assertIn('Postflop Sizing', html)
+
+    def test_cash_sizing_has_sizing_bar(self):
+        r = self.client.get('/cash/sizing')
+        html = r.data.decode()
+        self.assertIn('sizing-bar', html)
+
+    def test_cash_sizing_has_period_filter(self):
+        r = self.client.get('/cash/sizing')
+        html = r.data.decode()
+        self.assertIn('period-filter', html)
+
+    def test_tournament_sizing_200(self):
+        r = self.client.get('/tournament/sizing')
+        self.assertEqual(r.status_code, 200)
+
+
+class TestSizingTab(unittest.TestCase):
+    """Test sizing tab is properly registered."""
+
+    def test_sizing_in_sub_tabs(self):
+        app = create_app()
+        with app.test_request_context():
+            from flask import g
+            ctx = app.jinja_env.globals
+        # Check via context processor
+        with app.test_client() as client:
+            r = client.get('/cash/overview')
+            html = r.data.decode()
+            self.assertIn('Sizing', html)
+
+    def test_sizing_in_valid_tabs(self):
+        from src.web.routes.cash import VALID_TABS
+        self.assertIn('sizing', VALID_TABS)
+
+    def test_tournament_sizing_in_valid_tabs(self):
+        from src.web.routes.tournament import VALID_TABS
+        self.assertIn('sizing', VALID_TABS)
+
+
+class TestUS031EmptyState(unittest.TestCase):
+    """Test empty state rendering for US-031 pages."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'empty.db')
+        from src.db.analytics_schema import init_analytics_db
+        conn = sqlite3.connect(self.db_path)
+        init_analytics_db(conn)
+        conn.close()
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def test_leaks_empty_state(self):
+        r = self.client.get('/cash/leaks')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
+
+    def test_ev_empty_state(self):
+        r = self.client.get('/cash/ev')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
+
+    def test_range_empty_state(self):
+        r = self.client.get('/cash/range')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
+
+    def test_tilt_empty_state(self):
+        r = self.client.get('/cash/tilt')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
+
+    def test_sizing_empty_state(self):
+        r = self.client.get('/cash/sizing')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
+
+
+class TestUS031CSS(unittest.TestCase):
+    """Test CSS includes US-031 specific styles."""
+
+    def setUp(self):
+        self.app = create_app()
+        self.client = self.app.test_client()
+
+    def test_css_has_health_bar(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.health-bar', css)
+        self.assertIn('.health-bar-fill', css)
+        self.assertIn('.health-good', css)
+
+    def test_css_has_hand_matrix(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.hand-matrix', css)
+        self.assertIn('.hm-cell', css)
+        self.assertIn('.hm-pair', css)
+        self.assertIn('.hm-suited', css)
+        self.assertIn('.hm-offsuit', css)
+
+    def test_css_has_heatmap(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.heatmap-grid', css)
+        self.assertIn('.heatmap-cell', css)
+        self.assertIn('.heatmap-hot', css)
+        self.assertIn('.heatmap-cold', css)
+
+    def test_css_has_sizing_bar(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.sizing-bar', css)
+        self.assertIn('.sizing-bar-fill', css)
 
 
 if __name__ == '__main__':

@@ -5,106 +5,266 @@
 <h1 class="page-title">Tilt Analysis</h1>
 
 {% if data and data.get('tilt') %}
-{% set tilt = data['tilt'] %}
 
-{% if tilt.get('session_tilt') %}
-<div class="card">
-    <div class="card-title">Session Tilt Detection</div>
-    {% if tilt['session_tilt'] is mapping %}
-    {% set st = tilt['session_tilt'] %}
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-label">Sessions Analyzed</div>
-            <div class="stat-value neutral">{{ st.get('total_sessions', 0)|int }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Tilt Sessions</div>
-            <div class="stat-value {{ 'negative' if (st.get('tilt_sessions', 0) or 0) > 0 else 'positive' }}">
-                {{ st.get('tilt_sessions', 0)|int }}
-            </div>
+{# ── Period Filter ─────────────────────────────────────────── #}
+<div class="overview-filters">
+    <div class="period-filter">
+        <a href="?period=1m" class="filter-btn {% if data.get('active_period') == '1m' %}active{% endif %}">Last Month</a>
+        <a href="?period=3m" class="filter-btn {% if data.get('active_period') == '3m' %}active{% endif %}">Last 3 Months</a>
+        <a href="?period=year" class="filter-btn {% if data.get('active_period', 'year') == 'year' %}active{% endif %}">Full Year</a>
+        <button class="filter-btn {% if data.get('active_period') == 'custom' %}active{% endif %}" onclick="toggleCustomFilter()">Custom</button>
+    </div>
+</div>
+<div id="custom-filter" class="custom-filter-row" style="display: {% if data.get('active_period') == 'custom' %}flex{% else %}none{% endif %};">
+    <form method="get" class="custom-filter-form">
+        <input type="hidden" name="period" value="custom">
+        <label class="filter-label">From</label>
+        <input type="date" name="from" value="{{ data.get('custom_from', '') }}" class="date-input">
+        <label class="filter-label">To</label>
+        <input type="date" name="to" value="{{ data.get('custom_to', '') }}" class="date-input">
+        <button type="submit" class="filter-btn active">Apply</button>
+    </form>
+</div>
+
+{# ── Session Tilt Summary ─────────────────────────────────── #}
+{% set ts = data.get('tilt_session_summary', {}) %}
+{% if ts %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Sessions Analyzed</div>
+        <div class="stat-value neutral">{{ (ts.get('total_sessions', 0) or 0)|int }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Tilt Sessions</div>
+        <div class="stat-value {{ 'negative' if (ts.get('tilt_sessions', 0) or 0) > 0 else 'positive' }}">
+            {{ (ts.get('tilt_sessions', 0) or 0)|int }}
         </div>
     </div>
-    {% elif tilt['session_tilt'] is iterable %}
+    {% if ts.get('tilt_pct') is not none %}
+    <div class="stat-card">
+        <div class="stat-label">Tilt Rate</div>
+        <div class="stat-value {{ 'negative' if (ts.get('tilt_pct', 0) or 0) > 20 else 'neutral' }}">
+            {{ '{:.1f}'.format(ts.get('tilt_pct', 0) or 0) }}%
+        </div>
+    </div>
+    {% endif %}
+    {% if ts.get('tilt_cost') is not none %}
+    <div class="stat-card">
+        <div class="stat-label">Tilt Cost</div>
+        <div class="stat-value negative">
+            ${{ '{:,.2f}'.format(ts.get('tilt_cost', 0) or 0) }}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ── Tilt Sessions Detected ───────────────────────────────── #}
+{% set tilt_sess = data.get('tilt_sessions') %}
+{% if tilt_sess is iterable and tilt_sess is not mapping and tilt_sess|length > 0 %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Tilt Sessions Detected</div>
+    <div class="table-responsive">
     <table class="data-table">
         <thead>
             <tr>
                 <th>Session</th>
+                <th>Date</th>
                 <th>Severity</th>
-                <th>Cost (BB)</th>
+                <th class="num">Cost (BB)</th>
+                <th>Trigger</th>
             </tr>
         </thead>
         <tbody>
-            {% for sess in tilt['session_tilt'] %}
+            {% for sess in tilt_sess %}
             <tr>
-                <td>{{ sess.get('session', 'N/A') }}</td>
+                <td>{{ sess.get('session', sess.get('session_id', 'N/A')) }}</td>
+                <td>{{ sess.get('date', '') }}</td>
                 <td>
-                    <span class="badge badge-{{ 'danger' if sess.get('severity') == 'danger' else ('warning' if sess.get('severity') == 'warning' else 'good') }}">
+                    <span class="badge badge-{{ sess.get('severity', 'good') }}">
                         {{ sess.get('severity', 'good') }}
                     </span>
                 </td>
                 <td class="num">{{ '{:.1f}'.format(sess.get('cost_bb', 0) or 0) }}</td>
+                <td style="font-size: 0.85rem; color: var(--text-secondary);">{{ sess.get('trigger', '') }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    {% endif %}
+    </div>
 </div>
 {% endif %}
 
-{% if tilt.get('hourly') %}
-<div class="card">
-    <div class="card-title">Hourly Performance</div>
-    {% set h = tilt['hourly'] %}
-    {% if h.get('by_hour') is mapping %}
+{# ── Hourly Heatmap 24h ───────────────────────────────────── #}
+{% if data.get('tilt_heatmap') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Hourly Performance Heatmap (24h)</div>
+    <div class="heatmap-grid">
+        {% for cell in data['tilt_heatmap'] %}
+        <div class="heatmap-cell heatmap-{{ cell['intensity'] }}"
+             title="{{ cell['label'] }}: {{ '{:+.1f}'.format(cell['bb100']) }} bb/100, {{ cell['hands'] }} hands">
+            <span class="heatmap-hour">{{ cell['label'] }}</span>
+            {% if cell['hands'] > 0 %}
+            <span class="heatmap-value {{ 'positive' if cell['bb100'] >= 0 else 'negative' }}">{{ '{:+.1f}'.format(cell['bb100']) }}</span>
+            <span class="heatmap-hands">{{ cell['hands'] }}h</span>
+            {% else %}
+            <span class="heatmap-value" style="color: var(--text-muted);">-</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    <div class="heatmap-legend">
+        <span class="heatmap-legend-item"><span class="heatmap-dot heatmap-dot-hot"></span> High +EV</span>
+        <span class="heatmap-legend-item"><span class="heatmap-dot heatmap-dot-warm"></span> Positive</span>
+        <span class="heatmap-legend-item"><span class="heatmap-dot heatmap-dot-neutral"></span> Neutral</span>
+        <span class="heatmap-legend-item"><span class="heatmap-dot heatmap-dot-cool"></span> Negative</span>
+        <span class="heatmap-legend-item"><span class="heatmap-dot heatmap-dot-cold"></span> High -EV</span>
+    </div>
+</div>
+{% endif %}
+
+{# ── Duration Analysis ─────────────────────────────────────── #}
+{% set dur = data.get('tilt_duration', {}) %}
+{% if dur %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Duration Analysis</div>
+    {% if dur.get('by_duration') is iterable and dur['by_duration'] is not mapping %}
+    <div class="table-responsive">
     <table class="data-table">
         <thead>
             <tr>
-                <th>Hour</th>
-                <th>Hands</th>
-                <th>bb/100</th>
+                <th>Duration</th>
+                <th class="num">Sessions</th>
+                <th class="num">Avg bb/100</th>
+                <th class="num">Avg Profit</th>
             </tr>
         </thead>
         <tbody>
-            {% for hour, hdata in h['by_hour'].items() %}
+            {% for d in dur['by_duration'] %}
             <tr>
-                <td>{{ hour }}:00</td>
-                <td class="num">{{ hdata.get('hands', 0)|int }}</td>
-                <td class="num {{ 'positive' if (hdata.get('bb100', 0) or 0) >= 0 else 'negative' }}">
-                    {{ '{:+.1f}'.format(hdata.get('bb100', 0) or 0) }}
+                <td>{{ d.get('label', d.get('bucket', '')) }}</td>
+                <td class="num">{{ (d.get('count', 0) or 0)|int }}</td>
+                <td class="num {{ 'positive' if (d.get('bb100', 0) or 0) >= 0 else 'negative' }}">
+                    {{ '{:+.1f}'.format(d.get('bb100', 0) or 0) }}
+                </td>
+                <td class="num {{ 'positive' if (d.get('avg_profit', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(d.get('avg_profit', 0) or 0) }}
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
+    {% elif dur.get('optimal_duration') or dur.get('message') %}
+    <div class="stats-grid">
+        {% if dur.get('optimal_duration') %}
+        <div class="stat-card">
+            <div class="stat-label">Optimal Duration</div>
+            <div class="stat-value neutral">{{ dur['optimal_duration'] }}</div>
+        </div>
+        {% endif %}
+        {% if dur.get('avg_session_length') %}
+        <div class="stat-card">
+            <div class="stat-label">Avg Session</div>
+            <div class="stat-value neutral">{{ dur['avg_session_length'] }}</div>
+        </div>
+        {% endif %}
+    </div>
+    {% if dur.get('message') %}
+    <p style="margin-top: 0.75rem; color: var(--text-secondary);">{{ dur['message'] }}</p>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}
 
-{% if tilt.get('recommendation') %}
-<div class="card">
-    <div class="card-title">Recommendations</div>
-    {% set rec = tilt['recommendation'] %}
-    {% if rec is mapping %}
-    <p style="color: var(--text-secondary);">{{ rec.get('message', '') }}</p>
-    {% if rec.get('ideal_duration') %}
-    <p style="margin-top: 0.5rem;"><strong>Ideal session duration:</strong> {{ rec['ideal_duration'] }}</p>
+{# ── Post-Bad-Beat Analysis ────────────────────────────────── #}
+{% set pbb = data.get('tilt_post_bad_beat', {}) %}
+{% if pbb %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Post-Bad-Beat Analysis</div>
+    <div class="stats-grid">
+        {% if pbb.get('bad_beats') is not none %}
+        <div class="stat-card">
+            <div class="stat-label">Bad Beats</div>
+            <div class="stat-value neutral">{{ (pbb.get('bad_beats', 0) or 0)|int }}</div>
+        </div>
+        {% endif %}
+        {% if pbb.get('tilt_after_bb') is not none %}
+        <div class="stat-card">
+            <div class="stat-label">Tilted After</div>
+            <div class="stat-value {{ 'negative' if (pbb.get('tilt_after_bb', 0) or 0) > 0 else 'positive' }}">
+                {{ (pbb.get('tilt_after_bb', 0) or 0)|int }}
+            </div>
+        </div>
+        {% endif %}
+        {% if pbb.get('avg_loss_after') is not none %}
+        <div class="stat-card">
+            <div class="stat-label">Avg Loss After BB</div>
+            <div class="stat-value negative">
+                ${{ '{:,.2f}'.format(pbb.get('avg_loss_after', 0) or 0) }}
+            </div>
+        </div>
+        {% endif %}
+        {% if pbb.get('recovery_rate') is not none %}
+        <div class="stat-card">
+            <div class="stat-label">Recovery Rate</div>
+            <div class="stat-value {{ 'positive' if (pbb.get('recovery_rate', 0) or 0) >= 50 else 'negative' }}">
+                {{ '{:.1f}'.format(pbb.get('recovery_rate', 0) or 0) }}%
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% if pbb.get('message') %}
+    <p style="margin-top: 0.75rem; color: var(--text-secondary);">{{ pbb['message'] }}</p>
     {% endif %}
+</div>
+{% endif %}
+
+{# ── Session Recommendation ────────────────────────────────── #}
+{% set rec = data.get('tilt_recommendation', {}) %}
+{% if rec %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Ideal Session Recommendation</div>
+    {% if rec is mapping %}
+    {% if rec.get('message') %}
+    <p style="color: var(--text-secondary);">{{ rec['message'] }}</p>
+    {% endif %}
+    <div class="stats-grid" style="margin-top: 0.75rem;">
+        {% if rec.get('ideal_duration') %}
+        <div class="stat-card">
+            <div class="stat-label">Ideal Duration</div>
+            <div class="stat-value neutral">{{ rec['ideal_duration'] }}</div>
+        </div>
+        {% endif %}
+        {% if rec.get('best_hours') %}
+        <div class="stat-card">
+            <div class="stat-label">Best Hours</div>
+            <div class="stat-value neutral" style="font-size: 1.2rem;">{{ rec['best_hours'] }}</div>
+        </div>
+        {% endif %}
+        {% if rec.get('max_loss_stop') %}
+        <div class="stat-card">
+            <div class="stat-label">Stop-Loss</div>
+            <div class="stat-value neutral">{{ rec['max_loss_stop'] }}</div>
+        </div>
+        {% endif %}
+    </div>
     {% elif rec is string %}
     <p style="color: var(--text-secondary);">{{ rec }}</p>
     {% endif %}
 </div>
 {% endif %}
 
-{% if tilt.get('diagnostics') %}
-<div class="card">
+{# ── Diagnostics ───────────────────────────────────────────── #}
+{% set diag = data.get('tilt', {}).get('diagnostics', {}) %}
+{% if diag and diag.get('messages') %}
+<div class="card" style="margin-top: 1.25rem;">
     <div class="card-title">Diagnostics</div>
-    {% if tilt['diagnostics'].get('messages') %}
     <ul style="color: var(--text-secondary); padding-left: 1.25rem;">
-        {% for msg in tilt['diagnostics']['messages'] %}
+        {% for msg in diag['messages'] %}
         <li>{{ msg }}</li>
         {% endfor %}
     </ul>
-    {% endif %}
 </div>
 {% endif %}
 
@@ -115,4 +275,13 @@
     <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCustomFilter() {
+    var el = document.getElementById('custom-filter');
+    if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+</script>
 {% endblock %}

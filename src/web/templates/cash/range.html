@@ -4,54 +4,147 @@
 {% block content %}
 <h1 class="page-title">Range Analysis</h1>
 
-{% if data and data.get('bet_sizing') %}
-{% set bs = data['bet_sizing'] %}
+{% if data and data.get('positional') %}
 
-{% if bs.get('preflop_sizing') %}
-<div class="card">
-    <div class="card-title">Preflop Sizing Distribution</div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Bucket</th>
-                <th>Count</th>
-                <th>Percentage</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for bucket in bs['preflop_sizing'] %}
-            <tr>
-                <td>{{ bucket.get('label', '') }}</td>
-                <td class="num">{{ bucket.get('count', 0)|int }}</td>
-                <td class="num">{{ '{:.1f}'.format(bucket.get('pct', 0)) }}%</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+{# ── Period Filter ─────────────────────────────────────────── #}
+<div class="overview-filters">
+    <div class="period-filter">
+        <a href="?period=1m" class="filter-btn {% if data.get('active_period') == '1m' %}active{% endif %}">Last Month</a>
+        <a href="?period=3m" class="filter-btn {% if data.get('active_period') == '3m' %}active{% endif %}">Last 3 Months</a>
+        <a href="?period=year" class="filter-btn {% if data.get('active_period', 'year') == 'year' %}active{% endif %}">Full Year</a>
+        <button class="filter-btn {% if data.get('active_period') == 'custom' %}active{% endif %}" onclick="toggleCustomFilter()">Custom</button>
+    </div>
+</div>
+<div id="custom-filter" class="custom-filter-row" style="display: {% if data.get('active_period') == 'custom' %}flex{% else %}none{% endif %};">
+    <form method="get" class="custom-filter-form">
+        <input type="hidden" name="period" value="custom">
+        <label class="filter-label">From</label>
+        <input type="date" name="from" value="{{ data.get('custom_from', '') }}" class="date-input">
+        <label class="filter-label">To</label>
+        <input type="date" name="to" value="{{ data.get('custom_to', '') }}" class="date-input">
+        <button type="submit" class="filter-btn active">Apply</button>
+    </form>
+</div>
+
+{# ── Position Tabs ─────────────────────────────────────────── #}
+{% set positions = data.get('range_positions', []) %}
+{% set active_pos = data.get('range_active_pos', '') or (positions[0] if positions else '') %}
+
+{% if positions|length > 1 %}
+<div class="stats-subtabs">
+    {% for pos in positions %}
+    <a href="?period={{ data.get('active_period', 'year') }}&pos={{ pos }}"
+       class="stats-subtab {% if pos == active_pos %}active{% endif %}">{{ pos }}</a>
+    {% endfor %}
 </div>
 {% endif %}
 
-{% if bs.get('postflop_sizing') %}
+{# ── Hand Matrix 13x13 ────────────────────────────────────── #}
+{% set matrices = data.get('range_matrices', {}) %}
+{% set matrix = matrices.get(active_pos, []) %}
+{% set ranks = data.get('hand_ranks', []) %}
+
 <div class="card">
-    <div class="card-title">Postflop Sizing Distribution</div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Bucket</th>
-                <th>Count</th>
-                <th>Percentage</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for bucket in bs['postflop_sizing'] %}
-            <tr>
-                <td>{{ bucket.get('label', '') }}</td>
-                <td class="num">{{ bucket.get('count', 0)|int }}</td>
-                <td class="num">{{ '{:.1f}'.format(bucket.get('pct', 0)) }}%</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="card-title">Hand Matrix — {{ active_pos }}</div>
+    {% if matrix %}
+    <div class="table-responsive">
+    <div class="hand-matrix">
+        {# Column headers #}
+        <div class="hm-cell hm-header"></div>
+        {% for r in ranks %}
+        <div class="hm-cell hm-header">{{ r }}</div>
+        {% endfor %}
+
+        {% for row_idx in range(13) %}
+        {# Row header #}
+        <div class="hm-cell hm-header">{{ ranks[row_idx] }}</div>
+        {% for col_idx in range(13) %}
+        {% set cell = matrix[row_idx][col_idx] %}
+        {% set has_data = cell.get('hands', 0) > 0 or cell.get('freq', 0) > 0 %}
+        <div class="hm-cell hm-{{ cell['type'] }} {% if has_data %}hm-active{% endif %} {% if cell.get('net', 0) > 0 %}hm-profit{% elif cell.get('net', 0) < 0 %}hm-loss{% endif %}"
+             title="{{ cell['hand'] }}: {{ cell.get('hands', 0) }} hands, ${{ '{:+.2f}'.format(cell.get('net', 0)) }}">
+            <span class="hm-hand">{{ cell['hand'] }}</span>
+            {% if has_data %}
+            <span class="hm-freq">{{ cell.get('hands', 0) }}</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% endfor %}
+    </div>
+    </div>
+    <div class="hm-legend">
+        <span class="hm-legend-item"><span class="hm-dot hm-dot-pair"></span> Pair</span>
+        <span class="hm-legend-item"><span class="hm-dot hm-dot-suited"></span> Suited</span>
+        <span class="hm-legend-item"><span class="hm-dot hm-dot-offsuit"></span> Offsuit</span>
+        <span class="hm-legend-item"><span class="hm-dot hm-dot-profit"></span> Profitable</span>
+        <span class="hm-legend-item"><span class="hm-dot hm-dot-loss"></span> Deficit</span>
+    </div>
+    {% else %}
+    <p style="color: var(--text-secondary);">No hand matrix data for this position.</p>
+    {% endif %}
+</div>
+
+{# ── Top 10 Profitable Hands ──────────────────────────────── #}
+{% if data.get('top_profitable') %}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+    <div class="card">
+        <div class="card-title">Top 10 Profitable Hands</div>
+        <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Hand</th>
+                    <th class="num">Hands</th>
+                    <th class="num">Net</th>
+                    <th class="num">bb/100</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for h in data['top_profitable'] %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td><strong>{{ h.get('hand', '') }}</strong></td>
+                    <td class="num">{{ (h.get('hands', 0) or 0)|int }}</td>
+                    <td class="num positive">${{ '{:+,.2f}'.format(h.get('net', 0) or 0) }}</td>
+                    <td class="num">{{ '{:+.1f}'.format(h.get('bb100', 0) or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    {# ── Top 10 Deficit Hands ─────────────────────────────── #}
+    {% if data.get('top_deficit') %}
+    <div class="card">
+        <div class="card-title">Top 10 Deficit Hands</div>
+        <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Hand</th>
+                    <th class="num">Hands</th>
+                    <th class="num">Net</th>
+                    <th class="num">bb/100</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for h in data['top_deficit'] %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td><strong>{{ h.get('hand', '') }}</strong></td>
+                    <td class="num">{{ (h.get('hands', 0) or 0)|int }}</td>
+                    <td class="num negative">${{ '{:+,.2f}'.format(h.get('net', 0) or 0) }}</td>
+                    <td class="num">{{ '{:+.1f}'.format(h.get('bb100', 0) or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endif %}
 
@@ -62,4 +155,13 @@
     <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCustomFilter() {
+    var el = document.getElementById('custom-filter');
+    if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+</script>
 {% endblock %}

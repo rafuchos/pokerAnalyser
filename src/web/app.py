@@ -41,6 +41,7 @@ def create_app(analytics_db_path: str = 'analytics.db',
                 ('ev', 'EV Analysis'),
                 ('range', 'Range'),
                 ('tilt', 'Tilt'),
+                ('sizing', 'Sizing'),
             ],
         }
 

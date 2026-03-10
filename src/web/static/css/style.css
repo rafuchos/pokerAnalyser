@@ -1048,3 +1048,303 @@ body {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
+
+/* ── Health Bar (US-031) ────────────────────────────────────── */
+.health-bar-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.health-bar {
+    height: 24px;
+    background: var(--bg-tertiary);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+.health-bar-fill {
+    height: 100%;
+    border-radius: 12px;
+    transition: width 0.6s ease;
+}
+
+.health-bar-fill.health-good {
+    background: linear-gradient(90deg, var(--accent-green), #2ea043);
+}
+
+.health-bar-fill.health-warning {
+    background: linear-gradient(90deg, var(--accent-orange), #b08800);
+}
+
+.health-bar-fill.health-danger {
+    background: linear-gradient(90deg, var(--accent-red), #da3633);
+}
+
+.health-bar-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.health-score-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+}
+
+.health-text-good { color: var(--accent-green); }
+.health-text-warning { color: var(--accent-orange); }
+.health-text-danger { color: var(--accent-red); }
+
+.health-score-desc {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+/* ── Hand Matrix (US-031) ───────────────────────────────────── */
+.hand-matrix {
+    display: grid;
+    grid-template-columns: repeat(14, 1fr);
+    gap: 2px;
+    max-width: 800px;
+}
+
+.hm-cell {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    min-width: 0;
+    padding: 2px;
+    position: relative;
+}
+
+.hm-header {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    background: none;
+}
+
+.hm-pair {
+    background: rgba(88, 166, 255, 0.12);
+    border: 1px solid rgba(88, 166, 255, 0.25);
+}
+
+.hm-suited {
+    background: rgba(63, 185, 80, 0.08);
+    border: 1px solid rgba(63, 185, 80, 0.15);
+}
+
+.hm-offsuit {
+    background: rgba(139, 148, 158, 0.06);
+    border: 1px solid rgba(139, 148, 158, 0.1);
+}
+
+.hm-active {
+    opacity: 1;
+}
+
+.hm-cell:not(.hm-active):not(.hm-header) {
+    opacity: 0.4;
+}
+
+.hm-profit {
+    box-shadow: inset 0 0 0 1px rgba(63, 185, 80, 0.4);
+}
+
+.hm-loss {
+    box-shadow: inset 0 0 0 1px rgba(248, 81, 73, 0.4);
+}
+
+.hm-hand {
+    font-weight: 600;
+    font-size: 0.65rem;
+    color: var(--text-primary);
+}
+
+.hm-freq {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.hm-legend {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.hm-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.hm-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.hm-dot-pair { background: rgba(88, 166, 255, 0.3); }
+.hm-dot-suited { background: rgba(63, 185, 80, 0.2); }
+.hm-dot-offsuit { background: rgba(139, 148, 158, 0.15); }
+.hm-dot-profit { background: rgba(63, 185, 80, 0.4); }
+.hm-dot-loss { background: rgba(248, 81, 73, 0.4); }
+
+/* ── Heatmap (US-031) ───────────────────────────────────────── */
+.heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+}
+
+.heatmap-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 0.25rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    min-height: 60px;
+}
+
+.heatmap-none {
+    background: var(--bg-tertiary);
+    opacity: 0.4;
+}
+
+.heatmap-neutral {
+    background: var(--bg-tertiary);
+}
+
+.heatmap-warm {
+    background: rgba(63, 185, 80, 0.1);
+    border-color: rgba(63, 185, 80, 0.2);
+}
+
+.heatmap-hot {
+    background: rgba(63, 185, 80, 0.2);
+    border-color: rgba(63, 185, 80, 0.35);
+}
+
+.heatmap-cool {
+    background: rgba(248, 81, 73, 0.08);
+    border-color: rgba(248, 81, 73, 0.15);
+}
+
+.heatmap-cold {
+    background: rgba(248, 81, 73, 0.15);
+    border-color: rgba(248, 81, 73, 0.3);
+}
+
+.heatmap-hour {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.heatmap-value {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.heatmap-hands {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+}
+
+.heatmap-legend {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.heatmap-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.heatmap-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.heatmap-dot-hot { background: rgba(63, 185, 80, 0.35); }
+.heatmap-dot-warm { background: rgba(63, 185, 80, 0.15); }
+.heatmap-dot-neutral { background: var(--bg-tertiary); }
+.heatmap-dot-cool { background: rgba(248, 81, 73, 0.15); }
+.heatmap-dot-cold { background: rgba(248, 81, 73, 0.3); }
+
+/* ── Sizing Bar (US-031) ────────────────────────────────────── */
+.sizing-bar {
+    width: 100%;
+    max-width: 200px;
+    height: 16px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.sizing-bar-fill {
+    height: 100%;
+    background: var(--accent-blue);
+    border-radius: 8px;
+    transition: width 0.4s ease;
+}
+
+/* ── Responsive for US-031 ──────────────────────────────────── */
+@media (max-width: 768px) {
+    .hand-matrix {
+        gap: 1px;
+    }
+
+    .hm-cell {
+        font-size: 0.55rem;
+        padding: 1px;
+    }
+
+    .hm-hand {
+        font-size: 0.5rem;
+    }
+
+    .hm-freq {
+        display: none;
+    }
+
+    .heatmap-grid {
+        grid-template-columns: repeat(6, 1fr);
+    }
+
+    .health-score-value {
+        font-size: 1.25rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .heatmap-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    .hand-matrix {
+        font-size: 0.45rem;
+    }
+}

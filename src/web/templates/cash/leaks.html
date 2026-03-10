@@ -4,33 +4,68 @@
 {% block content %}
 <h1 class="page-title">Leak Analysis</h1>
 
-{% if data and data.get('leaks') %}
-{% if data.get('health_score') is not none %}
-<div class="card">
-    <div class="card-title">Health Score</div>
-    <div class="stat-value {{ 'positive' if (data['health_score']|int) >= 70 else ('negative' if (data['health_score']|int) < 40 else 'neutral') }}" style="font-size: 3rem; text-align: center;">
-        {{ data['health_score']|int }}/100
+{% if data and (data.get('leaks') or data.get('health_score') is not none) %}
+
+{# ── Period Filter ─────────────────────────────────────────── #}
+<div class="overview-filters">
+    <div class="period-filter">
+        <a href="?period=1m" class="filter-btn {% if data.get('active_period') == '1m' %}active{% endif %}">Last Month</a>
+        <a href="?period=3m" class="filter-btn {% if data.get('active_period') == '3m' %}active{% endif %}">Last 3 Months</a>
+        <a href="?period=year" class="filter-btn {% if data.get('active_period', 'year') == 'year' %}active{% endif %}">Full Year</a>
+        <button class="filter-btn {% if data.get('active_period') == 'custom' %}active{% endif %}" onclick="toggleCustomFilter()">Custom</button>
     </div>
 </div>
-{% endif %}
+<div id="custom-filter" class="custom-filter-row" style="display: {% if data.get('active_period') == 'custom' %}flex{% else %}none{% endif %};">
+    <form method="get" class="custom-filter-form">
+        <input type="hidden" name="period" value="custom">
+        <label class="filter-label">From</label>
+        <input type="date" name="from" value="{{ data.get('custom_from', '') }}" class="date-input">
+        <label class="filter-label">To</label>
+        <input type="date" name="to" value="{{ data.get('custom_to', '') }}" class="date-input">
+        <button type="submit" class="filter-btn active">Apply</button>
+    </form>
+</div>
 
+{# ── Health Score Bar ──────────────────────────────────────── #}
 <div class="card">
-    <div class="card-title">Detected Leaks ({{ data['leaks']|length }})</div>
+    <div class="card-title">Health Score</div>
+    <div class="health-bar-container">
+        <div class="health-bar">
+            <div class="health-bar-fill health-{{ data.get('health_score_class', 'good') }}"
+                 style="width: {{ data.get('health_score_val', 0) }}%"></div>
+        </div>
+        <div class="health-bar-label">
+            <span class="health-score-value health-text-{{ data.get('health_score_class', 'good') }}">
+                {{ data.get('health_score_val', 0) }}/100
+            </span>
+            <span class="health-score-desc">
+                {% if data.get('health_score_val', 0) >= 70 %}Healthy game
+                {% elif data.get('health_score_val', 0) >= 40 %}Needs improvement
+                {% else %}Critical leaks detected{% endif %}
+            </span>
+        </div>
+    </div>
+</div>
+
+{# ── Top 5 Leaks ──────────────────────────────────────────── #}
+{% if data.get('top_leaks') %}
+<div class="card">
+    <div class="card-title">Top {{ data['top_leaks']|length }} Leaks by Cost</div>
     <div class="leak-list">
-        {% for leak in data['leaks'] %}
-        <div class="leak-card {{ 'high' if leak.get('cost_bb100', 0) > 2 else '' }}">
+        {% for leak in data['top_leaks'] %}
+        <div class="leak-card {{ 'high' if (leak.get('cost_bb100', 0) or 0) > 2 else '' }}">
             <div class="leak-name">
-                {{ leak.get('leak_name', 'Unknown') }}
-                <span class="badge badge-{{ 'danger' if leak.get('cost_bb100', 0) > 2 else 'warning' }}">
+                #{{ loop.index }} — {{ leak.get('leak_name', 'Unknown') }}
+                <span class="badge badge-{{ 'danger' if (leak.get('cost_bb100', 0) or 0) > 2 else 'warning' }}">
                     {{ leak.get('category', '') }}
                 </span>
             </div>
             <div class="leak-detail">
-                {{ leak.get('stat_name', '') }}: {{ '{:.1f}'.format(leak.get('current_value', 0)) }}
-                (healthy: {{ '{:.0f}'.format(leak.get('healthy_low', 0)) }}-{{ '{:.0f}'.format(leak.get('healthy_high', 0)) }})
+                {{ leak.get('stat_name', '') }}: {{ '{:.1f}'.format(leak.get('current_value', 0) or 0) }}
+                (healthy: {{ '{:.0f}'.format(leak.get('healthy_low', 0) or 0) }}-{{ '{:.0f}'.format(leak.get('healthy_high', 0) or 0) }})
             </div>
             <div class="leak-detail">
-                Cost: <span class="leak-cost">{{ '{:.2f}'.format(leak.get('cost_bb100', 0)) }} bb/100</span>
+                Cost: <span class="leak-cost">{{ '{:.2f}'.format(leak.get('cost_bb100', 0) or 0) }} bb/100</span>
                 | Direction: {{ leak.get('direction', '') }}
             </div>
             {% if leak.get('suggestion') %}
@@ -42,6 +77,118 @@
         {% endfor %}
     </div>
 </div>
+{% endif %}
+
+{# ── Study Spots ──────────────────────────────────────────── #}
+{% if data.get('study_spots') %}
+<div class="card">
+    <div class="card-title">Priority Study Spots</div>
+    <div class="table-responsive">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Leak</th>
+                <th>Stat</th>
+                <th class="num">Current</th>
+                <th class="num">Target</th>
+                <th class="num">Cost bb/100</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for spot in data['study_spots'] %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ spot.get('leak_name', '') }}</td>
+                <td>{{ spot.get('stat_name', '') }}</td>
+                <td class="num">{{ '{:.1f}'.format(spot.get('current_value', 0) or 0) }}</td>
+                <td class="num">{{ '{:.0f}'.format(spot.get('healthy_low', 0) or 0) }}-{{ '{:.0f}'.format(spot.get('healthy_high', 0) or 0) }}</td>
+                <td class="num"><span class="leak-cost">{{ '{:.2f}'.format(spot.get('cost_bb100', 0) or 0) }}</span></td>
+                <td style="color: var(--accent-blue); font-size: 0.85rem;">{{ spot.get('suggestion', '') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{# ── Period Comparison ─────────────────────────────────────── #}
+{% if data.get('period_comparison') %}
+<div class="card">
+    <div class="card-title">Period Comparison
+        <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 400;">
+            ({{ '{:,}'.format(data.get('period_current_hands', 0)|int) }} hands current
+            vs {{ '{:,}'.format(data.get('period_previous_hands', 0)|int) }} hands previous)
+        </span>
+    </div>
+    <div class="table-responsive">
+    <table class="data-table hud-table">
+        <thead>
+            <tr>
+                <th>Stat</th>
+                <th class="num">Current</th>
+                <th class="num">Previous</th>
+                <th class="num">Change</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data['period_comparison'] %}
+            <tr>
+                <td>{{ row['label'] }}</td>
+                <td class="num">
+                    {% if row['current'] is not none %}
+                    <span class="hud-val {% if row['current_badge'] %}badge-{{ row['current_badge'] }}{% endif %}">
+                        {{ '{:.1f}'.format(row['current']) }}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                <td class="num">
+                    {% if row['previous'] is not none %}
+                    <span class="hud-val {% if row['previous_badge'] %}badge-{{ row['previous_badge'] }}{% endif %}">
+                        {{ '{:.1f}'.format(row['previous']) }}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                <td class="num">
+                    {% if row['diff'] is not none %}
+                    <span class="{{ 'positive' if row['diff'] > 0 else ('negative' if row['diff'] < 0 else '') }}">
+                        {{ '{:+.2f}'.format(row['diff']) }}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{# ── All Leaks ─────────────────────────────────────────────── #}
+{% if data.get('leaks') and data['leaks']|length > 5 %}
+<div class="card">
+    <div class="card-title">All Detected Leaks ({{ data['leaks']|length }})</div>
+    <div class="leak-list">
+        {% for leak in data['leaks'][5:] %}
+        <div class="leak-card {{ 'high' if (leak.get('cost_bb100', 0) or 0) > 2 else '' }}">
+            <div class="leak-name">
+                {{ leak.get('leak_name', 'Unknown') }}
+                <span class="badge badge-{{ 'danger' if (leak.get('cost_bb100', 0) or 0) > 2 else 'warning' }}">
+                    {{ leak.get('category', '') }}
+                </span>
+            </div>
+            <div class="leak-detail">
+                {{ leak.get('stat_name', '') }}: {{ '{:.1f}'.format(leak.get('current_value', 0) or 0) }}
+                | Cost: <span class="leak-cost">{{ '{:.2f}'.format(leak.get('cost_bb100', 0) or 0) }} bb/100</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 {% else %}
 <div class="empty-state">
     <div class="empty-state-icon">&#128269;</div>
@@ -49,4 +196,13 @@
     <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCustomFilter() {
+    var el = document.getElementById('custom-filter');
+    if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+</script>
 {% endblock %}

@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block page_title %}Cash — Sizing{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Bet Sizing Analysis</h1>
+
+{% if data and (data.get('bet_sizing') or data.get('pot_types') or data.get('sizing_preflop') or data.get('sizing_postflop')) %}
+
+{# ── Period Filter ─────────────────────────────────────────── #}
+<div class="overview-filters">
+    <div class="period-filter">
+        <a href="?period=1m" class="filter-btn {% if data.get('active_period') == '1m' %}active{% endif %}">Last Month</a>
+        <a href="?period=3m" class="filter-btn {% if data.get('active_period') == '3m' %}active{% endif %}">Last 3 Months</a>
+        <a href="?period=year" class="filter-btn {% if data.get('active_period', 'year') == 'year' %}active{% endif %}">Full Year</a>
+        <button class="filter-btn {% if data.get('active_period') == 'custom' %}active{% endif %}" onclick="toggleCustomFilter()">Custom</button>
+    </div>
+</div>
+<div id="custom-filter" class="custom-filter-row" style="display: {% if data.get('active_period') == 'custom' %}flex{% else %}none{% endif %};">
+    <form method="get" class="custom-filter-form">
+        <input type="hidden" name="period" value="custom">
+        <label class="filter-label">From</label>
+        <input type="date" name="from" value="{{ data.get('custom_from', '') }}" class="date-input">
+        <label class="filter-label">To</label>
+        <input type="date" name="to" value="{{ data.get('custom_to', '') }}" class="date-input">
+        <button type="submit" class="filter-btn active">Apply</button>
+    </form>
+</div>
+
+{# ── Pot Type Segmentation ─────────────────────────────────── #}
+{% if data.get('pot_types') %}
+<div class="card">
+    <div class="card-title">Pot Type Segmentation</div>
+    <div class="table-responsive">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Pot Type</th>
+                <th class="num">Count</th>
+                <th class="num">Percentage</th>
+                <th class="num">Avg Pot</th>
+                <th class="num">Win Rate</th>
+                <th class="num">Net</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pt in data['pot_types'] %}
+            <tr>
+                <td>{{ pt.get('label', pt.get('type', '')) }}</td>
+                <td class="num">{{ (pt.get('count', 0) or 0)|int }}</td>
+                <td class="num">{{ '{:.1f}'.format(pt.get('pct', 0) or 0) }}%</td>
+                <td class="num">${{ '{:,.2f}'.format(pt.get('avg_pot', 0) or 0) }}</td>
+                <td class="num">{{ '{:.1f}'.format(pt.get('win_rate', 0) or 0) }}%</td>
+                <td class="num {{ 'positive' if (pt.get('net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(pt.get('net', 0) or 0) }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{# ── Preflop Sizing Distribution ───────────────────────────── #}
+{% if data.get('sizing_preflop') %}
+<div class="card">
+    <div class="card-title">Preflop Sizing Distribution</div>
+    <div class="table-responsive">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Bucket</th>
+                <th class="num">Count</th>
+                <th class="num">Percentage</th>
+                <th>Bar</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for bucket in data['sizing_preflop'] %}
+            <tr>
+                <td>{{ bucket.get('label', '') }}</td>
+                <td class="num">{{ (bucket.get('count', 0) or 0)|int }}</td>
+                <td class="num">{{ '{:.1f}'.format(bucket.get('pct', 0) or 0) }}%</td>
+                <td>
+                    <div class="sizing-bar">
+                        <div class="sizing-bar-fill" style="width: {{ bucket.get('pct', 0) or 0 }}%;"></div>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{# ── Postflop Sizing Distribution ──────────────────────────── #}
+{% if data.get('sizing_postflop') %}
+<div class="card">
+    <div class="card-title">Postflop Sizing Distribution</div>
+    <div class="table-responsive">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Bucket</th>
+                <th class="num">Count</th>
+                <th class="num">Percentage</th>
+                <th>Bar</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for bucket in data['sizing_postflop'] %}
+            <tr>
+                <td>{{ bucket.get('label', '') }}</td>
+                <td class="num">{{ (bucket.get('count', 0) or 0)|int }}</td>
+                <td class="num">{{ '{:.1f}'.format(bucket.get('pct', 0) or 0) }}%</td>
+                <td>
+                    <div class="sizing-bar">
+                        <div class="sizing-bar-fill" style="width: {{ bucket.get('pct', 0) or 0 }}%;"></div>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{# ── Sizing by Street ─────────────────────────────────────── #}
+{% set by_street = data.get('sizing_by_street', {}) %}
+{% if by_street %}
+{% for street, street_data in by_street.items() %}
+<div class="card">
+    <div class="card-title">{{ street|title }} Sizing</div>
+    {% if street_data is iterable and street_data is not mapping %}
+    <div class="table-responsive">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Bucket</th>
+                <th class="num">Count</th>
+                <th class="num">Percentage</th>
+                <th>Bar</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for bucket in street_data %}
+            <tr>
+                <td>{{ bucket.get('label', '') }}</td>
+                <td class="num">{{ (bucket.get('count', 0) or 0)|int }}</td>
+                <td class="num">{{ '{:.1f}'.format(bucket.get('pct', 0) or 0) }}%</td>
+                <td>
+                    <div class="sizing-bar">
+                        <div class="sizing-bar-fill" style="width: {{ bucket.get('pct', 0) or 0 }}%;"></div>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% elif street_data is mapping %}
+    <div class="stats-grid">
+        {% for key, val in street_data.items() %}
+        <div class="stat-card">
+            <div class="stat-label">{{ key|replace('_', ' ')|title }}</div>
+            <div class="stat-value neutral">
+                {% if val is number %}{{ '{:.1f}'.format(val) }}{% else %}{{ val }}{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#128176;</div>
+    <div class="empty-state-text">No bet sizing data available</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCustomFilter() {
+    var el = document.getElementById('custom-filter');
+    if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+</script>
+{% endblock %}

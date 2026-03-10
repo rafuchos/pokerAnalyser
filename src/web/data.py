@@ -664,6 +664,8 @@ def _build_radar_svg_data(radar_dict):
 
 _POSITION_ORDER = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
 
+_HAND_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
+
 _STAT_LABELS = {
     'vpip': 'VPIP', 'pfr': 'PFR', 'three_bet': '3-Bet',
     'fold_to_3bet': 'Fold to 3-Bet', 'ats': 'ATS',
@@ -789,5 +791,340 @@ def prepare_overview_data(data, period='year', from_date='', to_date=''):
         }
     else:
         data['redline_chart'] = {}
+
+    return data
+
+
+# ── Leaks helpers ────────────────────────────────────────────
+
+
+def prepare_leaks_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data for the leaks page.
+
+    Adds: health_score_val, health_score_class, top_leaks, study_spots,
+    leaks_by_category, period_comparison.
+    """
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    leaks = data.get('leaks', [])
+
+    # Health score
+    hs = data.get('health_score')
+    if hs is None and leaks:
+        total_cost = sum(abs(l.get('cost_bb100', 0)) for l in leaks)
+        hs = max(0, min(100, int(100 - total_cost * 5)))
+    elif hs is None:
+        hs = 100
+    data['health_score_val'] = int(hs)
+    if hs >= 70:
+        data['health_score_class'] = 'good'
+    elif hs >= 40:
+        data['health_score_class'] = 'warning'
+    else:
+        data['health_score_class'] = 'danger'
+
+    # Top 5 leaks sorted by cost
+    sorted_leaks = sorted(leaks, key=lambda l: abs(l.get('cost_bb100', 0)), reverse=True)
+    data['top_leaks'] = sorted_leaks[:5]
+
+    # Study spots (leaks with suggestions, prioritized by cost)
+    data['study_spots'] = [l for l in sorted_leaks if l.get('suggestion')][:5]
+
+    # Group leaks by category
+    cats = {}
+    for l in leaks:
+        cat = l.get('category', 'Other')
+        cats.setdefault(cat, []).append(l)
+    data['leaks_by_category'] = cats
+
+    # Period comparison: current vs previous period stats
+    daily_reports = data.get('daily_reports', [])
+    filtered = _filter_reports_by_period(daily_reports, period, from_date, to_date)
+    current_agg = _aggregate_period(filtered) if filtered else {}
+
+    remaining = [r for r in daily_reports if r not in filtered]
+    prev_agg = _aggregate_period(remaining) if remaining else {}
+
+    comparison = []
+    for s in ['vpip', 'pfr', 'three_bet', 'af', 'cbet', 'wtsd', 'wsd']:
+        cur = current_agg.get(s)
+        prev = prev_agg.get(s)
+        diff = None
+        if cur is not None and prev is not None:
+            diff = round(cur - prev, 2)
+        comparison.append({
+            'stat': s, 'label': _stat_label(s),
+            'current': cur, 'previous': prev, 'diff': diff,
+            'current_badge': current_agg.get(f'{s}_badge', ''),
+            'previous_badge': prev_agg.get(f'{s}_badge', ''),
+        })
+    data['period_comparison'] = comparison
+    data['period_current_hands'] = current_agg.get('hands', 0)
+    data['period_previous_hands'] = prev_agg.get('hands', 0)
+
+    return data
+
+
+# ── EV helpers ───────────────────────────────────────────────
+
+
+def prepare_ev_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data for the EV analysis page.
+
+    Adds: ev_summary, ev_chart, decision_ev_data, redline_chart, ev_bb_comparison.
+    """
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    ev = data.get('allin_ev') or {}
+    data['ev_summary'] = ev
+
+    # Build cumulative EV vs Real line chart from daily reports
+    daily_reports = data.get('daily_reports', [])
+    filtered = _filter_reports_by_period(daily_reports, period, from_date, to_date)
+    sorted_reports = sorted(filtered, key=lambda r: r.get('date', ''))
+
+    cum_real = 0.0
+    real_vals = []
+    chart_dates = []
+    for r in sorted_reports:
+        cum_real += (r.get('net', 0) or 0)
+        real_vals.append(round(cum_real, 2))
+        chart_dates.append(r.get('date', ''))
+
+    cum_ev = 0.0
+    ev_vals = []
+    for r in sorted_reports:
+        ev_net = r.get('ev_net')
+        if ev_net is None:
+            ev_net = r.get('net', 0) or 0
+        cum_ev += ev_net
+        ev_vals.append(round(cum_ev, 2))
+
+    all_vals = real_vals + ev_vals
+    if all_vals:
+        data['ev_chart'] = {
+            'real_points': _build_chart_points(real_vals),
+            'ev_points': _build_chart_points(ev_vals),
+            'dates': chart_dates,
+            'y_min': min(all_vals),
+            'y_max': max(all_vals),
+            'final_real': real_vals[-1] if real_vals else 0,
+            'final_ev': ev_vals[-1] if ev_vals else 0,
+        }
+    else:
+        data['ev_chart'] = {}
+
+    # Decision EV by street
+    data['decision_ev_data'] = data.get('decision_ev') or {}
+
+    # bb/100 comparison
+    data['ev_bb_comparison'] = {
+        'real': ev.get('bb100_real', 0) or 0,
+        'ev': ev.get('bb100_ev', 0) or 0,
+        'diff': round((ev.get('bb100_real', 0) or 0) - (ev.get('bb100_ev', 0) or 0), 2),
+    }
+
+    # Red/Blue line chart
+    redline = data.get('redline') or {}
+    cum_data = redline.get('cumulative') or []
+    if cum_data and isinstance(cum_data, list):
+        total_vals = [p.get('total', 0) for p in cum_data]
+        sd_vals = [p.get('showdown', 0) for p in cum_data]
+        nsd_vals = [p.get('non_showdown', 0) for p in cum_data]
+        all_v = total_vals + sd_vals + nsd_vals
+        data['ev_redline_chart'] = {
+            'total_points': _build_chart_points(total_vals),
+            'showdown_points': _build_chart_points(sd_vals),
+            'non_showdown_points': _build_chart_points(nsd_vals),
+            'y_min': min(all_v) if all_v else 0,
+            'y_max': max(all_v) if all_v else 0,
+        }
+    else:
+        data['ev_redline_chart'] = {}
+
+    return data
+
+
+# ── Range helpers ────────────────────────────────────────────
+
+
+def prepare_range_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data for the range analysis page.
+
+    Adds: range_positions, hand_ranks, range_matrices, top_profitable, top_deficit.
+    """
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    positional = data.get('positional') or {}
+    hand_matrix_all = data.get('hand_matrix') or {}
+
+    positions = []
+    for pos in _POSITION_ORDER:
+        if pos in positional:
+            positions.append(pos)
+    if not positions:
+        positions = ['Overall']
+    data['range_positions'] = positions
+    data['hand_ranks'] = _HAND_RANKS
+
+    matrices = {}
+    for pos in positions:
+        pos_data = positional.get(pos, {})
+        raw_matrix = pos_data.get('hand_matrix') or hand_matrix_all.get(pos, {})
+        matrix_rows = []
+        for r in range(13):
+            row = []
+            for c in range(13):
+                if r == c:
+                    hand = _HAND_RANKS[r] + _HAND_RANKS[c]
+                    hand_type = 'pair'
+                elif r < c:
+                    hand = _HAND_RANKS[r] + _HAND_RANKS[c] + 's'
+                    hand_type = 'suited'
+                else:
+                    hand = _HAND_RANKS[c] + _HAND_RANKS[r] + 'o'
+                    hand_type = 'offsuit'
+                cell_data = raw_matrix.get(hand, {})
+                if isinstance(cell_data, dict):
+                    freq = cell_data.get('frequency', 0)
+                    net = cell_data.get('net', 0)
+                    hands_count = cell_data.get('hands', 0)
+                else:
+                    freq = cell_data if isinstance(cell_data, (int, float)) else 0
+                    net = 0
+                    hands_count = 0
+                row.append({
+                    'hand': hand, 'type': hand_type,
+                    'freq': freq, 'net': net, 'hands': hands_count,
+                })
+            matrix_rows.append(row)
+        matrices[pos] = matrix_rows
+    data['range_matrices'] = matrices
+
+    # Top 10 profitable and deficit hands
+    hand_stats = data.get('hand_stats') or data.get('hand_performance') or {}
+    if isinstance(hand_stats, list):
+        sorted_by_net = sorted(hand_stats, key=lambda h: h.get('net', 0), reverse=True)
+        data['top_profitable'] = sorted_by_net[:10]
+        data['top_deficit'] = sorted(hand_stats, key=lambda h: h.get('net', 0))[:10]
+    elif isinstance(hand_stats, dict) and hand_stats:
+        items = [{'hand': k, **v} if isinstance(v, dict) else {'hand': k, 'net': v}
+                 for k, v in hand_stats.items()]
+        sorted_by_net = sorted(items, key=lambda h: h.get('net', 0), reverse=True)
+        data['top_profitable'] = sorted_by_net[:10]
+        data['top_deficit'] = sorted(items, key=lambda h: h.get('net', 0))[:10]
+    else:
+        data['top_profitable'] = []
+        data['top_deficit'] = []
+
+    return data
+
+
+# ── Tilt helpers ─────────────────────────────────────────────
+
+
+def prepare_tilt_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data for the tilt analysis page.
+
+    Adds: tilt_sessions, tilt_heatmap, tilt_duration, tilt_post_bad_beat,
+    tilt_recommendation, tilt_session_summary.
+    """
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    tilt = data.get('tilt', {})
+
+    session_tilt = tilt.get('session_tilt', {})
+    data['tilt_sessions'] = session_tilt
+
+    if isinstance(session_tilt, dict):
+        data['tilt_session_summary'] = session_tilt
+    elif isinstance(session_tilt, list):
+        total = len(session_tilt)
+        tilt_count = sum(1 for s in session_tilt if s.get('severity') in ('warning', 'danger'))
+        data['tilt_session_summary'] = {
+            'total_sessions': total,
+            'tilt_sessions': tilt_count,
+        }
+    else:
+        data['tilt_session_summary'] = {}
+
+    # Hourly heatmap (24h)
+    hourly = tilt.get('hourly', {})
+    by_hour = hourly.get('by_hour', {})
+    heatmap = []
+    for h in range(24):
+        hk = str(h)
+        hd = by_hour.get(hk, by_hour.get(h, {}))
+        if isinstance(hd, dict):
+            bb100 = hd.get('bb100', 0) or 0
+            hands = hd.get('hands', 0) or 0
+        else:
+            bb100 = 0
+            hands = 0
+        heatmap.append({
+            'hour': h, 'label': f'{h:02d}:00',
+            'bb100': round(bb100, 1), 'hands': int(hands),
+        })
+
+    active_cells = [c for c in heatmap if c['hands'] > 0]
+    if active_cells:
+        bb_vals = [c['bb100'] for c in active_cells]
+        bb_min = min(bb_vals)
+        bb_max = max(bb_vals)
+    else:
+        bb_min = bb_max = 0
+
+    for c in heatmap:
+        if c['hands'] == 0:
+            c['intensity'] = 'none'
+        elif bb_max == bb_min:
+            c['intensity'] = 'neutral'
+        elif c['bb100'] >= 0:
+            norm = c['bb100'] / bb_max if bb_max > 0 else 0
+            c['intensity'] = 'hot' if norm >= 0.6 else ('warm' if norm >= 0.3 else 'neutral')
+        else:
+            norm = c['bb100'] / bb_min if bb_min < 0 else 0
+            c['intensity'] = 'cold' if norm >= 0.6 else ('cool' if norm >= 0.3 else 'neutral')
+
+    data['tilt_heatmap'] = heatmap
+
+    # Duration analysis
+    data['tilt_duration'] = tilt.get('duration_analysis', {})
+
+    # Post-bad-beat
+    data['tilt_post_bad_beat'] = tilt.get('post_bad_beat', {})
+
+    # Recommendation
+    data['tilt_recommendation'] = tilt.get('recommendation', {})
+
+    return data
+
+
+# ── Sizing helpers ───────────────────────────────────────────
+
+
+def prepare_sizing_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data for the sizing page.
+
+    Adds: pot_types, sizing_preflop, sizing_postflop, sizing_by_street.
+    """
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    bs = data.get('bet_sizing') or {}
+
+    data['pot_types'] = bs.get('pot_types', [])
+    data['sizing_preflop'] = bs.get('preflop_sizing', [])
+    data['sizing_postflop'] = bs.get('postflop_sizing', [])
+    data['sizing_by_street'] = bs.get('by_street', {})
 
     return data

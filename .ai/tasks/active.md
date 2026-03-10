@@ -93,6 +93,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-028: Página Overview: Dashboard Resumido + Tabela de Stats Compacta (2026-03-10)
 - [x] US-029: Páginas de Sessions: Lista por Dia + Drill-Down por Sessão (2026-03-10)
 - [x] US-030: Páginas de Stats Detalhadas: Preflop, Postflop, Posicional, Stack Depth (2026-03-10)
+- [x] US-031: Páginas de Leaks, EV, Range, Tilt e Sizing (2026-03-10)
 
 ---
 

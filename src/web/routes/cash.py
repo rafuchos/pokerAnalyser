@@ -8,11 +8,16 @@ from src.web.data import (
     prepare_sessions_list,
     prepare_session_day,
     prepare_stats_data,
+    prepare_leaks_data,
+    prepare_ev_data,
+    prepare_range_data,
+    prepare_tilt_data,
+    prepare_sizing_data,
 )
 
 cash_bp = Blueprint('cash', __name__)
 
-VALID_TABS = ('overview', 'sessions', 'stats', 'leaks', 'ev', 'range', 'tilt')
+VALID_TABS = ('overview', 'sessions', 'stats', 'leaks', 'ev', 'range', 'tilt', 'sizing')
 
 
 @cash_bp.route('/')
@@ -31,22 +36,36 @@ def sub_tab(tab):
     db_path = current_app.config['ANALYTICS_DB_PATH']
     data = load_analytics_data(db_path, 'cash')
 
+    period = request.args.get('period', 'year')
+    from_date = request.args.get('from', '')
+    to_date = request.args.get('to', '')
+
     if tab == 'overview':
-        period = request.args.get('period', 'year')
-        from_date = request.args.get('from', '')
-        to_date = request.args.get('to', '')
         prepare_overview_data(data, period=period,
                               from_date=from_date, to_date=to_date)
     elif tab == 'sessions':
         page = request.args.get('page', 1, type=int)
         prepare_sessions_list(data, page=page)
     elif tab == 'stats':
-        period = request.args.get('period', 'year')
-        from_date = request.args.get('from', '')
-        to_date = request.args.get('to', '')
         prepare_stats_data(data, period=period,
                            from_date=from_date, to_date=to_date)
         data['stats_sub'] = request.args.get('sub', 'preflop')
+    elif tab == 'leaks':
+        prepare_leaks_data(data, period=period,
+                           from_date=from_date, to_date=to_date)
+    elif tab == 'ev':
+        prepare_ev_data(data, period=period,
+                        from_date=from_date, to_date=to_date)
+    elif tab == 'range':
+        prepare_range_data(data, period=period,
+                           from_date=from_date, to_date=to_date)
+        data['range_active_pos'] = request.args.get('pos', '')
+    elif tab == 'tilt':
+        prepare_tilt_data(data, period=period,
+                          from_date=from_date, to_date=to_date)
+    elif tab == 'sizing':
+        prepare_sizing_data(data, period=period,
+                            from_date=from_date, to_date=to_date)
 
     return render_template(
         f'cash/{tab}.html',
