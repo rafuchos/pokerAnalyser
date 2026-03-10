@@ -82,7 +82,7 @@
         "src/analyzers/tournament.py",
         "src/analyzers/cash.py"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-023",
