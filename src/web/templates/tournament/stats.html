@@ -5,38 +5,456 @@
 <h1 class="page-title">Tournament Stats</h1>
 
 {% if data and data.get('positional') %}
-<div class="card">
-    <div class="card-title">Stats by Position</div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Position</th>
-                <th>Hands</th>
-                <th>VPIP%</th>
-                <th>PFR%</th>
-                <th>3-Bet%</th>
-                <th>bb/100</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for pos in ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'] %}
-            {% if data['positional'].get(pos) %}
-            {% set p = data['positional'][pos] %}
-            <tr>
-                <td>{{ pos }}</td>
-                <td class="num">{{ p.get('hands', 0)|int }}</td>
-                <td class="num">{{ '{:.1f}'.format(p.get('vpip', 0)) }}</td>
-                <td class="num">{{ '{:.1f}'.format(p.get('pfr', 0)) }}</td>
-                <td class="num">{{ '{:.1f}'.format(p.get('three_bet', 0)) }}</td>
-                <td class="num {{ 'positive' if (p.get('bb100', 0) or 0) >= 0 else 'negative' }}">
-                    {{ '{:+.1f}'.format(p.get('bb100', 0) or 0) }}
-                </td>
-            </tr>
+
+{# ── Period Filter ─────────────────────────────────────────── #}
+<div class="overview-filters">
+    <div class="period-filter">
+        <a href="?period=1m&sub={{ data.get('stats_sub', 'preflop') }}" class="filter-btn {% if data.get('active_period') == '1m' %}active{% endif %}">Last Month</a>
+        <a href="?period=3m&sub={{ data.get('stats_sub', 'preflop') }}" class="filter-btn {% if data.get('active_period') == '3m' %}active{% endif %}">Last 3 Months</a>
+        <a href="?period=year&sub={{ data.get('stats_sub', 'preflop') }}" class="filter-btn {% if data.get('active_period', 'year') == 'year' %}active{% endif %}">Full Year</a>
+        <button class="filter-btn {% if data.get('active_period') == 'custom' %}active{% endif %}" onclick="toggleCustomFilter()">Custom</button>
+    </div>
+</div>
+
+<div id="custom-filter" class="custom-filter-row" style="display: {% if data.get('active_period') == 'custom' %}flex{% else %}none{% endif %};">
+    <form method="get" class="custom-filter-form">
+        <input type="hidden" name="period" value="custom">
+        <input type="hidden" name="sub" value="{{ data.get('stats_sub', 'preflop') }}">
+        <label class="filter-label">From</label>
+        <input type="date" name="from" value="{{ data.get('custom_from', '') }}" class="date-input">
+        <label class="filter-label">To</label>
+        <input type="date" name="to" value="{{ data.get('custom_to', '') }}" class="date-input">
+        <button type="submit" class="filter-btn active">Apply</button>
+    </form>
+</div>
+
+{# ── Sub-Tab Navigation ───────────────────────────────────── #}
+{% set active_sub = data.get('stats_sub', 'preflop') %}
+<div class="stats-subtabs">
+    <a href="?sub=preflop&period={{ data.get('active_period', 'year') }}" class="stats-subtab {% if active_sub == 'preflop' %}active{% endif %}">Preflop</a>
+    <a href="?sub=postflop&period={{ data.get('active_period', 'year') }}" class="stats-subtab {% if active_sub == 'postflop' %}active{% endif %}">Postflop</a>
+    <a href="?sub=positional&period={{ data.get('active_period', 'year') }}" class="stats-subtab {% if active_sub == 'positional' %}active{% endif %}">Posicional</a>
+    <a href="?sub=stackdepth&period={{ data.get('active_period', 'year') }}" class="stats-subtab {% if active_sub == 'stackdepth' %}active{% endif %}">Stack Depth</a>
+</div>
+
+{# ══════════════════════════════════════════════════════════ #}
+{# ── PREFLOP TAB ──────────────────────────────────────────── #}
+{# ══════════════════════════════════════════════════════════ #}
+{% if active_sub == 'preflop' %}
+<div id="panel-preflop" class="stats-panel">
+
+    {% if data.get('stats_preflop_overall') %}
+    <div class="card">
+        <div class="card-title">Overall Preflop Stats</div>
+        <div class="stats-hud-grid">
+            {% for st in data['stats_preflop_overall'] %}
+            {% if st.value is not none %}
+            <div class="stat-hud-card">
+                <div class="stat-hud-label">{{ st.label }}</div>
+                <div class="stat-hud-value">
+                    <span class="hud-val badge-{{ st.badge }}">
+                        {% if st.name == 'af' %}{{ '{:.2f}'.format(st.value) }}{% else %}{{ '{:.1f}'.format(st.value) }}%{% endif %}
+                    </span>
+                </div>
+            </div>
             {% endif %}
             {% endfor %}
-        </tbody>
-    </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_preflop_by_pos') %}
+    <div class="card">
+        <div class="card-title">Preflop Stats by Position</div>
+        <table class="data-table hud-table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    <th>Hands</th>
+                    <th>VPIP%</th>
+                    <th>PFR%</th>
+                    <th>3-Bet%</th>
+                    <th>bb/100</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in data['stats_preflop_by_pos'] %}
+                <tr>
+                    <td>{{ p.position }}</td>
+                    <td class="num">{{ p.hands|int }}</td>
+                    <td class="num"><span class="hud-val badge-{{ p.vpip_badge }}">{{ '{:.1f}'.format(p.vpip) if p.vpip is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ p.pfr_badge }}">{{ '{:.1f}'.format(p.pfr) if p.pfr is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ p.three_bet_badge }}">{{ '{:.1f}'.format(p.three_bet) if p.three_bet is not none else '-' }}</span></td>
+                    <td class="num {{ 'positive' if (p.bb100 or 0) >= 0 else 'negative' }}">{{ '{:+.1f}'.format(p.bb100 or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_daily_trends') %}
+    <div class="card">
+        <div class="card-title">
+            Preflop Trends
+            <div class="view-toggle" style="display:inline-flex;margin-left:1rem;">
+                <button id="btn-pf-daily" class="toggle-btn active" onclick="toggleTrendView('pf','daily')">By Day</button>
+                <button id="btn-pf-weekly" class="toggle-btn" onclick="toggleTrendView('pf','weekly')">By Week</button>
+            </div>
+        </div>
+        <table class="data-table hud-table">
+            <thead>
+                <tr>
+                    <th>Period</th>
+                    <th>Hands</th>
+                    <th>VPIP%</th>
+                    <th>PFR%</th>
+                    <th>3-Bet%</th>
+                </tr>
+            </thead>
+            <tbody id="pf-daily-rows">
+                {% for t in data['stats_daily_trends'] %}
+                <tr>
+                    <td>{{ t.date }}</td>
+                    <td class="num">{{ t.hands }}</td>
+                    <td class="num">{{ '{:.1f}'.format(t.vpip) if t.vpip is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(t.pfr) if t.pfr is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(t.three_bet) if t.three_bet is not none else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tbody id="pf-weekly-rows" style="display:none;">
+                {% for w in data.get('stats_weekly_trends', []) %}
+                <tr>
+                    <td>{{ w.period }}</td>
+                    <td class="num">{{ w.hands }}</td>
+                    <td class="num">{{ '{:.1f}'.format(w.vpip) if w.vpip is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(w.pfr) if w.pfr is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(w.three_bet) if w.three_bet is not none else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
 </div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════ #}
+{# ── POSTFLOP TAB ─────────────────────────────────────────── #}
+{# ══════════════════════════════════════════════════════════ #}
+{% if active_sub == 'postflop' %}
+<div id="panel-postflop" class="stats-panel">
+
+    {% if data.get('stats_postflop_overall') %}
+    <div class="card">
+        <div class="card-title">Overall Postflop Stats</div>
+        <div class="stats-hud-grid">
+            {% for st in data['stats_postflop_overall'] %}
+            {% if st.value is not none %}
+            <div class="stat-hud-card">
+                <div class="stat-hud-label">{{ st.label }}</div>
+                <div class="stat-hud-value">
+                    <span class="hud-val badge-{{ st.badge }}">
+                        {% if st.name == 'af' %}{{ '{:.2f}'.format(st.value) }}{% else %}{{ '{:.1f}'.format(st.value) }}%{% endif %}
+                    </span>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_postflop_by_street') %}
+    <div class="card">
+        <div class="card-title">Stats by Street (Flop / Turn / River)</div>
+        <table class="data-table hud-table">
+            <thead>
+                <tr>
+                    <th>Street</th>
+                    <th>AF</th>
+                    <th>AFq%</th>
+                    <th>CBet%</th>
+                    <th>Check-Raise%</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in data['stats_postflop_by_street'] %}
+                <tr>
+                    <td>{{ s.street }}</td>
+                    <td class="num">{{ '{:.2f}'.format(s.af) if s.af is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(s.afq) if s.afq is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(s.cbet) if s.cbet is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(s.check_raise) if s.check_raise is not none else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_postflop_weekly') or data.get('stats_weekly_trends') %}
+    <div class="card">
+        <div class="card-title">Postflop Weekly Trends</div>
+        <table class="data-table hud-table">
+            <thead>
+                <tr>
+                    <th>Week</th>
+                    <th>AF</th>
+                    <th>CBet%</th>
+                    <th>WTSD%</th>
+                    <th>W$SD%</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for w in data.get('stats_postflop_weekly', []) or data.get('stats_weekly_trends', []) %}
+                <tr>
+                    <td>{{ w.get('week', w.get('period', '')) }}</td>
+                    <td class="num">{{ '{:.2f}'.format(w.af) if w.af is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(w.cbet) if w.cbet is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(w.wtsd) if w.wtsd is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(w.wsd) if w.wsd is not none else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════ #}
+{# ── POSITIONAL TAB ──────────────────────────────────────── #}
+{# ══════════════════════════════════════════════════════════ #}
+{% if active_sub == 'positional' %}
+<div id="panel-positional" class="stats-panel">
+
+    {% if data.get('stats_radar') %}
+    {% set radar = data['stats_radar'] %}
+    <div class="card">
+        <div class="card-title">Positional Radar</div>
+        <div class="radar-chart-container">
+            <svg class="radar-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+                {% for pct in [25, 50, 75, 100] %}
+                <circle cx="200" cy="200" r="{{ (150 * pct / 100)|int }}" fill="none" stroke="var(--border-color)" stroke-width="1" opacity="0.4"/>
+                {% endfor %}
+                {% for ax in radar['axes'] %}
+                <line x1="{{ ax.x1 }}" y1="{{ ax.y1 }}" x2="{{ ax.x2 }}" y2="{{ ax.y2 }}" stroke="var(--border-color)" stroke-width="1" opacity="0.3"/>
+                <text x="{{ ax.lx }}" y="{{ ax.ly }}" fill="var(--text-secondary)" font-size="11" text-anchor="middle" dominant-baseline="middle">{{ ax.label }}</text>
+                {% endfor %}
+                <polygon points="{{ radar['polygon_points'] }}" fill="rgba(88,166,255,0.2)" stroke="var(--accent-blue)" stroke-width="2"/>
+            </svg>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_positional_full') %}
+    <div class="card">
+        <div class="card-title">Complete Stats by Position</div>
+        <div class="table-scroll">
+        <table class="data-table hud-table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    <th>Hands</th>
+                    <th>VPIP%</th>
+                    <th>PFR%</th>
+                    <th>3-Bet%</th>
+                    <th>AF</th>
+                    <th>CBet%</th>
+                    <th>WTSD%</th>
+                    <th>W$SD%</th>
+                    <th>bb/100</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in data['stats_positional_full'] %}
+                <tr>
+                    <td>{{ p.position }}</td>
+                    <td class="num">{{ p.hands|int }}</td>
+                    <td class="num"><span class="hud-val badge-{{ p.vpip_badge }}">{{ '{:.1f}'.format(p.vpip) if p.vpip is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ p.pfr_badge }}">{{ '{:.1f}'.format(p.pfr) if p.pfr is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ p.three_bet_badge }}">{{ '{:.1f}'.format(p.three_bet) if p.three_bet is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ p.af_badge }}">{{ '{:.2f}'.format(p.af) if p.af is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ p.cbet_badge }}">{{ '{:.1f}'.format(p.cbet) if p.cbet is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ p.wtsd_badge }}">{{ '{:.1f}'.format(p.wtsd) if p.wtsd is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ p.wsd_badge }}">{{ '{:.1f}'.format(p.wsd) if p.wsd is not none else '-' }}</span></td>
+                    <td class="num {{ 'positive' if (p.bb100 or 0) >= 0 else 'negative' }}">{{ '{:+.1f}'.format(p.bb100 or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_best_position') and data.get('stats_worst_position') %}
+    <div class="card">
+        <div class="card-title">Position Comparison</div>
+        <div class="comparison-banner">
+            <div class="comparison-item good">
+                <span class="comparison-label">Most Profitable</span>
+                <span class="comparison-value">{{ data['stats_best_position']['position'] }}</span>
+                <span class="comparison-detail">{{ '{:+.1f}'.format(data['stats_best_position']['bb100'] or 0) }} bb/100</span>
+            </div>
+            <div class="comparison-item danger">
+                <span class="comparison-label">Least Profitable</span>
+                <span class="comparison-value">{{ data['stats_worst_position']['position'] }}</span>
+                <span class="comparison-detail">{{ '{:+.1f}'.format(data['stats_worst_position']['bb100'] or 0) }} bb/100</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_blinds_defense') %}
+    <div class="card">
+        <div class="card-title">Blinds Defense</div>
+        <table class="data-table hud-table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    <th>Fold to Steal%</th>
+                    <th>3-Bet vs Steal%</th>
+                    <th>Call vs Steal%</th>
+                    <th>Opportunities</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in data['stats_blinds_defense'] %}
+                <tr>
+                    <td>{{ d.position }}</td>
+                    <td class="num">{{ '{:.1f}'.format(d.fold_to_steal) if d.fold_to_steal is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(d.three_bet_vs_steal) if d.three_bet_vs_steal is not none else '-' }}</td>
+                    <td class="num">{{ '{:.1f}'.format(d.call_vs_steal) if d.call_vs_steal is not none else '-' }}</td>
+                    <td class="num">{{ d.get('total_opps', 0)|int }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_ats_by_pos') %}
+    <div class="card">
+        <div class="card-title">Attempt to Steal (ATS)</div>
+        <table class="data-table hud-table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    <th>ATS%</th>
+                    <th>Attempts</th>
+                    <th>Opportunities</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in data['stats_ats_by_pos'] %}
+                <tr>
+                    <td>{{ a.position }}</td>
+                    <td class="num">{{ '{:.1f}'.format(a.ats) if a.ats is not none else '-' }}</td>
+                    <td class="num">{{ a.get('ats_count', 0)|int }}</td>
+                    <td class="num">{{ a.get('ats_opps', 0)|int }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════ #}
+{# ── STACK DEPTH TAB ──────────────────────────────────────── #}
+{# ══════════════════════════════════════════════════════════ #}
+{% if active_sub == 'stackdepth' %}
+<div id="panel-stackdepth" class="stats-panel">
+
+    {% if data.get('stats_tier_rows') %}
+    <div class="card">
+        <div class="card-title">Stats by Stack Depth</div>
+        <div class="table-scroll">
+        <table class="data-table hud-table">
+            <thead>
+                <tr>
+                    <th>Tier</th>
+                    <th>Hands</th>
+                    <th>VPIP%</th>
+                    <th>PFR%</th>
+                    <th>3-Bet%</th>
+                    <th>AF</th>
+                    <th>CBet%</th>
+                    <th>WTSD%</th>
+                    <th>W$SD%</th>
+                    <th>bb/100</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in data['stats_tier_rows'] %}
+                <tr>
+                    <td>{{ t.label }}</td>
+                    <td class="num">{{ t.hands|int }}</td>
+                    <td class="num"><span class="hud-val badge-{{ t.vpip_badge }}">{{ '{:.1f}'.format(t.vpip) if t.vpip is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ t.pfr_badge }}">{{ '{:.1f}'.format(t.pfr) if t.pfr is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ t.three_bet_badge }}">{{ '{:.1f}'.format(t.three_bet) if t.three_bet is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ t.af_badge }}">{{ '{:.2f}'.format(t.af) if t.af is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ t.cbet_badge }}">{{ '{:.1f}'.format(t.cbet) if t.cbet is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ t.wtsd_badge }}">{{ '{:.1f}'.format(t.wtsd) if t.wtsd is not none else '-' }}</span></td>
+                    <td class="num"><span class="hud-val badge-{{ t.wsd_badge }}">{{ '{:.1f}'.format(t.wsd) if t.wsd is not none else '-' }}</span></td>
+                    <td class="num {{ 'positive' if (t.bb100 or 0) >= 0 else 'negative' }}">{{ '{:+.1f}'.format(t.bb100 or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if data.get('stats_cross_table') %}
+    <div class="card">
+        <div class="card-title">Position x Stack Depth (bb/100)</div>
+        <div class="table-scroll">
+        <table class="data-table cross-table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    {% for tier in ['deep', 'medium', 'shallow', 'shove'] %}
+                    <th>{{ {'deep': '50+ BB', 'medium': '25-50', 'shallow': '15-25', 'shove': '<15'}[tier] }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for pos in ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'] %}
+                {% set pos_data = data['stats_cross_table'].get(pos, {}) %}
+                {% if pos_data %}
+                <tr>
+                    <td>{{ pos }}</td>
+                    {% for tier in ['deep', 'medium', 'shallow', 'shove'] %}
+                    {% set cell = pos_data.get(tier, {}) %}
+                    {% if cell and cell.get('total_hands', cell.get('hands', 0)) >= 5 %}
+                    {% set bb = cell.get('bb_per_100', cell.get('bb100', 0)) or 0 %}
+                    <td class="num cross-cell {{ 'positive' if bb >= 0 else 'negative' }}">
+                        {{ '{:+.1f}'.format(bb) }}
+                        <span class="cross-hands">({{ cell.get('total_hands', cell.get('hands', 0)) }})</span>
+                    </td>
+                    {% else %}
+                    <td class="num cross-cell muted">-</td>
+                    {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endif %}
+
 {% else %}
 <div class="empty-state">
     <div class="empty-state-icon">&#128202;</div>
@@ -44,4 +462,31 @@
     <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCustomFilter() {
+    var el = document.getElementById('custom-filter');
+    el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+
+function toggleTrendView(prefix, view) {
+    var daily = document.getElementById(prefix + '-daily-rows');
+    var weekly = document.getElementById(prefix + '-weekly-rows');
+    var btnDaily = document.getElementById('btn-' + prefix + '-daily');
+    var btnWeekly = document.getElementById('btn-' + prefix + '-weekly');
+    if (view === 'weekly') {
+        if (daily) daily.style.display = 'none';
+        if (weekly) weekly.style.display = '';
+        if (btnDaily) btnDaily.classList.remove('active');
+        if (btnWeekly) btnWeekly.classList.add('active');
+    } else {
+        if (daily) daily.style.display = '';
+        if (weekly) weekly.style.display = 'none';
+        if (btnDaily) btnDaily.classList.add('active');
+        if (btnWeekly) btnWeekly.classList.remove('active');
+    }
+}
+</script>
 {% endblock %}

@@ -407,6 +407,277 @@ def _build_chart_points(values, width=700, height=200, padding=40):
     return ' '.join(pts)
 
 
+def prepare_stats_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data for the detailed stats pages.
+
+    Adds: stats_preflop, stats_postflop, stats_positional, stats_stack_depth,
+    stats_trends_daily, stats_trends_weekly.
+    """
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    daily_reports = data.get('daily_reports', [])
+    filtered = _filter_reports_by_period(daily_reports, period, from_date, to_date)
+
+    # ── Preflop tab data ─────────────────────────────────────────
+    pf = data.get('preflop_overall') or {}
+    preflop_stats = []
+    _PF_STATS = ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats']
+    for s in _PF_STATS:
+        val = pf.get(s)
+        badge = pf.get(f'{s}_badge', '') or pf.get(f'{s}_health', '')
+        if not badge and val is not None:
+            badge = _classify_health(s, val)
+        preflop_stats.append({'name': s, 'label': _stat_label(s), 'value': val, 'badge': badge})
+    data['stats_preflop_overall'] = preflop_stats
+
+    # Preflop by position
+    positional = data.get('positional') or {}
+    preflop_by_pos = []
+    for pos in _POSITION_ORDER:
+        pd = positional.get(pos)
+        if not pd:
+            continue
+        row = {'position': pos, 'hands': pd.get('total_hands', pd.get('hands', 0))}
+        for s in ['vpip', 'pfr', 'three_bet']:
+            row[s] = pd.get(s)
+            badge = pd.get(f'{s}_health', '')
+            if not badge and pd.get(s) is not None:
+                badge = _classify_health(s, pd.get(s))
+            row[f'{s}_badge'] = badge
+        bb = pd.get('bb_per_100', pd.get('bb100', 0)) or 0
+        row['bb100'] = bb
+        preflop_by_pos.append(row)
+    data['stats_preflop_by_pos'] = preflop_by_pos
+
+    # ── Postflop tab data ────────────────────────────────────────
+    po = data.get('postflop_overall') or {}
+    postflop_stats = []
+    _PO_STATS = ['af', 'afq', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd', 'check_raise']
+    for s in _PO_STATS:
+        val = po.get(s)
+        badge = po.get(f'{s}_badge', '') or po.get(f'{s}_health', '')
+        if not badge and val is not None:
+            badge = _classify_health(s, val)
+        postflop_stats.append({'name': s, 'label': _stat_label(s), 'value': val, 'badge': badge})
+    data['stats_postflop_overall'] = postflop_stats
+
+    # Postflop by street
+    by_street = data.get('postflop_by_street') or {}
+    postflop_by_street = []
+    for street in ['Flop', 'Turn', 'River']:
+        sd = by_street.get(street.lower(), by_street.get(street, {}))
+        if not sd:
+            continue
+        row = {'street': street}
+        for s in ['af', 'afq', 'cbet', 'check_raise']:
+            row[s] = sd.get(s)
+        postflop_by_street.append(row)
+    data['stats_postflop_by_street'] = postflop_by_street
+
+    # Postflop by week from by_week data
+    by_week = data.get('postflop_by_week') or {}
+    postflop_weekly = []
+    for wk in sorted(by_week.keys()):
+        wd = by_week[wk]
+        row = {'week': wk}
+        for s in ['af', 'cbet', 'wtsd', 'wsd']:
+            row[s] = wd.get(s)
+        postflop_weekly.append(row)
+    data['stats_postflop_weekly'] = postflop_weekly
+
+    # ── Trends (from daily reports) ──────────────────────────────
+    sorted_reports = sorted(filtered, key=lambda r: r.get('date', ''))
+    daily_trends = []
+    for r in sorted_reports:
+        ds = r.get('day_stats') or {}
+        hands = r.get('hands_count') or r.get('total_hands') or 0
+        daily_trends.append({
+            'date': r.get('date', ''),
+            'hands': hands,
+            'vpip': ds.get('vpip'),
+            'pfr': ds.get('pfr'),
+            'three_bet': ds.get('three_bet'),
+            'af': ds.get('af'),
+            'cbet': ds.get('cbet'),
+            'wtsd': ds.get('wtsd'),
+            'wsd': ds.get('wsd'),
+        })
+    data['stats_daily_trends'] = daily_trends
+
+    # Weekly aggregate trends
+    weeks = {}
+    for r in sorted_reports:
+        d = r.get('date', '')
+        try:
+            dt = datetime.strptime(d, '%Y-%m-%d')
+            iso = dt.isocalendar()
+            wk = f"{iso[0]}-W{iso[1]:02d}"
+        except (ValueError, IndexError):
+            continue
+        weeks.setdefault(wk, []).append(r)
+
+    weekly_trends = []
+    for wk in sorted(weeks):
+        agg = _aggregate_period(weeks[wk])
+        agg['period'] = wk
+        weekly_trends.append(agg)
+    data['stats_weekly_trends'] = weekly_trends
+
+    # ── Positional tab data ──────────────────────────────────────
+    pos_full = []
+    for pos in _POSITION_ORDER:
+        pd = positional.get(pos)
+        if not pd:
+            continue
+        row = {'position': pos, 'hands': pd.get('total_hands', pd.get('hands', 0))}
+        for s in ['vpip', 'pfr', 'three_bet', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd']:
+            row[s] = pd.get(s)
+            badge = pd.get(f'{s}_health', '')
+            if not badge and pd.get(s) is not None:
+                badge = _classify_health(s, pd.get(s))
+            row[f'{s}_badge'] = badge
+        bb = pd.get('bb_per_100', pd.get('bb100', 0)) or 0
+        row['bb100'] = bb
+        row['net'] = pd.get('net', 0) or 0
+        pos_full.append(row)
+    data['stats_positional_full'] = pos_full
+
+    # Best/worst positions
+    if pos_full:
+        best_pos = max(pos_full, key=lambda p: p.get('bb100', 0))
+        worst_pos = min(pos_full, key=lambda p: p.get('bb100', 0))
+        data['stats_best_position'] = best_pos
+        data['stats_worst_position'] = worst_pos
+    else:
+        data['stats_best_position'] = None
+        data['stats_worst_position'] = None
+
+    # Blinds defense (from positional data)
+    blinds_defense = data.get('positional_blinds_defense') or {}
+    defense_rows = []
+    for pos in ['BB', 'SB']:
+        bd = blinds_defense.get(pos)
+        if not bd:
+            # Try to derive from positional_stats
+            pd = positional.get(pos, {})
+            if pd:
+                bd = {
+                    'fold_to_steal': pd.get('fold_to_steal'),
+                    'three_bet_vs_steal': pd.get('three_bet_vs_steal'),
+                    'call_vs_steal': pd.get('call_vs_steal'),
+                    'total_opps': pd.get('steal_opps', 0),
+                }
+        if bd:
+            defense_rows.append({'position': pos, **bd})
+    data['stats_blinds_defense'] = defense_rows
+
+    # ATS by position
+    ats_by_pos = data.get('positional_ats_by_pos') or {}
+    ats_rows = []
+    for pos in ['CO', 'BTN', 'SB']:
+        ad = ats_by_pos.get(pos)
+        if not ad:
+            pd = positional.get(pos, {})
+            if pd and pd.get('ats') is not None:
+                ad = {
+                    'ats': pd.get('ats'),
+                    'ats_opps': pd.get('ats_opps', 0),
+                    'ats_count': pd.get('ats_count', 0),
+                }
+        if ad:
+            ats_rows.append({'position': pos, **ad})
+    data['stats_ats_by_pos'] = ats_rows
+
+    # Radar chart data (pre-compute SVG coordinates)
+    radar_raw = data.get('positional_radar') or {}
+    data['stats_radar'] = _build_radar_svg_data(radar_raw)
+
+    # ── Stack Depth tab data ─────────────────────────────────────
+    stack_depth = data.get('stack_depth') or {}
+    tier_rows = []
+    _TIER_LABELS = {
+        'deep': '50+ BB', 'medium': '25-50 BB',
+        'shallow': '15-25 BB', 'shove': '<15 BB',
+    }
+    for tier in ['deep', 'medium', 'shallow', 'shove']:
+        td = stack_depth.get(tier)
+        if not td:
+            continue
+        row = {
+            'tier': tier,
+            'label': td.get('label', _TIER_LABELS.get(tier, tier.title())),
+            'hands': td.get('total_hands', td.get('hands', 0)),
+        }
+        for s in ['vpip', 'pfr', 'three_bet', 'af', 'cbet', 'wtsd', 'wsd']:
+            row[s] = td.get(s)
+            badge = td.get(f'{s}_health', '')
+            if not badge and td.get(s) is not None:
+                badge = _classify_health(s, td.get(s))
+            row[f'{s}_badge'] = badge
+        bb = td.get('bb_per_100', td.get('bb100', 0)) or 0
+        row['bb100'] = bb
+        tier_rows.append(row)
+    data['stats_tier_rows'] = tier_rows
+
+    # Cross-table position x tier
+    cross_table = data.get('stack_depth_cross_table') or {}
+    data['stats_cross_table'] = cross_table
+
+    return data
+
+
+def _build_radar_svg_data(radar_dict):
+    """Pre-compute radar chart SVG points from position→value dict."""
+    import math
+    if not radar_dict or not isinstance(radar_dict, dict):
+        return None
+    positions = list(radar_dict.keys())
+    n = len(positions)
+    if n < 3:
+        return None
+    cx, cy, r_max = 200, 200, 150
+    axes = []
+    polygon_pts = []
+    for i, pos in enumerate(positions):
+        angle = math.radians(i * 360 / n - 90)
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        axes.append({
+            'label': pos,
+            'x1': cx, 'y1': cy,
+            'x2': round(cx + r_max * cos_a, 1),
+            'y2': round(cy + r_max * sin_a, 1),
+            'lx': round(cx + (r_max + 25) * cos_a, 1),
+            'ly': round(cy + (r_max + 25) * sin_a, 1),
+        })
+        val = radar_dict[pos] if isinstance(radar_dict[pos], (int, float)) else 50
+        rv = r_max * (val / 100)
+        polygon_pts.append(f"{cx + rv * cos_a:.0f},{cy + rv * sin_a:.0f}")
+    return {
+        'axes': axes,
+        'polygon_points': ' '.join(polygon_pts),
+        'positions': positions,
+    }
+
+
+_POSITION_ORDER = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+
+_STAT_LABELS = {
+    'vpip': 'VPIP', 'pfr': 'PFR', 'three_bet': '3-Bet',
+    'fold_to_3bet': 'Fold to 3-Bet', 'ats': 'ATS',
+    'af': 'AF', 'afq': 'AFq', 'cbet': 'CBet',
+    'fold_to_cbet': 'Fold to CBet', 'wtsd': 'WTSD',
+    'wsd': 'W$SD', 'check_raise': 'Check-Raise',
+}
+
+
+def _stat_label(name):
+    """Get display label for a stat name."""
+    return _STAT_LABELS.get(name, name.upper())
+
+
 def prepare_overview_data(data, period='year', from_date='', to_date=''):
     """Enrich analytics data with overview aggregations.
 

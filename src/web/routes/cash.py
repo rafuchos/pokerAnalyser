@@ -7,6 +7,7 @@ from src.web.data import (
     prepare_overview_data,
     prepare_sessions_list,
     prepare_session_day,
+    prepare_stats_data,
 )
 
 cash_bp = Blueprint('cash', __name__)
@@ -39,6 +40,13 @@ def sub_tab(tab):
     elif tab == 'sessions':
         page = request.args.get('page', 1, type=int)
         prepare_sessions_list(data, page=page)
+    elif tab == 'stats':
+        period = request.args.get('period', 'year')
+        from_date = request.args.get('from', '')
+        to_date = request.args.get('to', '')
+        prepare_stats_data(data, period=period,
+                           from_date=from_date, to_date=to_date)
+        data['stats_sub'] = request.args.get('sub', 'preflop')
 
     return render_template(
         f'cash/{tab}.html',

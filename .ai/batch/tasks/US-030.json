@@ -1,0 +1,33 @@
+{
+  "id": "US-030",
+  "title": "Páginas de Stats Detalhadas: Preflop, Postflop, Posicional, Stack Depth",
+  "status": "planned",
+  "estimated_time_seconds": 1800,
+  "timeout_seconds": 1890,
+  "plan": [
+    "1. Update src/web/data.py: Add prepare_stats_data() function that enriches analytics data with preflop by-position breakdown with health badges, postflop by-street breakdown with health badges, positional radar chart SVG data, stack depth by-tier and cross-table position x tier data, and period filtering support",
+    "2. Update src/web/routes/cash.py: Add stats tab handling in sub_tab() to call prepare_stats_data() with period/from/to query params, add sub_tab query param for sub-tabs (preflop/postflop/posicional/stackdepth)",
+    "3. Update src/web/routes/tournament.py: Mirror the same stats tab handling as cash.py",
+    "4. Rewrite src/web/templates/cash/stats.html: Complete rebuild with sub-tabs (Preflop, Postflop, Posicional, Stack Depth), period filter bar, Preflop tab with VPIP/PFR/3Bet table by position with health badges + daily/weekly trends, Postflop tab with AF/AFq/CBet/WTSD/W$SD table by street + weekly trends, Posicional tab with inline SVG radar chart + full position table + blinds defense + ATS + most/least profitable comparison, Stack Depth tab with tier table + cross-table position x tier, all stats with health badge spans",
+    "5. Rewrite src/web/templates/tournament/stats.html: Same template structure as cash stats but with tournament title/context",
+    "6. Update src/web/static/css/style.css: Add CSS for stats sub-tabs, radar chart SVG styling, health badge colors (good/warning/danger), cross-table styling",
+    "7. Update src/web/static/js/app.js: Add JS for stats sub-tab switching (show/hide panels), period filter toggle, custom date filter"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/web/data.py",
+    "src/web/routes/cash.py",
+    "src/web/routes/tournament.py",
+    "src/web/templates/cash/stats.html",
+    "src/web/templates/tournament/stats.html",
+    "src/web/static/css/style.css",
+    "src/web/static/js/app.js"
+  ],
+  "created_at": "2026-03-10T05:30:35.229Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-030",
+  "replanned_at": "2026-03-10T05:46:20.818Z",
+  "replan_reason": "timeout after 945s (high → high)"
+}

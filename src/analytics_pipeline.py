@@ -73,6 +73,16 @@ def _persist_cash_analysis(analytics: AnalyticsRepository,
         game_type, 'postflop_overall',
         stat_json=postflop.get('overall'),
     )
+    if postflop.get('by_street'):
+        analytics.insert_global_stat(
+            game_type, 'postflop_by_street',
+            stat_json=postflop.get('by_street'),
+        )
+    if postflop.get('by_week'):
+        analytics.insert_global_stat(
+            game_type, 'postflop_by_week',
+            stat_json=postflop.get('by_week'),
+        )
 
     # ── Session Stats ─────────────────────────────────────────────
     try:
@@ -103,12 +113,32 @@ def _persist_cash_analysis(analytics: AnalyticsRepository,
             game_type, 'positional_radar',
             stat_json=positional.get('radar'),
         )
+    if positional.get('blinds_defense'):
+        analytics.insert_global_stat(
+            game_type, 'positional_blinds_defense',
+            stat_json=positional.get('blinds_defense'),
+        )
+    if positional.get('ats_by_pos'):
+        analytics.insert_global_stat(
+            game_type, 'positional_ats_by_pos',
+            stat_json=positional.get('ats_by_pos'),
+        )
+    if positional.get('comparison'):
+        analytics.insert_global_stat(
+            game_type, 'positional_comparison',
+            stat_json=positional.get('comparison'),
+        )
 
     # ── Stack Depth Stats ─────────────────────────────────────────
     stack_depth = cash.get_stack_depth_stats()
     for tier, tier_data in (stack_depth.get('by_tier') or {}).items():
         analytics.insert_stack_depth_stat(
             game_type, tier, 'stats', stat_json=tier_data,
+        )
+    if stack_depth.get('by_position_tier'):
+        analytics.insert_global_stat(
+            game_type, 'stack_depth_cross_table',
+            stat_json=stack_depth.get('by_position_tier'),
         )
 
     # ── Leak Analysis ─────────────────────────────────────────────
@@ -214,6 +244,16 @@ def _persist_tournament_analysis(analytics: AnalyticsRepository,
         game_type, 'postflop_overall',
         stat_json=postflop.get('overall'),
     )
+    if postflop.get('by_street'):
+        analytics.insert_global_stat(
+            game_type, 'postflop_by_street',
+            stat_json=postflop.get('by_street'),
+        )
+    if postflop.get('by_week'):
+        analytics.insert_global_stat(
+            game_type, 'postflop_by_week',
+            stat_json=postflop.get('by_week'),
+        )
 
     # ── Session / Daily Stats ─────────────────────────────────────
     try:
@@ -233,12 +273,37 @@ def _persist_tournament_analysis(analytics: AnalyticsRepository,
         analytics.insert_positional_stat(
             game_type, pos, 'stats', stat_json=pos_data,
         )
+    if positional.get('radar'):
+        analytics.insert_global_stat(
+            game_type, 'positional_radar',
+            stat_json=positional.get('radar'),
+        )
+    if positional.get('blinds_defense'):
+        analytics.insert_global_stat(
+            game_type, 'positional_blinds_defense',
+            stat_json=positional.get('blinds_defense'),
+        )
+    if positional.get('ats_by_pos'):
+        analytics.insert_global_stat(
+            game_type, 'positional_ats_by_pos',
+            stat_json=positional.get('ats_by_pos'),
+        )
+    if positional.get('comparison'):
+        analytics.insert_global_stat(
+            game_type, 'positional_comparison',
+            stat_json=positional.get('comparison'),
+        )
 
     # ── Stack Depth Stats ─────────────────────────────────────────
     stack_depth = tourn.get_stack_depth_stats()
     for tier, tier_data in (stack_depth.get('by_tier') or {}).items():
         analytics.insert_stack_depth_stat(
             game_type, tier, 'stats', stat_json=tier_data,
+        )
+    if stack_depth.get('by_position_tier'):
+        analytics.insert_global_stat(
+            game_type, 'stack_depth_cross_table',
+            stat_json=stack_depth.get('by_position_tier'),
         )
 
     # ── Leak Analysis ─────────────────────────────────────────────

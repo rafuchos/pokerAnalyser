@@ -228,11 +228,25 @@ def _create_analytics_db(path: str, cash: bool = True, tournament: bool = False)
             ('cash', '2026-01-20', 'daily_report', json.dumps(daily2), now),
         )
 
-        # Positional stats
+        # Positional stats (enriched for US-030)
+        _pos_bb100 = {'UTG': -2.0, 'CO': 3.5, 'BTN': 5.5, 'BB': -4.0}
         for pos in ['UTG', 'CO', 'BTN', 'BB']:
             pos_data = {
-                'hands': 200, 'vpip': 22.0, 'pfr': 16.0,
-                'three_bet': 6.0, 'bb100': 5.5 if pos == 'BTN' else -2.0,
+                'total_hands': 200, 'hands': 200,
+                'vpip': 22.0, 'vpip_health': 'good',
+                'pfr': 16.0, 'pfr_health': 'warning',
+                'three_bet': 6.0, 'three_bet_health': 'warning',
+                'af': 2.5, 'af_health': 'good',
+                'cbet': 65.0, 'cbet_health': 'good',
+                'fold_to_cbet': 42.0, 'fold_to_cbet_health': 'good',
+                'wtsd': 28.0, 'wtsd_health': 'good',
+                'wsd': 52.0, 'wsd_health': 'good',
+                'net': 50.0 if pos == 'BTN' else -20.0,
+                'bb_per_100': _pos_bb100[pos],
+                'bb100': _pos_bb100[pos],
+                'ats': 35.0 if pos in ('CO', 'BTN') else None,
+                'ats_opps': 40 if pos in ('CO', 'BTN') else 0,
+                'ats_count': 14 if pos in ('CO', 'BTN') else 0,
             }
             conn.execute(
                 "INSERT INTO positional_stats (game_type, position, stat_name, stat_json, updated_at) "
@@ -240,16 +254,101 @@ def _create_analytics_db(path: str, cash: bool = True, tournament: bool = False)
                 ('cash', pos, 'stats', json.dumps(pos_data), now),
             )
 
-        # Stack depth stats
-        for tier in ['deep', 'medium', 'shallow']:
+        # Postflop by street (US-030)
+        by_street = {
+            'flop': {'af': 3.0, 'afq': 55.0, 'cbet': 65.0, 'check_raise': 8.0},
+            'turn': {'af': 2.5, 'afq': 48.0, 'cbet': 50.0, 'check_raise': 6.0},
+            'river': {'af': 2.0, 'afq': 40.0, 'cbet': None, 'check_raise': 5.0},
+        }
+        conn.execute(
+            "INSERT INTO global_stats (game_type, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ('cash', 'postflop_by_street', json.dumps(by_street), now),
+        )
+
+        # Postflop by week (US-030)
+        by_week = {
+            '2026-W03': {'af': 2.8, 'cbet': 65.0, 'wtsd': 28.0, 'wsd': 52.0},
+            '2026-W04': {'af': 2.5, 'cbet': 60.0, 'wtsd': 30.0, 'wsd': 50.0},
+        }
+        conn.execute(
+            "INSERT INTO global_stats (game_type, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ('cash', 'postflop_by_week', json.dumps(by_week), now),
+        )
+
+        # Positional radar (US-030) – needs ≥3 positions for polygon
+        radar = {'UTG': 40, 'CO': 65, 'BTN': 80, 'BB': 30}
+        conn.execute(
+            "INSERT INTO global_stats (game_type, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ('cash', 'positional_radar', json.dumps(radar), now),
+        )
+
+        # Blinds defense (US-030)
+        blinds_defense = {
+            'BB': {'fold_to_steal': 55.0, 'three_bet_vs_steal': 12.0,
+                   'call_vs_steal': 33.0, 'total_opps': 60},
+            'SB': {'fold_to_steal': 65.0, 'three_bet_vs_steal': 10.0,
+                   'call_vs_steal': 25.0, 'total_opps': 45},
+        }
+        conn.execute(
+            "INSERT INTO global_stats (game_type, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ('cash', 'positional_blinds_defense', json.dumps(blinds_defense), now),
+        )
+
+        # ATS by position (US-030)
+        ats_by_pos = {
+            'CO': {'ats': 32.0, 'ats_opps': 50, 'ats_count': 16},
+            'BTN': {'ats': 40.0, 'ats_opps': 55, 'ats_count': 22},
+        }
+        conn.execute(
+            "INSERT INTO global_stats (game_type, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ('cash', 'positional_ats_by_pos', json.dumps(ats_by_pos), now),
+        )
+
+        # Stack depth stats (enriched for US-030)
+        _tier_bb100 = {'deep': 5.0, 'medium': 3.0, 'shallow': -1.0, 'shove': -5.0}
+        _tier_labels = {'deep': '50+ BB', 'medium': '25-50 BB',
+                        'shallow': '15-25 BB', 'shove': '<15 BB'}
+        for tier in ['deep', 'medium', 'shallow', 'shove']:
             tier_data = {
-                'hands': 400, 'vpip': 24.0, 'pfr': 18.0, 'bb100': 3.0,
+                'total_hands': 300, 'hands': 300,
+                'label': _tier_labels[tier],
+                'vpip': 24.0, 'vpip_health': 'good',
+                'pfr': 18.0, 'pfr_health': 'good',
+                'three_bet': 7.0, 'three_bet_health': 'good',
+                'af': 2.5, 'af_health': 'good',
+                'cbet': 65.0, 'cbet_health': 'good',
+                'wtsd': 28.0, 'wtsd_health': 'good',
+                'wsd': 52.0, 'wsd_health': 'good',
+                'bb_per_100': _tier_bb100[tier],
+                'bb100': _tier_bb100[tier],
             }
             conn.execute(
                 "INSERT INTO stack_depth_stats (game_type, tier, stat_name, stat_json, updated_at) "
                 "VALUES (?, ?, ?, ?, ?)",
                 ('cash', tier, 'stats', json.dumps(tier_data), now),
             )
+
+        # Stack depth cross table (US-030)
+        cross_table = {
+            'BTN': {
+                'deep': {'total_hands': 50, 'bb_per_100': 8.0},
+                'medium': {'total_hands': 30, 'bb_per_100': 3.0},
+            },
+            'CO': {
+                'deep': {'total_hands': 40, 'bb_per_100': 4.0},
+                'medium': {'total_hands': 25, 'bb_per_100': 1.0},
+            },
+        }
+        conn.execute(
+            "INSERT INTO global_stats (game_type, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ('cash', 'stack_depth_cross_table', json.dumps(cross_table), now),
+        )
 
         # Leaks
         conn.execute(
@@ -352,6 +451,58 @@ def _create_analytics_db(path: str, cash: bool = True, tournament: bool = False)
             "VALUES (?, ?, ?, ?)",
             ('tournament', 'summary', json.dumps(summary), now),
         )
+
+        # Tournament preflop overall (US-030)
+        conn.execute(
+            "INSERT INTO global_stats (game_type, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ('tournament', 'preflop_overall', json.dumps({
+                'vpip': 26.0, 'vpip_badge': 'good',
+                'pfr': 20.0, 'pfr_badge': 'good',
+                'three_bet': 8.0, 'three_bet_badge': 'good',
+                'fold_to_3bet': 50.0, 'fold_to_3bet_badge': 'good',
+                'ats': 34.0, 'ats_badge': 'good',
+            }), now),
+        )
+
+        # Tournament postflop overall (US-030)
+        conn.execute(
+            "INSERT INTO global_stats (game_type, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ('tournament', 'postflop_overall', json.dumps({
+                'af': 3.0, 'af_badge': 'good',
+                'cbet': 68.0, 'cbet_badge': 'good',
+                'fold_to_cbet': 40.0, 'fold_to_cbet_badge': 'good',
+                'wtsd': 27.0, 'wtsd_badge': 'good',
+                'wsd': 54.0, 'wsd_badge': 'good',
+            }), now),
+        )
+
+        # Tournament positional stats (US-030)
+        for pos in ['UTG', 'CO', 'BTN', 'BB']:
+            conn.execute(
+                "INSERT INTO positional_stats (game_type, position, stat_name, stat_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ('tournament', pos, 'stats', json.dumps({
+                    'total_hands': 150, 'vpip': 25.0, 'pfr': 18.0,
+                    'three_bet': 7.0, 'af': 2.8, 'cbet': 65.0,
+                    'wtsd': 27.0, 'wsd': 53.0,
+                    'bb_per_100': 4.0 if pos == 'BTN' else -1.0,
+                }), now),
+            )
+
+        # Tournament stack depth stats (US-030)
+        for tier in ['deep', 'medium', 'shallow']:
+            conn.execute(
+                "INSERT INTO stack_depth_stats (game_type, tier, stat_name, stat_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ('tournament', tier, 'stats', json.dumps({
+                    'total_hands': 250, 'label': tier.title(),
+                    'vpip': 25.0, 'pfr': 19.0, 'three_bet': 7.5,
+                    'af': 2.7, 'cbet': 63.0, 'wtsd': 29.0, 'wsd': 51.0,
+                    'bb_per_100': 2.0,
+                }), now),
+            )
 
     conn.commit()
     conn.close()
@@ -635,7 +786,7 @@ class TestDataLayer(unittest.TestCase):
         _create_analytics_db(self.db_path)
         data = load_analytics_data(self.db_path, 'cash')
         self.assertIn('deep', data['stack_depth'])
-        self.assertEqual(data['stack_depth']['deep']['hands'], 400)
+        self.assertEqual(data['stack_depth']['deep']['total_hands'], 300)
 
     def test_load_leaks(self):
         _create_analytics_db(self.db_path)
@@ -732,16 +883,16 @@ class TestRenderWithData(unittest.TestCase):
         self.assertIn('AF', html)
 
     def test_cash_stats_shows_positions(self):
-        r = self.client.get('/cash/stats')
+        r = self.client.get('/cash/stats?sub=preflop')
         html = r.data.decode()
         self.assertIn('BTN', html)
         self.assertIn('UTG', html)
 
     def test_cash_stats_shows_stack_depth(self):
-        r = self.client.get('/cash/stats')
+        r = self.client.get('/cash/stats?sub=stackdepth')
         html = r.data.decode()
-        self.assertIn('Deep', html)
-        self.assertIn('Medium', html)
+        self.assertIn('50+ BB', html)
+        self.assertIn('25-50 BB', html)
 
     def test_cash_leaks_shows_leak(self):
         r = self.client.get('/cash/leaks')
@@ -1843,6 +1994,487 @@ class TestSessionsCSS(unittest.TestCase):
         r = self.client.get('/static/css/style.css')
         css = r.data.decode()
         self.assertIn('.back-link', css)
+
+
+# ── US-030: Stats Pages Tests ────────────────────────────────────
+
+
+class TestPrepareStatsData(unittest.TestCase):
+    """Test prepare_stats_data() enrichment function."""
+
+    def _make_data(self):
+        """Build sample analytics data dict."""
+        return {
+            'preflop_overall': {
+                'vpip': 24.5, 'vpip_badge': 'good',
+                'pfr': 18.2, 'pfr_badge': 'good',
+                'three_bet': 7.1, 'three_bet_badge': 'good',
+                'fold_to_3bet': 60.0, 'fold_to_3bet_badge': 'warning',
+                'ats': 32.0, 'ats_badge': 'good',
+            },
+            'postflop_overall': {
+                'af': 2.8, 'af_badge': 'good',
+                'afq': 50.0,
+                'cbet': 65.0, 'cbet_badge': 'good',
+                'fold_to_cbet': 45.0,
+                'wtsd': 28.0, 'wtsd_badge': 'good',
+                'wsd': 52.0, 'wsd_badge': 'good',
+                'check_raise': 8.0,
+            },
+            'positional': {
+                'UTG': {
+                    'total_hands': 200, 'vpip': 18.0, 'pfr': 14.0,
+                    'three_bet': 5.0, 'af': 2.0, 'cbet': 60.0,
+                    'wtsd': 25.0, 'wsd': 50.0,
+                    'bb_per_100': -3.0, 'net': -30.0,
+                },
+                'BTN': {
+                    'total_hands': 250, 'vpip': 30.0, 'pfr': 22.0,
+                    'three_bet': 9.0, 'af': 3.5, 'cbet': 72.0,
+                    'wtsd': 30.0, 'wsd': 55.0,
+                    'bb_per_100': 8.0, 'net': 120.0,
+                    'ats': 42.0, 'ats_opps': 60, 'ats_count': 25,
+                },
+            },
+            'postflop_by_street': {
+                'flop': {'af': 3.0, 'afq': 55.0, 'cbet': 65.0, 'check_raise': 8.0},
+                'turn': {'af': 2.5, 'afq': 48.0, 'cbet': 50.0, 'check_raise': 6.0},
+                'river': {'af': 2.0, 'afq': 40.0, 'cbet': None, 'check_raise': 5.0},
+            },
+            'postflop_by_week': {
+                '2026-W03': {'af': 2.8, 'cbet': 65.0, 'wtsd': 28.0, 'wsd': 52.0},
+                '2026-W04': {'af': 2.5, 'cbet': 60.0, 'wtsd': 30.0, 'wsd': 50.0},
+            },
+            'positional_radar': {'UTG': 40, 'BTN': 80},
+            'positional_blinds_defense': {
+                'BB': {'fold_to_steal': 55.0, 'three_bet_vs_steal': 12.0,
+                       'call_vs_steal': 33.0, 'total_opps': 60},
+            },
+            'positional_ats_by_pos': {
+                'BTN': {'ats': 42.0, 'ats_opps': 60, 'ats_count': 25},
+            },
+            'stack_depth': {
+                'deep': {
+                    'total_hands': 500, 'label': '50+ BB',
+                    'vpip': 22.0, 'pfr': 17.0, 'three_bet': 7.0,
+                    'af': 2.8, 'cbet': 68.0, 'wtsd': 27.0, 'wsd': 53.0,
+                    'bb_per_100': 5.0,
+                },
+                'medium': {
+                    'total_hands': 300, 'label': '25-50 BB',
+                    'vpip': 25.0, 'pfr': 19.0, 'three_bet': 8.0,
+                    'af': 2.5, 'cbet': 62.0, 'wtsd': 29.0, 'wsd': 50.0,
+                    'bb_per_100': 2.0,
+                },
+            },
+            'stack_depth_cross_table': {
+                'BTN': {
+                    'deep': {'total_hands': 80, 'bb_per_100': 10.0},
+                    'medium': {'total_hands': 40, 'bb_per_100': 3.0},
+                },
+            },
+            'daily_reports': [
+                {
+                    'date': '2026-01-15', 'net': 50.0,
+                    'hands_count': 200, 'total_hands': 200,
+                    'day_stats': {
+                        'vpip': 24.0, 'pfr': 18.0, 'three_bet': 7.0,
+                        'af': 2.8, 'cbet': 65.0, 'wtsd': 28.0, 'wsd': 52.0,
+                    },
+                },
+                {
+                    'date': '2026-01-20', 'net': -25.0,
+                    'hands_count': 100, 'total_hands': 100,
+                    'day_stats': {
+                        'vpip': 30.0, 'pfr': 22.0, 'three_bet': 5.0,
+                        'af': 1.8, 'cbet': 55.0, 'wtsd': 35.0, 'wsd': 45.0,
+                    },
+                },
+            ],
+        }
+
+    def test_preflop_overall_stats(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        pf = data['stats_preflop_overall']
+        self.assertEqual(len(pf), 5)
+        self.assertEqual(pf[0]['name'], 'vpip')
+        self.assertEqual(pf[0]['value'], 24.5)
+        self.assertEqual(pf[0]['badge'], 'good')
+        self.assertEqual(pf[0]['label'], 'VPIP')
+
+    def test_preflop_by_position(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        by_pos = data['stats_preflop_by_pos']
+        self.assertEqual(len(by_pos), 2)
+        positions = [p['position'] for p in by_pos]
+        self.assertIn('UTG', positions)
+        self.assertIn('BTN', positions)
+        btn = [p for p in by_pos if p['position'] == 'BTN'][0]
+        self.assertEqual(btn['vpip'], 30.0)
+        self.assertEqual(btn['bb100'], 8.0)
+
+    def test_postflop_overall_stats(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        po = data['stats_postflop_overall']
+        names = [s['name'] for s in po]
+        self.assertIn('af', names)
+        self.assertIn('cbet', names)
+        self.assertIn('wtsd', names)
+        self.assertIn('wsd', names)
+        self.assertIn('check_raise', names)
+
+    def test_postflop_by_street(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        by_street = data['stats_postflop_by_street']
+        self.assertEqual(len(by_street), 3)
+        self.assertEqual(by_street[0]['street'], 'Flop')
+        self.assertEqual(by_street[0]['af'], 3.0)
+        self.assertEqual(by_street[1]['street'], 'Turn')
+        self.assertEqual(by_street[2]['street'], 'River')
+
+    def test_postflop_weekly_trends(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        weekly = data['stats_postflop_weekly']
+        self.assertEqual(len(weekly), 2)
+        self.assertEqual(weekly[0]['week'], '2026-W03')
+        self.assertEqual(weekly[0]['af'], 2.8)
+
+    def test_positional_full_table(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        full = data['stats_positional_full']
+        self.assertEqual(len(full), 2)
+        btn = [p for p in full if p['position'] == 'BTN'][0]
+        self.assertEqual(btn['af'], 3.5)
+        self.assertEqual(btn['bb100'], 8.0)
+        self.assertEqual(btn['net'], 120.0)
+
+    def test_best_worst_position(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        self.assertEqual(data['stats_best_position']['position'], 'BTN')
+        self.assertEqual(data['stats_worst_position']['position'], 'UTG')
+
+    def test_blinds_defense(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        defense = data['stats_blinds_defense']
+        self.assertEqual(len(defense), 1)
+        self.assertEqual(defense[0]['position'], 'BB')
+        self.assertEqual(defense[0]['fold_to_steal'], 55.0)
+
+    def test_ats_by_position(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        ats = data['stats_ats_by_pos']
+        self.assertEqual(len(ats), 1)
+        self.assertEqual(ats[0]['position'], 'BTN')
+        self.assertEqual(ats[0]['ats'], 42.0)
+
+    def test_radar_data(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        # Radar needs at least 3 positions for SVG polygon
+        data['positional_radar'] = {'UTG': 40, 'CO': 65, 'BTN': 80}
+        prepare_stats_data(data)
+        radar = data['stats_radar']
+        self.assertIsNotNone(radar)
+        self.assertIn('axes', radar)
+        self.assertIn('polygon_points', radar)
+        self.assertEqual(len(radar['axes']), 3)
+
+    def test_radar_data_too_few_positions(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        data['positional_radar'] = {'UTG': 40, 'BTN': 80}
+        prepare_stats_data(data)
+        self.assertIsNone(data['stats_radar'])
+
+    def test_tier_rows(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        tiers = data['stats_tier_rows']
+        self.assertEqual(len(tiers), 2)
+        self.assertEqual(tiers[0]['tier'], 'deep')
+        self.assertEqual(tiers[0]['label'], '50+ BB')
+        self.assertEqual(tiers[0]['hands'], 500)
+        self.assertEqual(tiers[0]['bb100'], 5.0)
+
+    def test_cross_table(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        ct = data['stats_cross_table']
+        self.assertIn('BTN', ct)
+        self.assertEqual(ct['BTN']['deep']['bb_per_100'], 10.0)
+
+    def test_daily_trends(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        daily = data['stats_daily_trends']
+        self.assertEqual(len(daily), 2)
+        self.assertEqual(daily[0]['date'], '2026-01-15')
+        self.assertEqual(daily[0]['vpip'], 24.0)
+
+    def test_weekly_trends(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data)
+        weekly = data['stats_weekly_trends']
+        self.assertTrue(len(weekly) >= 1)
+
+    def test_period_filter(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        prepare_stats_data(data, period='1m')
+        self.assertEqual(data['active_period'], '1m')
+
+    def test_empty_positional(self):
+        from src.web.data import prepare_stats_data
+        data = {'positional': {}, 'daily_reports': []}
+        prepare_stats_data(data)
+        self.assertEqual(data['stats_preflop_by_pos'], [])
+        self.assertEqual(data['stats_positional_full'], [])
+        self.assertIsNone(data['stats_best_position'])
+
+    def test_empty_stack_depth(self):
+        from src.web.data import prepare_stats_data
+        data = {'positional': {}, 'daily_reports': [], 'stack_depth': {}}
+        prepare_stats_data(data)
+        self.assertEqual(data['stats_tier_rows'], [])
+        self.assertEqual(data['stats_cross_table'], {})
+
+    def test_health_badges_derived(self):
+        from src.web.data import prepare_stats_data
+        data = self._make_data()
+        # Remove existing health from positional to test derivation
+        data['positional']['UTG'] = {
+            'total_hands': 200, 'vpip': 40.0, 'pfr': 14.0,
+            'three_bet': 5.0, 'bb_per_100': -3.0,
+        }
+        prepare_stats_data(data)
+        by_pos = data['stats_preflop_by_pos']
+        utg = [p for p in by_pos if p['position'] == 'UTG'][0]
+        self.assertEqual(utg['vpip_badge'], 'danger')
+
+
+class TestStatsRoutes(unittest.TestCase):
+    """Test stats page routes with data."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+        os.rmdir(self.tmpdir)
+
+    def test_cash_stats_default_preflop(self):
+        r = self.client.get('/cash/stats')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('stats-subtabs', html)
+        self.assertIn('Preflop', html)
+        self.assertIn('Postflop', html)
+        self.assertIn('Posicional', html)
+        self.assertIn('Stack Depth', html)
+
+    def test_cash_stats_preflop_tab(self):
+        r = self.client.get('/cash/stats?sub=preflop')
+        html = r.data.decode()
+        self.assertIn('Overall Preflop Stats', html)
+        self.assertIn('Preflop Stats by Position', html)
+        self.assertIn('VPIP', html)
+        self.assertIn('PFR', html)
+
+    def test_cash_stats_postflop_tab(self):
+        r = self.client.get('/cash/stats?sub=postflop')
+        html = r.data.decode()
+        self.assertIn('Overall Postflop Stats', html)
+        self.assertIn('Stats by Street', html)
+        self.assertIn('Flop', html)
+        self.assertIn('Turn', html)
+        self.assertIn('River', html)
+
+    def test_cash_stats_positional_tab(self):
+        r = self.client.get('/cash/stats?sub=positional')
+        html = r.data.decode()
+        self.assertIn('Complete Stats by Position', html)
+        self.assertIn('Position Comparison', html)
+        self.assertIn('Most Profitable', html)
+        self.assertIn('Least Profitable', html)
+
+    def test_cash_stats_positional_has_radar(self):
+        r = self.client.get('/cash/stats?sub=positional')
+        html = r.data.decode()
+        self.assertIn('Positional Radar', html)
+        self.assertIn('radar-svg', html)
+
+    def test_cash_stats_positional_has_blinds_defense(self):
+        r = self.client.get('/cash/stats?sub=positional')
+        html = r.data.decode()
+        self.assertIn('Blinds Defense', html)
+        self.assertIn('Fold to Steal', html)
+
+    def test_cash_stats_positional_has_ats(self):
+        r = self.client.get('/cash/stats?sub=positional')
+        html = r.data.decode()
+        self.assertIn('Attempt to Steal', html)
+        self.assertIn('ATS%', html)
+
+    def test_cash_stats_stackdepth_tab(self):
+        r = self.client.get('/cash/stats?sub=stackdepth')
+        html = r.data.decode()
+        self.assertIn('Stats by Stack Depth', html)
+        self.assertIn('50+ BB', html)
+
+    def test_cash_stats_stackdepth_has_cross_table(self):
+        r = self.client.get('/cash/stats?sub=stackdepth')
+        html = r.data.decode()
+        self.assertIn('Position x Stack Depth', html)
+        self.assertIn('cross-table', html)
+
+    def test_cash_stats_has_period_filter(self):
+        r = self.client.get('/cash/stats')
+        html = r.data.decode()
+        self.assertIn('period-filter', html)
+        self.assertIn('Last Month', html)
+        self.assertIn('Full Year', html)
+
+    def test_cash_stats_period_param(self):
+        r = self.client.get('/cash/stats?sub=preflop&period=1m')
+        html = r.data.decode()
+        self.assertEqual(r.status_code, 200)
+
+    def test_cash_stats_has_health_badges(self):
+        r = self.client.get('/cash/stats?sub=preflop')
+        html = r.data.decode()
+        self.assertIn('badge-good', html)
+
+    def test_cash_stats_preflop_has_trends(self):
+        r = self.client.get('/cash/stats?sub=preflop')
+        html = r.data.decode()
+        self.assertIn('Preflop Trends', html)
+        self.assertIn('By Day', html)
+        self.assertIn('By Week', html)
+
+    def test_cash_stats_postflop_has_weekly(self):
+        r = self.client.get('/cash/stats?sub=postflop')
+        html = r.data.decode()
+        self.assertIn('Postflop Weekly Trends', html)
+
+    def test_tournament_stats_default(self):
+        r = self.client.get('/tournament/stats')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('Tournament Stats', html)
+        self.assertIn('stats-subtabs', html)
+
+    def test_tournament_stats_preflop(self):
+        r = self.client.get('/tournament/stats?sub=preflop')
+        html = r.data.decode()
+        self.assertIn('Overall Preflop Stats', html)
+        self.assertIn('VPIP', html)
+
+    def test_tournament_stats_postflop(self):
+        r = self.client.get('/tournament/stats?sub=postflop')
+        html = r.data.decode()
+        self.assertIn('Overall Postflop Stats', html)
+
+    def test_tournament_stats_positional(self):
+        r = self.client.get('/tournament/stats?sub=positional')
+        html = r.data.decode()
+        self.assertIn('Complete Stats by Position', html)
+
+    def test_tournament_stats_stackdepth(self):
+        r = self.client.get('/tournament/stats?sub=stackdepth')
+        html = r.data.decode()
+        self.assertIn('Stats by Stack Depth', html)
+
+
+class TestStatsEmptyState(unittest.TestCase):
+    """Test stats page empty state."""
+
+    def setUp(self):
+        self.app = create_app(analytics_db_path='/tmp/_nonexistent_test_stats.db')
+        self.client = self.app.test_client()
+
+    def test_cash_stats_empty(self):
+        r = self.client.get('/cash/stats')
+        html = r.data.decode()
+        self.assertIn('No stats data available', html)
+
+    def test_tournament_stats_empty(self):
+        r = self.client.get('/tournament/stats')
+        html = r.data.decode()
+        self.assertIn('No tournament stats available', html)
+
+    def test_cash_stats_empty_subtab(self):
+        r = self.client.get('/cash/stats?sub=postflop')
+        html = r.data.decode()
+        self.assertIn('No stats data available', html)
+
+
+class TestStatsCSS(unittest.TestCase):
+    """Test CSS includes stats-specific styles."""
+
+    def setUp(self):
+        self.app = create_app()
+        self.client = self.app.test_client()
+
+    def test_css_has_stats_subtabs(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.stats-subtabs', css)
+        self.assertIn('.stats-subtab', css)
+
+    def test_css_has_stats_panel(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.stats-panel', css)
+
+    def test_css_has_stats_hud_grid(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.stats-hud-grid', css)
+        self.assertIn('.stat-hud-card', css)
+
+    def test_css_has_radar(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.radar-chart-container', css)
+        self.assertIn('.radar-svg', css)
+
+    def test_css_has_cross_table(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.cross-table', css)
+        self.assertIn('.cross-cell', css)
+
+    def test_css_has_table_scroll(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.table-scroll', css)
 
 
 if __name__ == '__main__':
