@@ -569,13 +569,13 @@ class TestRenderWithData(unittest.TestCase):
         r = self.client.get('/cash/overview')
         html = r.data.decode()
         self.assertIn('24.5', html)
-        self.assertIn('Preflop Stats', html)
+        self.assertIn('Stats Compactas', html)
 
     def test_cash_overview_shows_postflop(self):
         r = self.client.get('/cash/overview')
         html = r.data.decode()
         self.assertIn('2.80', html)
-        self.assertIn('Postflop Stats', html)
+        self.assertIn('WTSD', html)
 
     def test_cash_sessions_shows_daily(self):
         r = self.client.get('/cash/sessions')
@@ -762,6 +762,409 @@ class TestResponsiveLayout(unittest.TestCase):
         r = self.client.get('/cash/overview')
         html = r.data.decode()
         self.assertIn('lang="pt-BR"', html)
+
+
+# ── US-028 Overview Dashboard Tests ─────────────────────────────
+
+
+class TestOverviewDataHelpers(unittest.TestCase):
+    """Test data layer helper functions for overview dashboard."""
+
+    def test_classify_health_good(self):
+        from src.web.data import _classify_health
+        self.assertEqual(_classify_health('vpip', 25.0), 'good')
+        self.assertEqual(_classify_health('af', 2.5), 'good')
+        self.assertEqual(_classify_health('wtsd', 30.0), 'good')
+
+    def test_classify_health_warning(self):
+        from src.web.data import _classify_health
+        self.assertEqual(_classify_health('vpip', 19.0), 'warning')
+        self.assertEqual(_classify_health('vpip', 33.0), 'warning')
+
+    def test_classify_health_danger(self):
+        from src.web.data import _classify_health
+        self.assertEqual(_classify_health('vpip', 10.0), 'danger')
+        self.assertEqual(_classify_health('vpip', 50.0), 'danger')
+
+    def test_classify_health_none(self):
+        from src.web.data import _classify_health
+        self.assertEqual(_classify_health('vpip', None), '')
+
+    def test_classify_health_unknown_stat(self):
+        from src.web.data import _classify_health
+        self.assertEqual(_classify_health('unknown', 50.0), '')
+
+    def test_aggregate_period_basic(self):
+        from src.web.data import _aggregate_period
+        reports = [
+            {'total_hands': 100, 'net': 50.0, 'day_stats': {'vpip': 24.0, 'pfr': 18.0}},
+            {'total_hands': 200, 'net': -30.0, 'day_stats': {'vpip': 26.0, 'pfr': 20.0}},
+        ]
+        result = _aggregate_period(reports)
+        self.assertEqual(result['hands'], 300)
+        self.assertAlmostEqual(result['net'], 20.0)
+        self.assertEqual(result['days'], 2)
+        # Weighted average: (24*100 + 26*200) / 300 = 25.33
+        self.assertAlmostEqual(result['vpip'], 25.3, places=1)
+        # Weighted average: (18*100 + 20*200) / 300 = 19.33
+        self.assertAlmostEqual(result['pfr'], 19.3, places=1)
+
+    def test_aggregate_period_missing_stats(self):
+        from src.web.data import _aggregate_period
+        reports = [{'total_hands': 100, 'net': 10.0}]
+        result = _aggregate_period(reports)
+        self.assertEqual(result['hands'], 100)
+        self.assertIsNone(result['vpip'])
+        self.assertEqual(result['vpip_badge'], '')
+
+    def test_aggregate_period_uses_hands_count_key(self):
+        from src.web.data import _aggregate_period
+        reports = [{'hands_count': 50, 'net': 5.0}]
+        result = _aggregate_period(reports)
+        self.assertEqual(result['hands'], 50)
+
+    def test_aggregate_period_health_badges(self):
+        from src.web.data import _aggregate_period
+        reports = [{'total_hands': 100, 'net': 10.0, 'day_stats': {'vpip': 25.0}}]
+        result = _aggregate_period(reports)
+        self.assertEqual(result['vpip_badge'], 'good')
+
+    def test_filter_reports_year(self):
+        from src.web.data import _filter_reports_by_period
+        reports = [{'date': '2026-01-01'}, {'date': '2026-06-01'}]
+        result = _filter_reports_by_period(reports, 'year')
+        self.assertEqual(len(result), 2)
+
+    def test_filter_reports_custom(self):
+        from src.web.data import _filter_reports_by_period
+        reports = [
+            {'date': '2026-01-01'}, {'date': '2026-02-15'}, {'date': '2026-03-01'},
+        ]
+        result = _filter_reports_by_period(reports, 'custom', '2026-01-01', '2026-02-28')
+        self.assertEqual(len(result), 2)
+
+    def test_filter_reports_custom_no_dates(self):
+        from src.web.data import _filter_reports_by_period
+        reports = [{'date': '2026-01-01'}]
+        result = _filter_reports_by_period(reports, 'custom')
+        self.assertEqual(len(result), 1)
+
+    def test_build_chart_points_empty(self):
+        from src.web.data import _build_chart_points
+        self.assertEqual(_build_chart_points([]), '')
+
+    def test_build_chart_points_single(self):
+        from src.web.data import _build_chart_points
+        result = _build_chart_points([100.0])
+        self.assertIn(',', result)
+
+    def test_build_chart_points_multiple(self):
+        from src.web.data import _build_chart_points
+        result = _build_chart_points([0, 50, 100])
+        parts = result.split(' ')
+        self.assertEqual(len(parts), 3)
+
+    def test_build_chart_points_constant_values(self):
+        from src.web.data import _build_chart_points
+        result = _build_chart_points([50, 50, 50])
+        self.assertIn(' ', result)
+
+
+class TestPrepareOverviewData(unittest.TestCase):
+    """Test prepare_overview_data function."""
+
+    def test_empty_data(self):
+        from src.web.data import prepare_overview_data
+        data = {}
+        prepare_overview_data(data)
+        self.assertEqual(data.get('monthly_stats'), [])
+        self.assertEqual(data.get('weekly_stats'), [])
+        self.assertEqual(data.get('profit_chart'), {})
+
+    def test_with_daily_reports(self):
+        from src.web.data import prepare_overview_data
+        data = {
+            'summary': {'total_hands': 500, 'total_net': 100.0, 'total_days': 3},
+            'preflop_overall': {'vpip': 24.0, 'vpip_badge': 'good', 'pfr': 18.0, 'pfr_badge': 'good'},
+            'postflop_overall': {'af': 2.5, 'af_badge': 'good'},
+            'daily_reports': [
+                {'date': '2026-01-15', 'net': 50.0, 'total_hands': 200,
+                 'day_stats': {'vpip': 24.0, 'pfr': 18.0, 'af': 2.5}},
+                {'date': '2026-01-20', 'net': 30.0, 'total_hands': 150,
+                 'day_stats': {'vpip': 26.0, 'pfr': 20.0, 'af': 3.0}},
+                {'date': '2026-02-05', 'net': 20.0, 'total_hands': 150,
+                 'day_stats': {'vpip': 22.0, 'pfr': 16.0, 'af': 2.0}},
+            ],
+        }
+        prepare_overview_data(data)
+
+        # Monthly stats
+        self.assertEqual(len(data['monthly_stats']), 2)
+        self.assertEqual(data['monthly_stats'][0]['period'], '2026-01')
+        self.assertEqual(data['monthly_stats'][0]['hands'], 350)
+        self.assertEqual(data['monthly_stats'][1]['period'], '2026-02')
+        self.assertEqual(data['monthly_stats'][1]['hands'], 150)
+
+        # Weekly stats
+        self.assertGreater(len(data['weekly_stats']), 0)
+
+        # Overall row
+        self.assertEqual(data['overall_row']['hands'], 500)
+        self.assertEqual(data['overall_row']['vpip'], 24.0)
+        self.assertEqual(data['overall_row']['vpip_badge'], 'good')
+
+        # Profit chart
+        self.assertTrue(data['profit_chart']['points'])
+        self.assertEqual(len(data['profit_chart']['values']), 3)
+        self.assertAlmostEqual(data['profit_chart']['final'], 100.0)
+
+    def test_active_period_set(self):
+        from src.web.data import prepare_overview_data
+        data = {'daily_reports': []}
+        prepare_overview_data(data, period='3m')
+        self.assertEqual(data['active_period'], '3m')
+
+    def test_overall_row_ev_bb100(self):
+        from src.web.data import prepare_overview_data
+        data = {
+            'summary': {'total_hands': 100},
+            'preflop_overall': {},
+            'postflop_overall': {},
+            'allin_ev': {'bb100_ev': 5.5},
+            'daily_reports': [{'date': '2026-01-01', 'net': 10.0, 'total_hands': 100}],
+        }
+        prepare_overview_data(data)
+        self.assertAlmostEqual(data['overall_row']['ev_bb100'], 5.5)
+
+    def test_redline_chart(self):
+        from src.web.data import prepare_overview_data
+        data = {
+            'summary': {'total_hands': 100},
+            'preflop_overall': {},
+            'postflop_overall': {},
+            'daily_reports': [{'date': '2026-01-01', 'net': 10.0, 'total_hands': 100}],
+            'redline': {
+                'cumulative': [
+                    {'total': 0, 'showdown': 0, 'non_showdown': 0},
+                    {'total': 10, 'showdown': 15, 'non_showdown': -5},
+                    {'total': 20, 'showdown': 25, 'non_showdown': -5},
+                ],
+            },
+        }
+        prepare_overview_data(data)
+        self.assertIn('total_points', data['redline_chart'])
+        self.assertIn('showdown_points', data['redline_chart'])
+        self.assertIn('non_showdown_points', data['redline_chart'])
+
+    def test_redline_chart_empty(self):
+        from src.web.data import prepare_overview_data
+        data = {
+            'summary': {'total_hands': 100},
+            'preflop_overall': {},
+            'postflop_overall': {},
+            'daily_reports': [{'date': '2026-01-01', 'net': 10.0, 'total_hands': 100}],
+        }
+        prepare_overview_data(data)
+        self.assertEqual(data['redline_chart'], {})
+
+    def test_monthly_stats_with_badges(self):
+        from src.web.data import prepare_overview_data
+        data = {
+            'summary': {'total_hands': 100},
+            'preflop_overall': {},
+            'postflop_overall': {},
+            'daily_reports': [
+                {'date': '2026-01-15', 'net': 50.0, 'total_hands': 100,
+                 'day_stats': {'vpip': 25.0, 'pfr': 18.0}},
+            ],
+        }
+        prepare_overview_data(data)
+        m = data['monthly_stats'][0]
+        self.assertAlmostEqual(m['vpip'], 25.0)
+        self.assertEqual(m['vpip_badge'], 'good')
+
+    def test_custom_period_filter(self):
+        from src.web.data import prepare_overview_data
+        data = {
+            'summary': {'total_hands': 300},
+            'preflop_overall': {},
+            'postflop_overall': {},
+            'daily_reports': [
+                {'date': '2026-01-10', 'net': 10.0, 'total_hands': 100},
+                {'date': '2026-02-15', 'net': 20.0, 'total_hands': 100},
+                {'date': '2026-03-05', 'net': 30.0, 'total_hands': 100},
+            ],
+        }
+        prepare_overview_data(data, period='custom', from_date='2026-01-01', to_date='2026-02-28')
+        self.assertEqual(len(data['monthly_stats']), 2)
+        self.assertEqual(data['active_period'], 'custom')
+        self.assertEqual(data['custom_from'], '2026-01-01')
+        self.assertEqual(data['custom_to'], '2026-02-28')
+
+
+class TestOverviewRoutes(unittest.TestCase):
+    """Test overview routes with data."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+        os.rmdir(self.tmpdir)
+
+    def test_cash_overview_has_period_filter(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('period-filter', html)
+        self.assertIn('Last Month', html)
+        self.assertIn('Last 3 Months', html)
+        self.assertIn('Full Year', html)
+        self.assertIn('Custom', html)
+
+    def test_cash_overview_has_hud_table(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('hud-table', html)
+        self.assertIn('VPIP', html)
+        self.assertIn('PFR', html)
+        self.assertIn('3Bet', html)
+        self.assertIn('ATS', html)
+        self.assertIn('AF', html)
+        self.assertIn('CBet', html)
+        self.assertIn('WTSD', html)
+        self.assertIn('W$SD', html)
+        self.assertIn('EV bb/100', html)
+
+    def test_cash_overview_has_overall_row(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('overall-row', html)
+        self.assertIn('Overall', html)
+
+    def test_cash_overview_has_monthly_rows(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('monthly-rows', html)
+
+    def test_cash_overview_has_weekly_rows(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('weekly-rows', html)
+
+    def test_cash_overview_has_view_toggle(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('btn-monthly', html)
+        self.assertIn('btn-weekly', html)
+        self.assertIn('By Month', html)
+        self.assertIn('By Week', html)
+
+    def test_cash_overview_ver_detalhes_link(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('Ver detalhes', html)
+        self.assertIn('detail-link', html)
+
+    def test_cash_overview_has_profit_chart(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('Profit Over Time', html)
+
+    def test_cash_overview_has_bb100_card(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('bb/100', html)
+
+    def test_cash_overview_has_health_score_card(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('Health Score', html)
+        self.assertIn('78', html)
+
+    def test_cash_overview_shows_summary_values(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('1,200', html)
+        self.assertIn('350.75', html)
+
+    def test_cash_overview_hud_shows_stat_values(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('24.5', html)  # VPIP
+        self.assertIn('18.2', html)  # PFR
+        self.assertIn('2.80', html)  # AF
+
+    def test_cash_overview_hud_shows_health_badges(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('badge-good', html)
+
+    def test_cash_overview_period_filter_param(self):
+        r = self.client.get('/cash/overview?period=3m')
+        html = r.data.decode()
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('Cash Game Overview', html)
+
+    def test_cash_overview_custom_period(self):
+        r = self.client.get('/cash/overview?period=custom&from=2026-01-01&to=2026-12-31')
+        self.assertEqual(r.status_code, 200)
+
+    def test_tournament_overview_has_period_filter(self):
+        r = self.client.get('/tournament/overview')
+        html = r.data.decode()
+        self.assertIn('period-filter', html)
+        self.assertIn('Full Year', html)
+
+    def test_tournament_overview_has_roi_card(self):
+        r = self.client.get('/tournament/overview')
+        html = r.data.decode()
+        self.assertIn('ROI', html)
+
+    def test_tournament_overview_has_tournaments_card(self):
+        r = self.client.get('/tournament/overview')
+        html = r.data.decode()
+        self.assertIn('Tournaments', html)
+        self.assertIn('25', html)
+
+    def test_cash_overview_toggle_script(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('toggleView', html)
+        self.assertIn('toggleCustomFilter', html)
+
+    def test_cash_overview_net_profit_label(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('Net Profit', html)
+
+    def test_cash_overview_days_played(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('Days Played', html)
+
+
+class TestOverviewEmptyState(unittest.TestCase):
+    """Test overview empty state."""
+
+    def setUp(self):
+        self.app = create_app(analytics_db_path='/tmp/_nonexistent_test.db')
+        self.client = self.app.test_client()
+
+    def test_cash_overview_empty_state(self):
+        r = self.client.get('/cash/overview')
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
+        self.assertIn('python main.py analyze', html)
+
+    def test_tournament_overview_empty_state(self):
+        r = self.client.get('/tournament/overview')
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
 
 
 if __name__ == '__main__':

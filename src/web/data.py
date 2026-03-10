@@ -3,6 +3,29 @@
 import json
 import os
 import sqlite3
+from datetime import datetime, timedelta
+
+
+# ── Health ranges for HUD badge classification (6-max NL) ────────
+
+_HEALTHY_RANGES = {
+    'vpip': (22, 30), 'pfr': (17, 25), 'three_bet': (7, 12),
+    'fold_to_3bet': (40, 55), 'ats': (30, 45),
+    'af': (2.0, 3.5), 'cbet': (60, 80), 'fold_to_cbet': (35, 50),
+    'wtsd': (25, 33), 'wsd': (50, 65),
+}
+
+_WARNING_RANGES = {
+    'vpip': (18, 35), 'pfr': (14, 30), 'three_bet': (5, 15),
+    'fold_to_3bet': (35, 65), 'ats': (25, 50),
+    'af': (1.5, 4.5), 'cbet': (50, 90), 'fold_to_cbet': (30, 60),
+    'wtsd': (22, 38), 'wsd': (45, 70),
+}
+
+_STAT_NAMES = [
+    'vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats',
+    'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd',
+]
 
 
 def load_analytics_data(db_path: str, game_type: str) -> dict:
@@ -123,5 +146,207 @@ def load_analytics_data(db_path: str, game_type: str) -> dict:
         pass
     finally:
         conn.close()
+
+    return data
+
+
+# ── Overview helpers ─────────────────────────────────────────────
+
+
+def _classify_health(stat_name, value):
+    """Classify stat value into 'good', 'warning', 'danger', or ''."""
+    if value is None:
+        return ''
+    h = _HEALTHY_RANGES.get(stat_name)
+    w = _WARNING_RANGES.get(stat_name)
+    if h and h[0] <= value <= h[1]:
+        return 'good'
+    if w and w[0] <= value <= w[1]:
+        return 'warning'
+    if h:
+        return 'danger'
+    return ''
+
+
+def _aggregate_period(reports):
+    """Aggregate daily reports into one stats row using weighted averages."""
+    total_hands = 0
+    total_net = 0.0
+    stat_sums = {s: 0.0 for s in _STAT_NAMES}
+    stat_weights = {s: 0 for s in _STAT_NAMES}
+
+    for r in reports:
+        hands = r.get('hands_count') or r.get('total_hands') or 0
+        total_hands += hands
+        total_net += (r.get('net', 0) or 0)
+
+        ds = r.get('day_stats') or {}
+        for s in _STAT_NAMES:
+            val = ds.get(s)
+            if val is not None and hands > 0:
+                stat_sums[s] += val * hands
+                stat_weights[s] += hands
+
+    result = {'hands': total_hands, 'net': round(total_net, 2), 'days': len(reports)}
+    for s in _STAT_NAMES:
+        w = stat_weights[s]
+        if w > 0:
+            v = stat_sums[s] / w
+            result[s] = round(v, 2) if s == 'af' else round(v, 1)
+            result[f'{s}_badge'] = _classify_health(s, result[s])
+        else:
+            result[s] = None
+            result[f'{s}_badge'] = ''
+    return result
+
+
+def _filter_reports_by_period(reports, period, from_date='', to_date=''):
+    """Filter daily reports by time period."""
+    if period == 'year' or not period:
+        return reports
+    if period == 'custom' and from_date and to_date:
+        return [r for r in reports if from_date <= r.get('date', '') <= to_date]
+    if period == 'custom':
+        return reports
+    today = datetime.now().date()
+    days = {'1m': 30, '3m': 90}.get(period, 0)
+    if not days:
+        return reports
+    cutoff = (today - timedelta(days=days)).strftime('%Y-%m-%d')
+    return [r for r in reports if r.get('date', '') >= cutoff]
+
+
+def _build_chart_points(values, width=700, height=200, padding=40):
+    """Convert y-values to SVG polyline coordinates string."""
+    if not values:
+        return ''
+    n = len(values)
+    if n == 1:
+        return f"{width / 2:.1f},{height / 2:.1f}"
+    y_min = min(values)
+    y_max = max(values)
+    if y_max == y_min:
+        y_max = y_min + 1
+    chart_w = width - 2 * padding
+    chart_h = height - 2 * padding
+    pts = []
+    for i, v in enumerate(values):
+        x = padding + (i / (n - 1)) * chart_w
+        y = height - padding - ((v - y_min) / (y_max - y_min)) * chart_h
+        pts.append(f"{x:.1f},{y:.1f}")
+    return ' '.join(pts)
+
+
+def prepare_overview_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data with overview aggregations.
+
+    Adds: monthly_stats, weekly_stats, overall_row, profit_chart, redline_chart.
+    """
+    daily_reports = data.get('daily_reports', [])
+    filtered = _filter_reports_by_period(daily_reports, period, from_date, to_date)
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    if not filtered:
+        data['monthly_stats'] = []
+        data['weekly_stats'] = []
+        data['profit_chart'] = {}
+        data['redline_chart'] = {}
+        return data
+
+    sorted_reports = sorted(filtered, key=lambda r: r.get('date', ''))
+
+    # ── Cumulative Profit Chart ─────────────────────────────────
+    cum = 0.0
+    cum_vals = []
+    chart_dates = []
+    for r in sorted_reports:
+        cum += (r.get('net', 0) or 0)
+        cum_vals.append(round(cum, 2))
+        chart_dates.append(r.get('date', ''))
+
+    data['profit_chart'] = {
+        'points': _build_chart_points(cum_vals),
+        'dates': chart_dates,
+        'values': cum_vals,
+        'y_min': min(cum_vals) if cum_vals else 0,
+        'y_max': max(cum_vals) if cum_vals else 0,
+        'final': cum_vals[-1] if cum_vals else 0,
+    }
+
+    # ── Group by Month ──────────────────────────────────────────
+    months = {}
+    for r in sorted_reports:
+        d = r.get('date', '')
+        if len(d) >= 7:
+            months.setdefault(d[:7], []).append(r)
+
+    monthly = []
+    for mk in sorted(months):
+        s = _aggregate_period(months[mk])
+        s['period'] = mk
+        s['period_label'] = mk
+        monthly.append(s)
+    data['monthly_stats'] = monthly
+
+    # ── Group by ISO Week ───────────────────────────────────────
+    weeks = {}
+    for r in sorted_reports:
+        d = r.get('date', '')
+        try:
+            dt = datetime.strptime(d, '%Y-%m-%d')
+            iso = dt.isocalendar()
+            wk = f"{iso[0]}-W{iso[1]:02d}"
+        except (ValueError, IndexError):
+            continue
+        weeks.setdefault(wk, []).append(r)
+
+    weekly = []
+    for wk in sorted(weeks):
+        s = _aggregate_period(weeks[wk])
+        s['period'] = wk
+        s['period_label'] = wk
+        weekly.append(s)
+    data['weekly_stats'] = weekly
+
+    # ── Overall Row ─────────────────────────────────────────────
+    overall = {'period': 'overall', 'period_label': 'Overall'}
+    summary = data.get('summary', {})
+    overall['hands'] = summary.get('total_hands', 0)
+    overall['net'] = summary.get('total_net', 0)
+    overall['days'] = summary.get('total_days', 0)
+
+    pf = data.get('preflop_overall', {})
+    for s in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats']:
+        overall[s] = pf.get(s)
+        overall[f'{s}_badge'] = pf.get(f'{s}_badge', '') or pf.get(f'{s}_health', '')
+
+    po = data.get('postflop_overall', {})
+    for s in ['af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd']:
+        overall[s] = po.get(s)
+        overall[f'{s}_badge'] = po.get(f'{s}_badge', '') or po.get(f'{s}_health', '')
+
+    ev = data.get('allin_ev', {})
+    overall['ev_bb100'] = ev.get('bb100_ev')
+    data['overall_row'] = overall
+
+    # ── Red/Blue Line Chart ─────────────────────────────────────
+    redline = data.get('redline') or {}
+    cum_data = redline.get('cumulative') or []
+    if cum_data and isinstance(cum_data, list):
+        total_vals = [p.get('total', 0) for p in cum_data]
+        sd_vals = [p.get('showdown', 0) for p in cum_data]
+        nsd_vals = [p.get('non_showdown', 0) for p in cum_data]
+        all_vals = total_vals + sd_vals + nsd_vals
+        data['redline_chart'] = {
+            'total_points': _build_chart_points(total_vals),
+            'showdown_points': _build_chart_points(sd_vals),
+            'non_showdown_points': _build_chart_points(nsd_vals),
+            'y_min': min(all_vals) if all_vals else 0,
+            'y_max': max(all_vals) if all_vals else 0,
+        }
+    else:
+        data['redline_chart'] = {}
 
     return data

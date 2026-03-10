@@ -6,71 +6,215 @@
 
 {% if data and data.get('summary') %}
 {% set s = data['summary'] %}
+
+{# ── Period Filter ─────────────────────────────────────────── #}
+<div class="overview-filters">
+    <div class="period-filter">
+        <a href="?period=1m" class="filter-btn {% if data.get('active_period') == '1m' %}active{% endif %}">Last Month</a>
+        <a href="?period=3m" class="filter-btn {% if data.get('active_period') == '3m' %}active{% endif %}">Last 3 Months</a>
+        <a href="?period=year" class="filter-btn {% if data.get('active_period', 'year') == 'year' %}active{% endif %}">Full Year</a>
+        <button class="filter-btn {% if data.get('active_period') == 'custom' %}active{% endif %}" onclick="toggleCustomFilter()">Custom</button>
+    </div>
+    {% if data.get('monthly_stats') or data.get('weekly_stats') %}
+    <div class="view-toggle">
+        <button id="btn-monthly" class="toggle-btn active" onclick="toggleView('monthly')">By Month</button>
+        <button id="btn-weekly" class="toggle-btn" onclick="toggleView('weekly')">By Week</button>
+    </div>
+    {% endif %}
+</div>
+
+<div id="custom-filter" class="custom-filter-row" style="display: {% if data.get('active_period') == 'custom' %}flex{% else %}none{% endif %};">
+    <form method="get" class="custom-filter-form">
+        <input type="hidden" name="period" value="custom">
+        <label class="filter-label">From</label>
+        <input type="date" name="from" value="{{ data.get('custom_from', '') }}" class="date-input">
+        <label class="filter-label">To</label>
+        <input type="date" name="to" value="{{ data.get('custom_to', '') }}" class="date-input">
+        <button type="submit" class="filter-btn active">Apply</button>
+    </form>
+</div>
+
+{# ── Summary Cards ─────────────────────────────────────────── #}
 <div class="stats-grid">
     <div class="stat-card">
-        <div class="stat-label">Tournaments</div>
-        <div class="stat-value neutral">{{ s.get('total_tournaments', 0)|int }}</div>
+        <div class="stat-label">Total Hands</div>
+        <div class="stat-value neutral">{{ '{:,}'.format(s.get('total_hands', 0)|int) }}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Total Net</div>
+        <div class="stat-label">Net Profit</div>
         <div class="stat-value {{ 'positive' if (s.get('total_net', 0) or 0) >= 0 else 'negative' }}">
             ${{ '{:+,.2f}'.format(s.get('total_net', 0) or 0) }}
         </div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Total Invested</div>
-        <div class="stat-value neutral">${{ '{:,.2f}'.format(s.get('total_invested', 0) or 0) }}</div>
-    </div>
-    <div class="stat-card">
         <div class="stat-label">ROI</div>
-        <div class="stat-value {{ 'positive' if (s.get('roi', 0) or 0) >= 0 else 'negative' }}">
-            {{ '{:+.1f}'.format(s.get('roi', 0) or 0) }}%
+        {% set roi = s.get('roi', 0) or 0 %}
+        <div class="stat-value {{ 'positive' if roi >= 0 else 'negative' }}">
+            {{ '{:+.1f}'.format(roi) }}%
         </div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Total Hands</div>
-        <div class="stat-value neutral">{{ '{:,}'.format(s.get('total_hands', 0)|int) }}</div>
+        <div class="stat-label">Tournaments</div>
+        <div class="stat-value neutral">{{ s.get('total_tournaments', 0)|int }}</div>
     </div>
+    {% if data.get('health_score') is not none %}
+    <div class="stat-card">
+        <div class="stat-label">Health Score</div>
+        {% set hs = (data.get('health_score', 0) or 0)|int %}
+        <div class="stat-value {{ 'positive' if hs >= 70 else ('negative' if hs < 40 else 'neutral') }}">
+            {{ hs }}
+        </div>
+    </div>
+    {% endif %}
 </div>
 
-{% if data.get('preflop_overall') %}
+{# ── HUD Stats Table ──────────────────────────────────────── #}
+{% if data.get('overall_row') %}
 <div class="card" style="margin-top: 1.25rem;">
-    <div class="card-title">Preflop Stats</div>
-    {% set pf = data['preflop_overall'] %}
-    <div class="stats-grid">
-        {% for stat_name in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats'] %}
-        {% if pf.get(stat_name) is not none %}
-        <div class="stat-card">
-            <div class="stat-label">{{ stat_name|replace('_', ' ')|title }}</div>
-            <div class="stat-value neutral">{{ '{:.1f}'.format(pf[stat_name]) }}%</div>
-            {% if pf.get(stat_name ~ '_badge') %}
-            <span class="badge badge-{{ pf[stat_name ~ '_badge'] }}">{{ pf[stat_name ~ '_badge'] }}</span>
-            {% endif %}
-        </div>
-        {% endif %}
-        {% endfor %}
+    <div class="card-title">Stats Compactas</div>
+    <div class="table-responsive">
+    <table class="data-table hud-table">
+        <thead>
+            <tr>
+                <th>Period</th>
+                <th class="num">Hands</th>
+                <th class="num">VPIP</th>
+                <th class="num">PFR</th>
+                <th class="num">3Bet</th>
+                <th class="num">F3B</th>
+                <th class="num">ATS</th>
+                <th class="num">AF</th>
+                <th class="num">CBet</th>
+                <th class="num">FCB</th>
+                <th class="num">WTSD</th>
+                <th class="num">W$SD</th>
+                <th class="num">EV bb/100</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% set o = data['overall_row'] %}
+            <tr class="overall-row">
+                <td><strong>{{ o.period_label }}</strong></td>
+                <td class="num">{{ '{:,}'.format(o.hands|int) }}</td>
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd'] %}
+                <td class="num">
+                    {% if o.get(stat) is not none %}
+                    <span class="hud-val {% if o.get(stat ~ '_badge') %}badge-{{ o[stat ~ '_badge'] }}{% endif %}">
+                        {% if stat == 'af' %}{{ '{:.2f}'.format(o[stat]) }}{% else %}{{ '{:.1f}'.format(o[stat]) }}{% endif %}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                {% endfor %}
+                <td class="num">
+                    {% if o.get('ev_bb100') is not none %}
+                    <span class="{{ 'positive' if o.ev_bb100 >= 0 else 'negative' }}">{{ '{:+.2f}'.format(o.ev_bb100) }}</span>
+                    {% else %}-{% endif %}
+                </td>
+                <td></td>
+            </tr>
+        </tbody>
+        <tbody id="monthly-rows">
+            {% for m in data.get('monthly_stats', []) %}
+            <tr>
+                <td>{{ m.period_label }}</td>
+                <td class="num">{{ '{:,}'.format(m.hands|int) }}</td>
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd'] %}
+                <td class="num">
+                    {% if m.get(stat) is not none %}
+                    <span class="hud-val {% if m.get(stat ~ '_badge') %}badge-{{ m[stat ~ '_badge'] }}{% endif %}">
+                        {% if stat == 'af' %}{{ '{:.2f}'.format(m[stat]) }}{% else %}{{ '{:.1f}'.format(m[stat]) }}{% endif %}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                {% endfor %}
+                <td class="num">-</td>
+                <td><a href="{{ url_for('tournament.sub_tab', tab='sessions') }}" class="detail-link">Ver detalhes</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tbody id="weekly-rows" style="display: none;">
+            {% for w in data.get('weekly_stats', []) %}
+            <tr>
+                <td>{{ w.period_label }}</td>
+                <td class="num">{{ '{:,}'.format(w.hands|int) }}</td>
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd'] %}
+                <td class="num">
+                    {% if w.get(stat) is not none %}
+                    <span class="hud-val {% if w.get(stat ~ '_badge') %}badge-{{ w[stat ~ '_badge'] }}{% endif %}">
+                        {% if stat == 'af' %}{{ '{:.2f}'.format(w[stat]) }}{% else %}{{ '{:.1f}'.format(w[stat]) }}{% endif %}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                {% endfor %}
+                <td class="num">-</td>
+                <td><a href="{{ url_for('tournament.sub_tab', tab='sessions') }}" class="detail-link">Ver detalhes</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
     </div>
 </div>
 {% endif %}
 
-{% if data.get('postflop_overall') %}
+{# ── Profit Chart ──────────────────────────────────────────── #}
+{% if data.get('profit_chart', {}).get('points') %}
 <div class="card" style="margin-top: 1.25rem;">
-    <div class="card-title">Postflop Stats</div>
-    {% set po = data['postflop_overall'] %}
-    <div class="stats-grid">
-        {% for stat_name in ['af', 'wtsd', 'wsd', 'cbet', 'fold_to_cbet'] %}
-        {% if po.get(stat_name) is not none %}
-        <div class="stat-card">
-            <div class="stat-label">{{ stat_name|replace('_', ' ')|upper }}</div>
-            <div class="stat-value neutral">
-                {% if stat_name == 'af' %}{{ '{:.2f}'.format(po[stat_name]) }}{% else %}{{ '{:.1f}'.format(po[stat_name]) }}%{% endif %}
-            </div>
-            {% if po.get(stat_name ~ '_badge') %}
-            <span class="badge badge-{{ po[stat_name ~ '_badge'] }}">{{ po[stat_name ~ '_badge'] }}</span>
+    <div class="card-title">Profit Over Time</div>
+    <div class="chart-container">
+        {% set pc = data['profit_chart'] %}
+        <svg viewBox="0 0 700 200" class="overview-chart" xmlns="http://www.w3.org/2000/svg">
+            <line x1="40" y1="160" x2="660" y2="160" stroke="var(--border-color)" stroke-width="0.5"/>
+            <line x1="40" y1="100" x2="660" y2="100" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="4"/>
+            <line x1="40" y1="40" x2="660" y2="40" stroke="var(--border-color)" stroke-width="0.5"/>
+
+            {% if pc.y_min < 0 and pc.y_max > 0 %}
+            {% set zero_y = 160.0 - ((0 - pc.y_min) / (pc.y_max - pc.y_min)) * 120.0 %}
+            <line x1="40" y1="{{ '{:.1f}'.format(zero_y) }}" x2="660" y2="{{ '{:.1f}'.format(zero_y) }}"
+                  stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="2"/>
             {% endif %}
-        </div>
-        {% endif %}
-        {% endfor %}
+
+            <polyline points="{{ pc.points }}" fill="none"
+                      stroke="{{ 'var(--accent-green)' if pc.final >= 0 else 'var(--accent-red)' }}"
+                      stroke-width="2"/>
+
+            <text x="36" y="44" text-anchor="end" fill="var(--text-secondary)" font-size="10">${{ '{:,.0f}'.format(pc.y_max) }}</text>
+            <text x="36" y="164" text-anchor="end" fill="var(--text-secondary)" font-size="10">${{ '{:,.0f}'.format(pc.y_min) }}</text>
+
+            {% if pc.dates|length > 0 %}
+            <text x="40" y="180" text-anchor="start" fill="var(--text-muted)" font-size="9">{{ pc.dates[0] }}</text>
+            <text x="660" y="180" text-anchor="end" fill="var(--text-muted)" font-size="9">{{ pc.dates[-1] }}</text>
+            {% endif %}
+        </svg>
+    </div>
+</div>
+{% endif %}
+
+{# ── Red Line / Blue Line Chart ────────────────────────────── #}
+{% if data.get('redline_chart', {}).get('total_points') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Red Line / Blue Line</div>
+    <div class="chart-container">
+        {% set rl = data['redline_chart'] %}
+        <svg viewBox="0 0 700 200" class="overview-chart" xmlns="http://www.w3.org/2000/svg">
+            <line x1="40" y1="160" x2="660" y2="160" stroke="var(--border-color)" stroke-width="0.5"/>
+            <line x1="40" y1="100" x2="660" y2="100" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="4"/>
+            <line x1="40" y1="40" x2="660" y2="40" stroke="var(--border-color)" stroke-width="0.5"/>
+
+            <polyline points="{{ rl.total_points }}" fill="none" stroke="var(--accent-green)" stroke-width="2"/>
+            <polyline points="{{ rl.showdown_points }}" fill="none" stroke="var(--accent-blue)" stroke-width="1.5"/>
+            <polyline points="{{ rl.non_showdown_points }}" fill="none" stroke="var(--accent-red)" stroke-width="1.5"/>
+
+            <rect x="480" y="8" width="10" height="10" fill="var(--accent-green)"/>
+            <text x="494" y="17" fill="var(--text-secondary)" font-size="10">Total</text>
+            <rect x="540" y="8" width="10" height="10" fill="var(--accent-blue)"/>
+            <text x="554" y="17" fill="var(--text-secondary)" font-size="10">Showdown</text>
+            <rect x="620" y="8" width="10" height="10" fill="var(--accent-red)"/>
+            <text x="634" y="17" fill="var(--text-secondary)" font-size="10">Non-SD</text>
+
+            <text x="36" y="44" text-anchor="end" fill="var(--text-secondary)" font-size="10">{{ '{:,.0f}'.format(rl.y_max) }}</text>
+            <text x="36" y="164" text-anchor="end" fill="var(--text-secondary)" font-size="10">{{ '{:,.0f}'.format(rl.y_min) }}</text>
+        </svg>
     </div>
 </div>
 {% endif %}
@@ -82,4 +226,31 @@
     <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleView(view) {
+    var mr = document.getElementById('monthly-rows');
+    var wr = document.getElementById('weekly-rows');
+    var bm = document.getElementById('btn-monthly');
+    var bw = document.getElementById('btn-weekly');
+    if (view === 'weekly') {
+        if (mr) mr.style.display = 'none';
+        if (wr) wr.style.display = '';
+        if (bm) bm.classList.remove('active');
+        if (bw) bw.classList.add('active');
+    } else {
+        if (mr) mr.style.display = '';
+        if (wr) wr.style.display = 'none';
+        if (bm) bm.classList.add('active');
+        if (bw) bw.classList.remove('active');
+    }
+}
+
+function toggleCustomFilter() {
+    var el = document.getElementById('custom-filter');
+    if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
+</script>
 {% endblock %}

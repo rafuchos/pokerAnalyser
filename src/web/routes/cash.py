@@ -1,8 +1,8 @@
 """Cash game routes."""
 
-from flask import Blueprint, render_template, current_app
+from flask import Blueprint, render_template, current_app, request
 
-from src.web.data import load_analytics_data
+from src.web.data import load_analytics_data, prepare_overview_data
 
 cash_bp = Blueprint('cash', __name__)
 
@@ -24,6 +24,14 @@ def sub_tab(tab):
 
     db_path = current_app.config['ANALYTICS_DB_PATH']
     data = load_analytics_data(db_path, 'cash')
+
+    if tab == 'overview':
+        period = request.args.get('period', 'year')
+        from_date = request.args.get('from', '')
+        to_date = request.args.get('to', '')
+        prepare_overview_data(data, period=period,
+                              from_date=from_date, to_date=to_date)
+
     return render_template(
         f'cash/{tab}.html',
         active_section='cash',

@@ -360,6 +360,182 @@ body {
     font-weight: 600;
 }
 
+/* ── Overview Filters ─────────────────────────────────────── */
+.overview-filters {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.25rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.period-filter {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    display: inline-block;
+    padding: 0.4rem 0.75rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font-family);
+}
+
+.filter-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-blue);
+}
+
+.filter-btn.active {
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+    background: rgba(88, 166, 255, 0.1);
+}
+
+.view-toggle {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.toggle-btn {
+    padding: 0.4rem 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font-family);
+}
+
+.toggle-btn:hover {
+    color: var(--text-primary);
+}
+
+.toggle-btn.active {
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+    background: rgba(88, 166, 255, 0.1);
+}
+
+.custom-filter-row {
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.custom-filter-form {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.filter-label {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.date-input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    font-size: 0.85rem;
+}
+
+.date-input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+/* ── HUD Table ───────────────────────────────────────────── */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.hud-table th,
+.hud-table td {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.hud-table th {
+    font-size: 0.7rem;
+}
+
+.hud-table th.num {
+    text-align: right;
+}
+
+.hud-val {
+    display: inline-block;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.hud-val.badge-good {
+    background: rgba(63, 185, 80, 0.15);
+    color: var(--accent-green);
+}
+
+.hud-val.badge-warning {
+    background: rgba(210, 153, 34, 0.15);
+    color: var(--accent-orange);
+}
+
+.hud-val.badge-danger {
+    background: rgba(248, 81, 73, 0.15);
+    color: var(--accent-red);
+}
+
+.overall-row {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+}
+
+.overall-row td {
+    border-bottom: 2px solid var(--border-color);
+}
+
+.detail-link {
+    color: var(--accent-blue);
+    text-decoration: none;
+    font-size: 0.8rem;
+}
+
+.detail-link:hover {
+    text-decoration: underline;
+}
+
+/* ── Charts ──────────────────────────────────────────────── */
+.chart-container {
+    padding: 0.5rem 0;
+}
+
+.overview-chart {
+    width: 100%;
+    height: auto;
+}
+
 /* ── Footer ───────────────────────────────────────────────── */
 .app-footer {
     text-align: center;
@@ -390,6 +566,11 @@ body {
 
     .page-title {
         font-size: 1.25rem;
+    }
+
+    .overview-filters {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }
 
