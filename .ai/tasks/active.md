@@ -87,6 +87,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-020: Botão Resumo de Leaks por Sessão (Consolidação de Todas as Análises) (2026-03-02)
 - [x] US-021: Tournament Backend: Repository Queries + Analyzer Preflop/Postflop Stats (2026-03-10)
 - [x] US-022: Tournament Backend: Positional Stats, Stack Depth, Hand Matrix, Bet Sizing (2026-03-10)
+- [x] US-023: Tournament Backend: LeakFinder + TiltAnalyzer + Decision EV Adaptados (2026-03-10)
 
 ---
 
