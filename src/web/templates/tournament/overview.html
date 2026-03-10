@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block page_title %}Torneios — Overview{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Tournament Overview</h1>
+
+{% if data and data.get('summary') %}
+{% set s = data['summary'] %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Tournaments</div>
+        <div class="stat-value neutral">{{ s.get('total_tournaments', 0)|int }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Net</div>
+        <div class="stat-value {{ 'positive' if (s.get('total_net', 0) or 0) >= 0 else 'negative' }}">
+            ${{ '{:+,.2f}'.format(s.get('total_net', 0) or 0) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Invested</div>
+        <div class="stat-value neutral">${{ '{:,.2f}'.format(s.get('total_invested', 0) or 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">ROI</div>
+        <div class="stat-value {{ 'positive' if (s.get('roi', 0) or 0) >= 0 else 'negative' }}">
+            {{ '{:+.1f}'.format(s.get('roi', 0) or 0) }}%
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Hands</div>
+        <div class="stat-value neutral">{{ '{:,}'.format(s.get('total_hands', 0)|int) }}</div>
+    </div>
+</div>
+
+{% if data.get('preflop_overall') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Preflop Stats</div>
+    {% set pf = data['preflop_overall'] %}
+    <div class="stats-grid">
+        {% for stat_name in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats'] %}
+        {% if pf.get(stat_name) is not none %}
+        <div class="stat-card">
+            <div class="stat-label">{{ stat_name|replace('_', ' ')|title }}</div>
+            <div class="stat-value neutral">{{ '{:.1f}'.format(pf[stat_name]) }}%</div>
+            {% if pf.get(stat_name ~ '_badge') %}
+            <span class="badge badge-{{ pf[stat_name ~ '_badge'] }}">{{ pf[stat_name ~ '_badge'] }}</span>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if data.get('postflop_overall') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Postflop Stats</div>
+    {% set po = data['postflop_overall'] %}
+    <div class="stats-grid">
+        {% for stat_name in ['af', 'wtsd', 'wsd', 'cbet', 'fold_to_cbet'] %}
+        {% if po.get(stat_name) is not none %}
+        <div class="stat-card">
+            <div class="stat-label">{{ stat_name|replace('_', ' ')|upper }}</div>
+            <div class="stat-value neutral">
+                {% if stat_name == 'af' %}{{ '{:.2f}'.format(po[stat_name]) }}{% else %}{{ '{:.1f}'.format(po[stat_name]) }}%{% endif %}
+            </div>
+            {% if po.get(stat_name ~ '_badge') %}
+            <span class="badge badge-{{ po[stat_name ~ '_badge'] }}">{{ po[stat_name ~ '_badge'] }}</span>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#127942;</div>
+    <div class="empty-state-text">No tournament data available</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
+</div>
+{% endif %}
+{% endblock %}

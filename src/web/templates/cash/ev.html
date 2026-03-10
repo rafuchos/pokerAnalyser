@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block page_title %}Cash — EV Analysis{% endblock %}
+
+{% block content %}
+<h1 class="page-title">EV Analysis</h1>
+
+{% if data and data.get('allin_ev') %}
+{% set ev = data['allin_ev'] %}
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Real bb/100</div>
+        <div class="stat-value {{ 'positive' if (ev.get('bb100_real', 0) or 0) >= 0 else 'negative' }}">
+            {{ '{:+.2f}'.format(ev.get('bb100_real', 0) or 0) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">EV bb/100</div>
+        <div class="stat-value {{ 'positive' if (ev.get('bb100_ev', 0) or 0) >= 0 else 'negative' }}">
+            {{ '{:+.2f}'.format(ev.get('bb100_ev', 0) or 0) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Luck Factor</div>
+        <div class="stat-value {{ 'positive' if (ev.get('luck_factor', 0) or 0) >= 0 else 'negative' }}">
+            ${{ '{:+,.2f}'.format(ev.get('luck_factor', 0) or 0) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">All-In Hands</div>
+        <div class="stat-value neutral">{{ ev.get('allin_count', 0)|int }}</div>
+    </div>
+</div>
+
+{% if ev.get('by_stakes') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">By Stakes</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Stakes</th>
+                <th>Hands</th>
+                <th>Real Net</th>
+                <th>EV Net</th>
+                <th>Luck</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stake, sd in ev['by_stakes'].items() %}
+            <tr>
+                <td>{{ stake }}</td>
+                <td class="num">{{ sd.get('count', 0)|int }}</td>
+                <td class="num {{ 'positive' if (sd.get('real_net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(sd.get('real_net', 0) or 0) }}
+                </td>
+                <td class="num {{ 'positive' if (sd.get('ev_net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(sd.get('ev_net', 0) or 0) }}
+                </td>
+                <td class="num {{ 'positive' if (sd.get('luck', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(sd.get('luck', 0) or 0) }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if data.get('decision_ev') %}
+{% set dev = data['decision_ev'] %}
+{% if dev.get('by_street') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Decision EV by Street</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Street</th>
+                <th>Decision</th>
+                <th>Count</th>
+                <th>Total Net</th>
+                <th>Avg Net</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for street_data in dev['by_street'] %}
+            <tr>
+                <td>{{ street_data.get('street', '') }}</td>
+                <td>{{ street_data.get('decision', '') }}</td>
+                <td class="num">{{ street_data.get('count', 0)|int }}</td>
+                <td class="num {{ 'positive' if (street_data.get('total_net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(street_data.get('total_net', 0) or 0) }}
+                </td>
+                <td class="num {{ 'positive' if (street_data.get('avg_net', 0) or 0) >= 0 else 'negative' }}">
+                    ${{ '{:+,.2f}'.format(street_data.get('avg_net', 0) or 0) }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if dev.get('leaks') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">EV Leaks</div>
+    <div class="leak-list">
+        {% for leak in dev['leaks'] %}
+        <div class="leak-card high">
+            <div class="leak-name">#{{ loop.index }} — {{ leak.get('description', '') }}</div>
+            <div class="leak-detail">
+                Count: {{ leak.get('count', 0) }} |
+                Total: <span class="leak-cost">${{ '{:+,.2f}'.format(leak.get('total_net', 0) or 0) }}</span> |
+                Avg: ${{ '{:+,.2f}'.format(leak.get('avg_net', 0) or 0) }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#128200;</div>
+    <div class="empty-state-text">No EV analysis data available</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
+</div>
+{% endif %}
+{% endblock %}

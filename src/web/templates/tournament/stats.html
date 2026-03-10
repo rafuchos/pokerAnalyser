@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block page_title %}Torneios — Stats{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Tournament Stats</h1>
+
+{% if data and data.get('positional') %}
+<div class="card">
+    <div class="card-title">Stats by Position</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Position</th>
+                <th>Hands</th>
+                <th>VPIP%</th>
+                <th>PFR%</th>
+                <th>3-Bet%</th>
+                <th>bb/100</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pos in ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'] %}
+            {% if data['positional'].get(pos) %}
+            {% set p = data['positional'][pos] %}
+            <tr>
+                <td>{{ pos }}</td>
+                <td class="num">{{ p.get('hands', 0)|int }}</td>
+                <td class="num">{{ '{:.1f}'.format(p.get('vpip', 0)) }}</td>
+                <td class="num">{{ '{:.1f}'.format(p.get('pfr', 0)) }}</td>
+                <td class="num">{{ '{:.1f}'.format(p.get('three_bet', 0)) }}</td>
+                <td class="num {{ 'positive' if (p.get('bb100', 0) or 0) >= 0 else 'negative' }}">
+                    {{ '{:+.1f}'.format(p.get('bb100', 0) or 0) }}
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#128202;</div>
+    <div class="empty-state-text">No tournament stats available</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
+</div>
+{% endif %}
+{% endblock %}

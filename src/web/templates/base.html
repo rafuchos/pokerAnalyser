@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_title }} — {% block page_title %}Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-inner">
+            <div class="logo">
+                <span class="logo-icon">♠</span>
+                <span class="logo-text">{{ app_title }}</span>
+            </div>
+            <nav class="main-tabs">
+                <a href="{{ url_for('cash.sub_tab', tab='overview') }}"
+                   class="main-tab {% if active_section == 'cash' %}active{% endif %}">
+                    Cash
+                </a>
+                <a href="{{ url_for('tournament.sub_tab', tab='overview') }}"
+                   class="main-tab {% if active_section == 'tournament' %}active{% endif %}">
+                    Torneios
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <nav class="sub-nav">
+        <div class="sub-nav-inner">
+            {% for tab_id, tab_label in sub_tabs %}
+            <a href="{{ url_for(active_section ~ '.sub_tab', tab=tab_id) }}"
+               class="sub-tab {% if active_tab == tab_id %}active{% endif %}">
+                {{ tab_label }}
+            </a>
+            {% endfor %}
+        </div>
+    </nav>
+
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="app-footer">
+        <p>Poker Analyzer &copy; 2026 &mdash; Data from analytics.db</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

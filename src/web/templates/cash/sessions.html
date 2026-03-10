@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block page_title %}Cash — Sessions{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Cash Sessions</h1>
+
+{% if data and data.get('daily_reports') %}
+<div class="session-list">
+    {% for report in data['daily_reports'] %}
+    <div class="session-card">
+        <div class="session-header">
+            <span class="session-date">{{ report.get('date', 'N/A') }}</span>
+            <span class="session-profit {{ 'positive' if (report.get('net', 0) or 0) >= 0 else 'negative' }}">
+                ${{ '{:+,.2f}'.format(report.get('net', 0) or 0) }}
+            </span>
+        </div>
+        <div class="stats-grid" style="margin-top: 0.5rem;">
+            <div class="stat-card">
+                <div class="stat-label">Hands</div>
+                <div class="stat-value neutral">{{ report.get('total_hands', 0)|int }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Sessions</div>
+                <div class="stat-value neutral">{{ (report.get('sessions') or [])|length }}</div>
+            </div>
+        </div>
+        {% if report.get('sessions') %}
+        <table class="data-table" style="margin-top: 0.75rem;">
+            <thead>
+                <tr>
+                    <th>Session</th>
+                    <th>Hands</th>
+                    <th>Net</th>
+                    <th>Duration</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sess in report['sessions'] %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td class="num">{{ sess.get('total_hands', 0)|int }}</td>
+                    <td class="num {{ 'positive' if (sess.get('net', 0) or 0) >= 0 else 'negative' }}">
+                        ${{ '{:+,.2f}'.format(sess.get('net', 0) or 0) }}
+                    </td>
+                    <td>{{ sess.get('duration', 'N/A') }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#128197;</div>
+    <div class="empty-state-text">No session data available</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
+</div>
+{% endif %}
+{% endblock %}

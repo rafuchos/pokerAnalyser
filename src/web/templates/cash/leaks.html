@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block page_title %}Cash — Leaks{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Leak Analysis</h1>
+
+{% if data and data.get('leaks') %}
+{% if data.get('health_score') is not none %}
+<div class="card">
+    <div class="card-title">Health Score</div>
+    <div class="stat-value {{ 'positive' if (data['health_score']|int) >= 70 else ('negative' if (data['health_score']|int) < 40 else 'neutral') }}" style="font-size: 3rem; text-align: center;">
+        {{ data['health_score']|int }}/100
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-title">Detected Leaks ({{ data['leaks']|length }})</div>
+    <div class="leak-list">
+        {% for leak in data['leaks'] %}
+        <div class="leak-card {{ 'high' if leak.get('cost_bb100', 0) > 2 else '' }}">
+            <div class="leak-name">
+                {{ leak.get('leak_name', 'Unknown') }}
+                <span class="badge badge-{{ 'danger' if leak.get('cost_bb100', 0) > 2 else 'warning' }}">
+                    {{ leak.get('category', '') }}
+                </span>
+            </div>
+            <div class="leak-detail">
+                {{ leak.get('stat_name', '') }}: {{ '{:.1f}'.format(leak.get('current_value', 0)) }}
+                (healthy: {{ '{:.0f}'.format(leak.get('healthy_low', 0)) }}-{{ '{:.0f}'.format(leak.get('healthy_high', 0)) }})
+            </div>
+            <div class="leak-detail">
+                Cost: <span class="leak-cost">{{ '{:.2f}'.format(leak.get('cost_bb100', 0)) }} bb/100</span>
+                | Direction: {{ leak.get('direction', '') }}
+            </div>
+            {% if leak.get('suggestion') %}
+            <div class="leak-detail" style="margin-top: 0.25rem; color: var(--accent-blue);">
+                {{ leak['suggestion'] }}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#128269;</div>
+    <div class="empty-state-text">No leak data available</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
+</div>
+{% endif %}
+{% endblock %}

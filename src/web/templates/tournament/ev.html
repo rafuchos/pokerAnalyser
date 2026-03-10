@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block page_title %}Torneios — EV Analysis{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Tournament EV Analysis</h1>
+
+{% if data and data.get('allin_ev') %}
+{% set ev = data['allin_ev'] %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Real bb/100</div>
+        <div class="stat-value {{ 'positive' if (ev.get('bb100_real', 0) or 0) >= 0 else 'negative' }}">
+            {{ '{:+.2f}'.format(ev.get('bb100_real', 0) or 0) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">EV bb/100</div>
+        <div class="stat-value {{ 'positive' if (ev.get('bb100_ev', 0) or 0) >= 0 else 'negative' }}">
+            {{ '{:+.2f}'.format(ev.get('bb100_ev', 0) or 0) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Luck Factor</div>
+        <div class="stat-value {{ 'positive' if (ev.get('luck_factor', 0) or 0) >= 0 else 'negative' }}">
+            ${{ '{:+,.2f}'.format(ev.get('luck_factor', 0) or 0) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">All-In Hands</div>
+        <div class="stat-value neutral">{{ ev.get('allin_count', 0)|int }}</div>
+    </div>
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#128200;</div>
+    <div class="empty-state-text">No tournament EV data available</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to generate analytics</div>
+</div>
+{% endif %}
+{% endblock %}
