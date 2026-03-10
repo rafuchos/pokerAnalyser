@@ -2,7 +2,12 @@
 
 from flask import Blueprint, render_template, current_app, request
 
-from src.web.data import load_analytics_data, prepare_overview_data
+from src.web.data import (
+    load_analytics_data,
+    prepare_overview_data,
+    prepare_sessions_list,
+    prepare_session_day,
+)
 
 tournament_bp = Blueprint('tournament', __name__)
 
@@ -31,10 +36,29 @@ def sub_tab(tab):
         to_date = request.args.get('to', '')
         prepare_overview_data(data, period=period,
                               from_date=from_date, to_date=to_date)
+    elif tab == 'sessions':
+        page = request.args.get('page', 1, type=int)
+        prepare_sessions_list(data, page=page)
 
     return render_template(
         f'tournament/{tab}.html',
         active_section='tournament',
         active_tab=tab,
         data=data,
+    )
+
+
+@tournament_bp.route('/sessions/<date>')
+def session_day(date):
+    """Render drill-down for a specific session day."""
+    db_path = current_app.config['ANALYTICS_DB_PATH']
+    data = load_analytics_data(db_path, 'tournament')
+    prepare_session_day(data, date)
+
+    return render_template(
+        'tournament/session_day.html',
+        active_section='tournament',
+        active_tab='sessions',
+        data=data,
+        day_date=date,
     )

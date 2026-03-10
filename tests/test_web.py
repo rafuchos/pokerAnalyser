@@ -1,4 +1,4 @@
-"""Tests for US-027: Flask Web App – structure, routes, templates, data layer."""
+"""Tests for US-027/US-028/US-029: Flask Web App – structure, routes, templates, data layer."""
 
 import json
 import os
@@ -9,7 +9,11 @@ import tempfile
 import unittest
 
 from src.web.app import create_app
-from src.web.data import load_analytics_data
+from src.web.data import (
+    load_analytics_data,
+    prepare_sessions_list,
+    prepare_session_day,
+)
 from src.db.analytics_schema import init_analytics_db
 
 
@@ -74,20 +78,154 @@ def _create_analytics_db(path: str, cash: bool = True, tournament: bool = False)
             ('cash', 'postflop_overall', json.dumps(postflop), now),
         )
 
-        # Daily report
+        # Daily report (with rich session data for US-029)
         daily = {
             'date': '2026-01-15',
             'net': 50.25,
             'total_hands': 200,
+            'hands_count': 200,
+            'num_sessions': 2,
+            'day_stats': {
+                'total_hands': 200,
+                'vpip': 24.5, 'pfr': 18.2, 'three_bet': 7.0,
+                'fold_to_3bet': 45.0, 'ats': 32.0,
+                'af': 2.8, 'cbet': 65.0, 'fold_to_cbet': 42.0,
+                'wtsd': 28.0, 'wsd': 52.0,
+            },
             'sessions': [
-                {'total_hands': 120, 'net': 35.0, 'duration': '1h 30m'},
-                {'total_hands': 80, 'net': 15.25, 'duration': '45m'},
+                {
+                    'session_id': 's1', 'start_time': '2026-01-15T18:00:00',
+                    'end_time': '2026-01-15T19:30:00', 'duration_minutes': 90,
+                    'buy_in': 50.0, 'cash_out': 85.0, 'profit': 35.0,
+                    'hands_count': 120,
+                    'stats': {
+                        'total_hands': 120,
+                        'vpip': 23.0, 'vpip_health': 'good',
+                        'pfr': 17.5, 'pfr_health': 'good',
+                        'three_bet': 8.0, 'three_bet_health': 'good',
+                        'af': 3.0, 'af_health': 'good',
+                        'cbet': 70.0, 'cbet_health': 'good',
+                        'wtsd': 30.0, 'wtsd_health': 'good',
+                        'wsd': 55.0, 'wsd_health': 'good',
+                    },
+                    'sparkline': [
+                        {'hand': 1, 'profit': 0},
+                        {'hand': 30, 'profit': 10.0},
+                        {'hand': 60, 'profit': 25.0},
+                        {'hand': 90, 'profit': 20.0},
+                        {'hand': 120, 'profit': 35.0},
+                    ],
+                    'biggest_win': {'net': 22.50, 'hero_position': 'BTN'},
+                    'biggest_loss': {'net': -15.00, 'hero_position': 'BB'},
+                    'ev_data': {
+                        'total_hands': 120, 'allin_hands': 5,
+                        'real_net': 35.0, 'ev_net': 28.0,
+                        'luck_factor': 7.0, 'bb100_real': 5.8, 'bb100_ev': 4.7,
+                        'chart_data': [
+                            {'hand': 1, 'real': 0, 'ev': 0},
+                            {'hand': 60, 'real': 20.0, 'ev': 15.0},
+                            {'hand': 120, 'real': 35.0, 'ev': 28.0},
+                        ],
+                    },
+                    'leak_summary': [
+                        {
+                            'stat_name': 'fold_to_3bet', 'label': 'Fold to 3-Bet',
+                            'value': 60.0, 'health': 'warning',
+                            'healthy_low': 40.0, 'healthy_high': 55.0,
+                            'cost_bb100': 1.5, 'direction': 'too_high',
+                            'suggestion': 'Defend more vs 3-bets',
+                        },
+                    ],
+                },
+                {
+                    'session_id': 's2', 'start_time': '2026-01-15T20:00:00',
+                    'end_time': '2026-01-15T20:45:00', 'duration_minutes': 45,
+                    'buy_in': 50.0, 'cash_out': 65.25, 'profit': 15.25,
+                    'hands_count': 80,
+                    'stats': {
+                        'total_hands': 80,
+                        'vpip': 26.0, 'vpip_health': 'good',
+                        'pfr': 19.0, 'pfr_health': 'good',
+                        'three_bet': 6.0, 'three_bet_health': 'warning',
+                        'af': 2.5, 'af_health': 'good',
+                        'cbet': 60.0, 'cbet_health': 'good',
+                        'wtsd': 25.0, 'wtsd_health': 'good',
+                        'wsd': 48.0, 'wsd_health': 'warning',
+                    },
+                    'sparkline': [
+                        {'hand': 1, 'profit': 0},
+                        {'hand': 40, 'profit': 8.0},
+                        {'hand': 80, 'profit': 15.25},
+                    ],
+                    'biggest_win': {'net': 12.00, 'hero_position': 'CO'},
+                    'biggest_loss': {'net': -8.50, 'hero_position': 'SB'},
+                    'ev_data': None,
+                    'leak_summary': [],
+                },
             ],
+            'comparison': {
+                'profit': {'best': 0, 'worst': 1},
+                'vpip': {'best': 0, 'worst': 1},
+            },
         }
         conn.execute(
             "INSERT INTO daily_stats (game_type, day, stat_name, stat_json, updated_at) "
             "VALUES (?, ?, ?, ?, ?)",
             ('cash', '2026-01-15', 'daily_report', json.dumps(daily), now),
+        )
+
+        # Second daily report for pagination testing
+        daily2 = {
+            'date': '2026-01-20',
+            'net': -25.50,
+            'total_hands': 100,
+            'hands_count': 100,
+            'num_sessions': 1,
+            'day_stats': {
+                'total_hands': 100,
+                'vpip': 30.0, 'pfr': 22.0, 'three_bet': 5.0,
+                'af': 1.8, 'cbet': 55.0, 'fold_to_cbet': 50.0,
+                'wtsd': 35.0, 'wsd': 45.0,
+            },
+            'sessions': [
+                {
+                    'session_id': 's3', 'start_time': '2026-01-20T21:00:00',
+                    'end_time': '2026-01-20T22:00:00', 'duration_minutes': 60,
+                    'buy_in': 50.0, 'cash_out': 24.50, 'profit': -25.50,
+                    'hands_count': 100,
+                    'stats': {
+                        'total_hands': 100,
+                        'vpip': 30.0, 'pfr': 22.0, 'three_bet': 5.0,
+                        'af': 1.8, 'cbet': 55.0,
+                        'wtsd': 35.0, 'wsd': 45.0,
+                    },
+                    'sparkline': [],
+                    'biggest_win': None,
+                    'biggest_loss': None,
+                    'ev_data': None,
+                    'leak_summary': [
+                        {
+                            'stat_name': 'vpip', 'label': 'VPIP',
+                            'value': 30.0, 'health': 'warning',
+                            'healthy_low': 22.0, 'healthy_high': 30.0,
+                            'cost_bb100': 2.5, 'direction': 'too_high',
+                            'suggestion': 'Tighten opening range',
+                        },
+                        {
+                            'stat_name': 'af', 'label': 'AF',
+                            'value': 1.8, 'health': 'warning',
+                            'healthy_low': 2.0, 'healthy_high': 3.5,
+                            'cost_bb100': 1.0, 'direction': 'too_low',
+                            'suggestion': 'Be more aggressive postflop',
+                        },
+                    ],
+                },
+            ],
+        }
+        conn.execute(
+            "INSERT INTO daily_stats (game_type, day, stat_name, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ('cash', '2026-01-20', 'daily_report', json.dumps(daily2), now),
         )
 
         # Positional stats
@@ -482,8 +620,10 @@ class TestDataLayer(unittest.TestCase):
     def test_load_daily_reports(self):
         _create_analytics_db(self.db_path)
         data = load_analytics_data(self.db_path, 'cash')
-        self.assertEqual(len(data['daily_reports']), 1)
-        self.assertEqual(data['daily_reports'][0]['date'], '2026-01-15')
+        self.assertEqual(len(data['daily_reports']), 2)
+        dates = [r['date'] for r in data['daily_reports']]
+        self.assertIn('2026-01-15', dates)
+        self.assertIn('2026-01-20', dates)
 
     def test_load_positional_stats(self):
         _create_analytics_db(self.db_path)
@@ -583,11 +723,13 @@ class TestRenderWithData(unittest.TestCase):
         self.assertIn('2026-01-15', html)
         self.assertIn('50.25', html)
 
-    def test_cash_sessions_shows_session_table(self):
+    def test_cash_sessions_shows_day_stats(self):
         r = self.client.get('/cash/sessions')
         html = r.data.decode()
-        self.assertIn('1h 30m', html)
-        self.assertIn('35.00', html)
+        # Sessions list shows VPIP/PFR/AF for each day
+        self.assertIn('VPIP', html)
+        self.assertIn('PFR', html)
+        self.assertIn('AF', html)
 
     def test_cash_stats_shows_positions(self):
         r = self.client.get('/cash/stats')
@@ -1165,6 +1307,542 @@ class TestOverviewEmptyState(unittest.TestCase):
         r = self.client.get('/tournament/overview')
         html = r.data.decode()
         self.assertIn('empty-state', html)
+
+
+# ── US-029 Sessions Data Helpers Tests ───────────────────────────
+
+
+class TestPrepareSessionsList(unittest.TestCase):
+    """Test prepare_sessions_list function."""
+
+    def _make_data(self, num_days=3):
+        reports = []
+        for i in range(num_days):
+            reports.append({
+                'date': f'2026-01-{15 + i:02d}',
+                'net': 10.0 * (i + 1),
+                'hands_count': 100 * (i + 1),
+                'num_sessions': i + 1,
+                'day_stats': {
+                    'vpip': 24.0, 'pfr': 18.0, 'three_bet': 7.0,
+                    'fold_to_3bet': 45.0, 'ats': 32.0,
+                    'af': 2.8, 'cbet': 65.0, 'fold_to_cbet': 42.0,
+                    'wtsd': 28.0, 'wsd': 52.0,
+                },
+                'sessions': [{'leak_summary': []}] * (i + 1),
+            })
+        return {'daily_reports': reports}
+
+    def test_basic_pagination(self):
+        data = self._make_data(3)
+        prepare_sessions_list(data, page=1, per_page=2)
+        self.assertEqual(len(data['sessions_days']), 2)
+        self.assertEqual(data['sessions_page'], 1)
+        self.assertEqual(data['sessions_total_pages'], 2)
+
+    def test_second_page(self):
+        data = self._make_data(3)
+        prepare_sessions_list(data, page=2, per_page=2)
+        self.assertEqual(len(data['sessions_days']), 1)
+        self.assertEqual(data['sessions_page'], 2)
+
+    def test_page_out_of_range_clamps(self):
+        data = self._make_data(3)
+        prepare_sessions_list(data, page=99, per_page=2)
+        self.assertEqual(data['sessions_page'], 2)
+
+    def test_page_zero_clamps_to_one(self):
+        data = self._make_data(3)
+        prepare_sessions_list(data, page=0, per_page=2)
+        self.assertEqual(data['sessions_page'], 1)
+
+    def test_health_badges_added(self):
+        data = self._make_data(1)
+        prepare_sessions_list(data)
+        day = data['sessions_days'][0]
+        self.assertEqual(day['vpip_val'], 24.0)
+        self.assertEqual(day['vpip_badge'], 'good')
+        self.assertIn(day['health_badge'], ('good', 'warning', 'danger'))
+
+    def test_health_badge_good_when_all_stats_good(self):
+        data = self._make_data(1)
+        prepare_sessions_list(data)
+        day = data['sessions_days'][0]
+        self.assertEqual(day['health_badge'], 'good')
+
+    def test_health_badge_danger_when_many_danger(self):
+        data = {
+            'daily_reports': [{
+                'date': '2026-01-15', 'net': 0, 'hands_count': 100,
+                'day_stats': {
+                    'vpip': 50.0, 'pfr': 50.0, 'three_bet': 50.0,
+                    'af': 10.0, 'cbet': 10.0, 'wtsd': 10.0, 'wsd': 10.0,
+                    'fold_to_3bet': 90.0, 'ats': 90.0, 'fold_to_cbet': 90.0,
+                },
+                'sessions': [],
+            }],
+        }
+        prepare_sessions_list(data)
+        self.assertEqual(data['sessions_days'][0]['health_badge'], 'danger')
+
+    def test_leak_count_aggregated(self):
+        data = {
+            'daily_reports': [{
+                'date': '2026-01-15', 'net': 0, 'hands_count': 100,
+                'day_stats': {},
+                'sessions': [
+                    {'leak_summary': [{'stat_name': 'vpip'}]},
+                    {'leak_summary': [{'stat_name': 'pfr'}, {'stat_name': 'af'}]},
+                ],
+            }],
+        }
+        prepare_sessions_list(data)
+        self.assertEqual(data['sessions_days'][0]['leak_count'], 3)
+
+    def test_empty_daily_reports(self):
+        data = {'daily_reports': []}
+        prepare_sessions_list(data)
+        self.assertEqual(data['sessions_days'], [])
+        self.assertEqual(data['sessions_total_pages'], 1)
+
+    def test_total_days_count(self):
+        data = self._make_data(5)
+        prepare_sessions_list(data, page=1, per_page=3)
+        self.assertEqual(data['sessions_total_days'], 5)
+
+
+class TestPrepareSessionDay(unittest.TestCase):
+    """Test prepare_session_day function."""
+
+    def _make_data(self):
+        return {
+            'daily_reports': [{
+                'date': '2026-01-15',
+                'net': 50.25,
+                'hands_count': 200,
+                'num_sessions': 2,
+                'day_stats': {
+                    'vpip': 24.0, 'pfr': 18.0, 'three_bet': 7.0,
+                    'af': 2.8, 'cbet': 65.0, 'fold_to_cbet': 42.0,
+                    'wtsd': 28.0, 'wsd': 52.0,
+                },
+                'sessions': [
+                    {
+                        'session_id': 's1',
+                        'start_time': '2026-01-15T18:00:00',
+                        'end_time': '2026-01-15T19:30:00',
+                        'duration_minutes': 90,
+                        'profit': 35.0, 'hands_count': 120,
+                        'stats': {
+                            'vpip': 23.0, 'vpip_health': 'good',
+                            'pfr': 17.0, 'af': 3.0,
+                        },
+                        'sparkline': [
+                            {'hand': 1, 'profit': 0},
+                            {'hand': 60, 'profit': 20.0},
+                            {'hand': 120, 'profit': 35.0},
+                        ],
+                        'biggest_win': {'net': 22.50, 'hero_position': 'BTN'},
+                        'biggest_loss': {'net': -15.00, 'hero_position': 'BB'},
+                        'ev_data': {
+                            'chart_data': [
+                                {'hand': 1, 'real': 0, 'ev': 0},
+                                {'hand': 120, 'real': 35.0, 'ev': 28.0},
+                            ],
+                        },
+                        'leak_summary': [
+                            {'stat_name': 'fold_to_3bet', 'label': 'Fold to 3-Bet',
+                             'value': 60.0, 'cost_bb100': 1.5},
+                        ],
+                    },
+                    {
+                        'session_id': 's2',
+                        'start_time': '2026-01-15T20:00:00',
+                        'end_time': '2026-01-15T20:45:00',
+                        'duration_minutes': 45,
+                        'profit': 15.25, 'hands_count': 80,
+                        'stats': {'vpip': 26.0, 'pfr': 19.0, 'af': 2.5},
+                        'sparkline': [],
+                        'biggest_win': None, 'biggest_loss': None,
+                        'ev_data': None,
+                        'leak_summary': [],
+                    },
+                ],
+            }],
+        }
+
+    def test_finds_correct_day(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        self.assertIsNotNone(data['session_day'])
+        self.assertEqual(data['session_day']['date'], '2026-01-15')
+
+    def test_missing_day_returns_none(self):
+        data = self._make_data()
+        prepare_session_day(data, '2099-12-31')
+        self.assertIsNone(data['session_day'])
+
+    def test_day_health_badges(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        day = data['session_day']
+        self.assertEqual(day['vpip_val'], 24.0)
+        self.assertEqual(day['vpip_badge'], 'good')
+
+    def test_sessions_enriched(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        sessions = data['session_day']['sessions']
+        self.assertEqual(len(sessions), 2)
+        self.assertEqual(sessions[0]['index'], 1)
+        self.assertEqual(sessions[1]['index'], 2)
+
+    def test_duration_formatting(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        sessions = data['session_day']['sessions']
+        self.assertEqual(sessions[0]['duration_fmt'], '1h 30m')
+        self.assertEqual(sessions[1]['duration_fmt'], '45m')
+
+    def test_time_formatting(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        sessions = data['session_day']['sessions']
+        self.assertEqual(sessions[0]['start_fmt'], '18:00')
+        self.assertEqual(sessions[0]['end_fmt'], '19:30')
+
+    def test_session_stats_badges(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        s = data['session_day']['sessions'][0]
+        self.assertEqual(s['vpip_val'], 23.0)
+        self.assertEqual(s['vpip_badge'], 'good')
+
+    def test_sparkline_points(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        s1 = data['session_day']['sessions'][0]
+        self.assertTrue(len(s1['sparkline_points']) > 0)
+        self.assertAlmostEqual(s1['sparkline_final'], 35.0)
+
+    def test_empty_sparkline(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        s2 = data['session_day']['sessions'][1]
+        self.assertEqual(s2['sparkline_points'], '')
+
+    def test_ev_chart_points(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        s1 = data['session_day']['sessions'][0]
+        self.assertIsNotNone(s1['ev_chart'])
+        self.assertIn('real_points', s1['ev_chart'])
+        self.assertIn('ev_points', s1['ev_chart'])
+
+    def test_no_ev_data(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        s2 = data['session_day']['sessions'][1]
+        self.assertIsNone(s2['ev_chart'])
+
+    def test_leak_count(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        s1 = data['session_day']['sessions'][0]
+        s2 = data['session_day']['sessions'][1]
+        self.assertEqual(s1['leak_count'], 1)
+        self.assertEqual(s2['leak_count'], 0)
+
+    def test_best_worst_session(self):
+        data = self._make_data()
+        prepare_session_day(data, '2026-01-15')
+        day = data['session_day']
+        self.assertEqual(day['best_session'], 0)  # profit 35.0
+        self.assertEqual(day['worst_session'], 1)  # profit 15.25
+
+    def test_single_session_no_comparison(self):
+        data = {
+            'daily_reports': [{
+                'date': '2026-01-20',
+                'net': 10.0, 'hands_count': 50,
+                'day_stats': {},
+                'sessions': [{'profit': 10.0, 'hands_count': 50,
+                              'stats': {}, 'sparkline': [],
+                              'ev_data': None, 'leak_summary': []}],
+            }],
+        }
+        prepare_session_day(data, '2026-01-20')
+        day = data['session_day']
+        self.assertIsNone(day['best_session'])
+        self.assertIsNone(day['worst_session'])
+
+
+# ── US-029 Route Tests ───────────────────────────────────────────
+
+
+class TestSessionsRoutes(unittest.TestCase):
+    """Test sessions routes with data (US-029)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+        os.rmdir(self.tmpdir)
+
+    # ── Sessions List ──────────────────────────────────────────
+
+    def test_cash_sessions_renders(self):
+        r = self.client.get('/cash/sessions')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(b'Cash Sessions', r.data)
+
+    def test_cash_sessions_shows_day_rows(self):
+        r = self.client.get('/cash/sessions')
+        html = r.data.decode()
+        self.assertIn('2026-01-15', html)
+        self.assertIn('2026-01-20', html)
+
+    def test_cash_sessions_shows_profit(self):
+        r = self.client.get('/cash/sessions')
+        html = r.data.decode()
+        self.assertIn('+50.25', html)
+        self.assertIn('-25.50', html)
+
+    def test_cash_sessions_shows_health_badge(self):
+        r = self.client.get('/cash/sessions')
+        html = r.data.decode()
+        self.assertIn('badge-', html)
+
+    def test_cash_sessions_shows_stats(self):
+        r = self.client.get('/cash/sessions')
+        html = r.data.decode()
+        self.assertIn('VPIP', html)
+        self.assertIn('PFR', html)
+        self.assertIn('AF', html)
+
+    def test_cash_sessions_has_drill_down_link(self):
+        r = self.client.get('/cash/sessions')
+        html = r.data.decode()
+        self.assertIn('/cash/sessions/2026-01-15', html)
+
+    def test_cash_sessions_pagination_param(self):
+        r = self.client.get('/cash/sessions?page=1')
+        self.assertEqual(r.status_code, 200)
+
+    def test_cash_sessions_leak_count(self):
+        r = self.client.get('/cash/sessions')
+        html = r.data.decode()
+        self.assertIn('Leaks', html)
+
+    def test_cash_sessions_hands_count(self):
+        r = self.client.get('/cash/sessions')
+        html = r.data.decode()
+        self.assertIn('Hands', html)
+        self.assertIn('200', html)
+
+    # ── Session Day Drill-Down ─────────────────────────────────
+
+    def test_cash_session_day_renders(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('2026-01-15', html)
+
+    def test_cash_session_day_shows_summary(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('Total Hands', html)
+        self.assertIn('Net Profit', html)
+        self.assertIn('+50.25', html)
+
+    def test_cash_session_day_shows_day_stats(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('Day Stats', html)
+        self.assertIn('VPIP', html)
+        self.assertIn('hud-table', html)
+
+    def test_cash_session_day_shows_session_cards(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('Session #1', html)
+        self.assertIn('Session #2', html)
+
+    def test_cash_session_day_shows_time(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('18:00', html)
+        self.assertIn('19:30', html)
+
+    def test_cash_session_day_shows_duration(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('1h 30m', html)
+        self.assertIn('45m', html)
+
+    def test_cash_session_day_shows_session_stats(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('badge-good', html)
+        self.assertIn('sdc-stats-table', html)
+
+    def test_cash_session_day_shows_sparkline(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('sparkline-chart', html)
+        self.assertIn('Stack', html)
+
+    def test_cash_session_day_shows_ev_chart(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('ev-mini-chart', html)
+        self.assertIn('EV vs Real', html)
+
+    def test_cash_session_day_shows_notable_hands(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('Notable Hands', html)
+        self.assertIn('Biggest Win', html)
+        self.assertIn('Biggest Loss', html)
+        self.assertIn('+22.50', html)
+        self.assertIn('-15.00', html)
+
+    def test_cash_session_day_shows_position_meta(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('BTN', html)
+
+    def test_cash_session_day_shows_leaks_toggle(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('Ver Leaks', html)
+        self.assertIn('Fold to 3-Bet', html)
+
+    def test_cash_session_day_shows_comparison(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('Best Session', html)
+        self.assertIn('Worst Session', html)
+
+    def test_cash_session_day_best_worst_markers(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('best-session', html)
+        self.assertIn('worst-session', html)
+
+    def test_cash_session_day_back_link(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('Back to Sessions', html)
+        self.assertIn('/cash/sessions', html)
+
+    def test_cash_session_day_not_found(self):
+        r = self.client.get('/cash/sessions/2099-12-31')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('No data found', html)
+
+    # ── Tournament Sessions ────────────────────────────────────
+
+    def test_tournament_sessions_renders(self):
+        r = self.client.get('/tournament/sessions')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(b'Tournament Sessions', r.data)
+
+    def test_tournament_session_day_not_found(self):
+        r = self.client.get('/tournament/sessions/2099-12-31')
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn('No data found', html)
+
+
+# ── US-029 Empty State Tests ────────────────────────────────────
+
+
+class TestSessionsEmptyState(unittest.TestCase):
+    """Test sessions pages with no data."""
+
+    def setUp(self):
+        self.app = create_app(analytics_db_path='/tmp/_nonexistent_test.db')
+        self.client = self.app.test_client()
+
+    def test_cash_sessions_empty(self):
+        r = self.client.get('/cash/sessions')
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
+        self.assertIn('No session data', html)
+
+    def test_tournament_sessions_empty(self):
+        r = self.client.get('/tournament/sessions')
+        html = r.data.decode()
+        self.assertIn('empty-state', html)
+
+    def test_cash_session_day_empty(self):
+        r = self.client.get('/cash/sessions/2026-01-15')
+        html = r.data.decode()
+        self.assertIn('No data found', html)
+
+
+# ── US-029 CSS Tests ────────────────────────────────────────────
+
+
+class TestSessionsCSS(unittest.TestCase):
+    """Test CSS includes session-related styles."""
+
+    def setUp(self):
+        self.app = create_app()
+        self.client = self.app.test_client()
+
+    def test_css_has_session_day_list(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.session-day-list', css)
+        self.assertIn('.session-day-row', css)
+
+    def test_css_has_session_detail_card(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.session-detail-card', css)
+        self.assertIn('.sdc-header', css)
+
+    def test_css_has_sparkline(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.sparkline-chart', css)
+
+    def test_css_has_comparison_banner(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.comparison-banner', css)
+        self.assertIn('.comparison-item', css)
+
+    def test_css_has_notable_hands(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.notable-hand', css)
+        self.assertIn('.notable-value', css)
+
+    def test_css_has_pagination(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.pagination', css)
+
+    def test_css_has_ev_chart(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.ev-mini-chart', css)
+        self.assertIn('.ev-legend', css)
+
+    def test_css_has_back_link(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.back-link', css)
 
 
 if __name__ == '__main__':

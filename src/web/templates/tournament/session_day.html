@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block page_title %}Torneios — {{ day_date }}{% endblock %}
+
+{% block content %}
+<div class="session-day-header">
+    <a href="{{ url_for('tournament.sub_tab', tab='sessions') }}" class="back-link">&larr; Back to Sessions</a>
+    <h1 class="page-title">{{ day_date }}</h1>
+</div>
+
+{% if data and data.get('session_day') %}
+{% set day = data['session_day'] %}
+{% set ds = day.get('day_stats') or {} %}
+
+{# ── Day Summary Cards ──────────────────────────────────────── #}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Total Hands</div>
+        <div class="stat-value neutral">{{ (day.get('hands_count') or day.get('total_hands') or 0)|int }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Net Profit</div>
+        {% set net = day.get('net', 0) or 0 %}
+        <div class="stat-value {{ 'positive' if net >= 0 else 'negative' }}">
+            ${{ '{:+,.2f}'.format(net) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Tournaments</div>
+        <div class="stat-value neutral">{{ day.get('total_tournaments', day.get('num_sessions', (day.get('sessions') or [])|length)) }}</div>
+    </div>
+</div>
+
+{# ── Day Aggregate Stats ────────────────────────────────────── #}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Day Stats</div>
+    <div class="table-responsive">
+    <table class="data-table hud-table">
+        <thead>
+            <tr>
+                <th class="num">VPIP</th>
+                <th class="num">PFR</th>
+                <th class="num">3Bet</th>
+                <th class="num">AF</th>
+                <th class="num">CBet</th>
+                <th class="num">FCB</th>
+                <th class="num">WTSD</th>
+                <th class="num">W$SD</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd'] %}
+                <td class="num">
+                    {% if day.get(stat ~ '_val') is not none %}
+                    <span class="hud-val {% if day.get(stat ~ '_badge') %}badge-{{ day[stat ~ '_badge'] }}{% endif %}">
+                        {% if stat == 'af' %}{{ '{:.2f}'.format(day[stat ~ '_val']) }}{% else %}{{ '{:.1f}'.format(day[stat ~ '_val']) }}{% endif %}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+
+{# ── Comparison Banner ───────────────────────────────────────── #}
+{% if day.get('best_session') is not none and day.get('worst_session') is not none %}
+{% set sessions = day.get('sessions', []) %}
+{% set best = sessions[day['best_session']] %}
+{% set worst = sessions[day['worst_session']] %}
+<div class="comparison-banner" style="margin-top: 1rem;">
+    <div class="comparison-item best">
+        <span class="comparison-label">Best Tournament</span>
+        <span class="comparison-value positive">#{{ best['index'] }} &mdash; ${{ '{:+,.2f}'.format(best.get('profit', 0) or 0) }}</span>
+    </div>
+    <div class="comparison-item worst">
+        <span class="comparison-label">Worst Tournament</span>
+        <span class="comparison-value negative">#{{ worst['index'] }} &mdash; ${{ '{:+,.2f}'.format(worst.get('profit', 0) or 0) }}</span>
+    </div>
+</div>
+{% endif %}
+
+{# ── Session Cards ───────────────────────────────────────────── #}
+{% for sess in day.get('sessions', []) %}
+<div class="session-detail-card {% if loop.index0 == day.get('best_session') %}best-session{% elif loop.index0 == day.get('worst_session') %}worst-session{% endif %}" style="margin-top: 1rem;">
+
+    <div class="sdc-header">
+        <div class="sdc-title">
+            <span class="sdc-number">Tournament #{{ sess['index'] }}</span>
+            {% if sess.get('start_fmt') %}
+            <span class="sdc-time">{{ sess['start_fmt'] }} — {{ sess.get('end_fmt', '') }}</span>
+            {% endif %}
+            <span class="sdc-duration">{{ sess.get('duration_fmt', '') }}</span>
+        </div>
+        <div class="sdc-profit {{ 'positive' if (sess.get('profit', 0) or 0) >= 0 else 'negative' }}">
+            ${{ '{:+,.2f}'.format(sess.get('profit', 0) or 0) }}
+        </div>
+    </div>
+
+    <div class="sdc-summary">
+        <span class="sdc-meta">{{ (sess.get('hands_count', 0) or 0)|int }} hands</span>
+        {% if sess.get('leak_count', 0) > 0 %}
+        <button class="filter-btn leak-toggle" data-toggle="accordion" data-target="leaks-{{ loop.index }}">
+            Ver Leaks ({{ sess['leak_count'] }})
+        </button>
+        {% endif %}
+    </div>
+
+    <div class="table-responsive">
+    <table class="data-table hud-table sdc-stats-table">
+        <thead>
+            <tr>
+                <th class="num">VPIP</th>
+                <th class="num">PFR</th>
+                <th class="num">3Bet</th>
+                <th class="num">AF</th>
+                <th class="num">CBet</th>
+                <th class="num">WTSD</th>
+                <th class="num">W$SD</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'af', 'cbet', 'wtsd', 'wsd'] %}
+                <td class="num">
+                    {% if sess.get(stat ~ '_val') is not none %}
+                    <span class="hud-val {% if sess.get(stat ~ '_badge') %}badge-{{ sess[stat ~ '_badge'] }}{% endif %}">
+                        {% if stat == 'af' %}{{ '{:.2f}'.format(sess[stat ~ '_val']) }}{% else %}{{ '{:.1f}'.format(sess[stat ~ '_val']) }}{% endif %}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <div class="sdc-charts">
+        {% if sess.get('sparkline_points') %}
+        <div class="sdc-chart-box">
+            <div class="sdc-chart-label">Stack</div>
+            <svg viewBox="0 0 200 40" class="sparkline-chart" xmlns="http://www.w3.org/2000/svg">
+                <polyline points="{{ sess['sparkline_points'] }}" fill="none"
+                          stroke="{{ 'var(--accent-green)' if sess.get('sparkline_final', 0) >= 0 else 'var(--accent-red)' }}"
+                          stroke-width="1.5"/>
+            </svg>
+        </div>
+        {% endif %}
+
+        {% if sess.get('ev_chart') %}
+        <div class="sdc-chart-box">
+            <div class="sdc-chart-label">EV vs Real</div>
+            <svg viewBox="0 0 200 60" class="ev-mini-chart" xmlns="http://www.w3.org/2000/svg">
+                <polyline points="{{ sess['ev_chart']['real_points'] }}" fill="none"
+                          stroke="var(--accent-green)" stroke-width="1.5"/>
+                <polyline points="{{ sess['ev_chart']['ev_points'] }}" fill="none"
+                          stroke="var(--accent-orange)" stroke-width="1" stroke-dasharray="3"/>
+            </svg>
+            <div class="ev-legend">
+                <span class="ev-legend-item"><span class="ev-dot" style="background:var(--accent-green)"></span>Real</span>
+                <span class="ev-legend-item"><span class="ev-dot" style="background:var(--accent-orange)"></span>EV</span>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if sess.get('biggest_win') or sess.get('biggest_loss') %}
+    <div class="sdc-notable">
+        <div class="sdc-chart-label">Notable Hands</div>
+        <div class="notable-hands-grid">
+            {% if sess.get('biggest_win') %}
+            <div class="notable-hand win">
+                <span class="notable-label">Biggest Win</span>
+                <span class="notable-value positive">${{ '{:+,.2f}'.format(sess['biggest_win'].get('net', 0) or 0) }}</span>
+                {% if sess['biggest_win'].get('hero_position') %}
+                <span class="notable-meta">{{ sess['biggest_win']['hero_position'] }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% if sess.get('biggest_loss') %}
+            <div class="notable-hand loss">
+                <span class="notable-label">Biggest Loss</span>
+                <span class="notable-value negative">${{ '{:+,.2f}'.format(sess['biggest_loss'].get('net', 0) or 0) }}</span>
+                {% if sess['biggest_loss'].get('hero_position') %}
+                <span class="notable-meta">{{ sess['biggest_loss']['hero_position'] }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if sess.get('leak_summary') %}
+    <div id="leaks-{{ loop.index }}" class="sdc-leaks collapsed">
+        <div class="sdc-chart-label">Leaks Detected</div>
+        <div class="leak-list">
+            {% for leak in sess['leak_summary'] %}
+            <div class="leak-card {% if (leak.get('cost_bb100') or 0) > 2 %}high{% endif %}">
+                <div class="leak-name">{{ leak.get('label', leak.get('stat_name', '')) }}</div>
+                <div class="leak-detail">
+                    {{ '{:.1f}'.format(leak.get('value', 0)) }}
+                    (healthy: {{ '{:.0f}'.format(leak.get('healthy_low', 0)) }}–{{ '{:.0f}'.format(leak.get('healthy_high', 0)) }})
+                    &mdash; {{ leak.get('direction', '') }}
+                </div>
+                {% if leak.get('cost_bb100') %}
+                <div class="leak-cost">-{{ '{:.2f}'.format(leak['cost_bb100']) }} bb/100</div>
+                {% endif %}
+                {% if leak.get('suggestion') %}
+                <div class="leak-detail" style="margin-top: 0.25rem;">{{ leak['suggestion'] }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endfor %}
+
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#128197;</div>
+    <div class="empty-state-text">No data found for {{ day_date }}</div>
+    <div class="empty-state-hint">
+        <a href="{{ url_for('tournament.sub_tab', tab='sessions') }}" class="detail-link">Back to Sessions</a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

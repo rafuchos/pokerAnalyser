@@ -360,6 +360,335 @@ body {
     font-weight: 600;
 }
 
+/* ── Session Day List ────────────────────────────────────── */
+.session-day-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.session-day-row {
+    display: block;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.session-day-row:hover {
+    border-color: var(--accent-blue);
+    background: var(--bg-tertiary);
+}
+
+.sdr-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+}
+
+.sdr-date {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.sdr-date-text {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.sdr-profit {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.sdr-stats {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.sdr-stat {
+    display: flex;
+    gap: 0.25rem;
+    align-items: baseline;
+}
+
+.sdr-stat-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.sdr-stat-value {
+    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    font-weight: 500;
+}
+
+/* ── Pagination ──────────────────────────────────────────── */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1.25rem;
+    padding: 0.75rem 0;
+}
+
+.pagination-info {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* ── Session Day Drill-Down ──────────────────────────────── */
+.session-day-header {
+    margin-bottom: 1.25rem;
+}
+
+.back-link {
+    display: inline-block;
+    color: var(--accent-blue);
+    text-decoration: none;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+.comparison-banner {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.comparison-item {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+}
+
+.comparison-item.best {
+    border-left: 3px solid var(--accent-green);
+}
+
+.comparison-item.worst {
+    border-left: 3px solid var(--accent-red);
+}
+
+.comparison-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.comparison-value {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+/* ── Session Detail Card ─────────────────────────────────── */
+.session-detail-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 1rem;
+}
+
+.session-detail-card.best-session {
+    border-left: 3px solid var(--accent-green);
+}
+
+.session-detail-card.worst-session {
+    border-left: 3px solid var(--accent-red);
+}
+
+.sdc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.sdc-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.sdc-number {
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.sdc-time, .sdc-duration {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.sdc-profit {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.sdc-summary {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.sdc-meta {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.leak-toggle {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    color: var(--accent-orange);
+    border-color: var(--accent-orange);
+}
+
+.leak-toggle:hover {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
+.sdc-stats-table {
+    margin-bottom: 0.75rem;
+}
+
+/* ── Charts ──────────────────────────────────────────────── */
+.sdc-charts {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.sdc-chart-box {
+    flex: 1;
+    min-width: 180px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+
+.sdc-chart-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.25rem;
+}
+
+.sparkline-chart, .ev-mini-chart {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.ev-legend {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+.ev-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+}
+
+.ev-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+/* ── Notable Hands ───────────────────────────────────────── */
+.sdc-notable {
+    margin-bottom: 0.75rem;
+}
+
+.notable-hands-grid {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.notable-hand {
+    flex: 1;
+    min-width: 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.notable-hand.win {
+    border-left: 2px solid var(--accent-green);
+}
+
+.notable-hand.loss {
+    border-left: 2px solid var(--accent-red);
+}
+
+.notable-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.notable-value {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.notable-meta {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+/* ── Leak Accordion ──────────────────────────────────────── */
+.sdc-leaks {
+    overflow: hidden;
+    transition: max-height 0.2s;
+}
+
+.sdc-leaks.collapsed {
+    max-height: 0;
+    padding: 0;
+}
+
 /* ── Overview Filters ─────────────────────────────────────── */
 .overview-filters {
     display: flex;
@@ -571,6 +900,18 @@ body {
     .overview-filters {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .sdr-stats {
+        gap: 0.5rem;
+    }
+
+    .sdc-charts {
+        flex-direction: column;
+    }
+
+    .comparison-banner {
+        flex-direction: column;
     }
 }
 

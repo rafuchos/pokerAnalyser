@@ -150,6 +150,176 @@ def load_analytics_data(db_path: str, game_type: str) -> dict:
     return data
 
 
+# ── Sessions helpers ─────────────────────────────────────────────
+
+
+def prepare_sessions_list(data, page=1, per_page=15):
+    """Enrich analytics data with paginated session-day list.
+
+    Adds: sessions_days, sessions_page, sessions_total_pages.
+    Each day gets aggregated stats with health badges.
+    """
+    daily_reports = data.get('daily_reports', [])
+    sessions_map = data.get('sessions', {})
+
+    # Merge session detail from session_stats into daily reports
+    enriched = []
+    for report in daily_reports:
+        day = dict(report)
+        date = day.get('date', '')
+
+        # Compute day-level stats with health badges
+        ds = day.get('day_stats') or {}
+        for s in _STAT_NAMES:
+            val = ds.get(s)
+            day[f'{s}_val'] = val
+            day[f'{s}_badge'] = _classify_health(s, val)
+
+        # Count leaks across sessions
+        sess_list = day.get('sessions') or []
+        leak_count = 0
+        for sess in sess_list:
+            leak_count += len(sess.get('leak_summary') or [])
+        day['leak_count'] = leak_count
+
+        # Overall health badge for the day
+        badges = [day.get(f'{s}_badge') for s in _STAT_NAMES]
+        danger_count = badges.count('danger')
+        warning_count = badges.count('warning')
+        if danger_count >= 3:
+            day['health_badge'] = 'danger'
+        elif danger_count >= 1 or warning_count >= 3:
+            day['health_badge'] = 'warning'
+        else:
+            day['health_badge'] = 'good'
+
+        enriched.append(day)
+
+    total = len(enriched)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    end = start + per_page
+
+    data['sessions_days'] = enriched[start:end]
+    data['sessions_page'] = page
+    data['sessions_total_pages'] = total_pages
+    data['sessions_total_days'] = total
+    return data
+
+
+def prepare_session_day(data, date):
+    """Enrich analytics data with detail for a specific day.
+
+    Adds: session_day (the day report with enriched sessions).
+    Each session gets sparkline SVG points, EV chart SVG points,
+    health badges, and best/worst comparison markers.
+    """
+    daily_reports = data.get('daily_reports', [])
+    sessions_map = data.get('sessions', {})
+
+    # Find the report for this date
+    day_report = None
+    for r in daily_reports:
+        if r.get('date') == date:
+            day_report = dict(r)
+            break
+    if not day_report:
+        data['session_day'] = None
+        return data
+
+    # Add health badges for day-level stats
+    ds = day_report.get('day_stats') or {}
+    for s in _STAT_NAMES:
+        val = ds.get(s)
+        day_report[f'{s}_val'] = val
+        day_report[f'{s}_badge'] = _classify_health(s, val)
+
+    # Enrich each session
+    sess_list = day_report.get('sessions') or []
+    enriched_sessions = []
+    for i, sess in enumerate(sess_list):
+        s = dict(sess)
+        s['index'] = i + 1
+
+        # Duration formatting
+        mins = s.get('duration_minutes') or 0
+        if mins >= 60:
+            s['duration_fmt'] = f"{mins // 60}h {mins % 60}m"
+        else:
+            s['duration_fmt'] = f"{mins}m"
+
+        # Time formatting
+        start = s.get('start_time', '')
+        if len(start) >= 16:
+            s['start_fmt'] = start[11:16]
+        else:
+            s['start_fmt'] = ''
+        end = s.get('end_time', '')
+        if len(end) >= 16:
+            s['end_fmt'] = end[11:16]
+        else:
+            s['end_fmt'] = ''
+
+        # Stats with health badges
+        stats = s.get('stats') or {}
+        for stat in _STAT_NAMES:
+            val = stats.get(stat)
+            s[f'{stat}_val'] = val
+            health = stats.get(f'{stat}_health', '')
+            if not health and val is not None:
+                health = _classify_health(stat, val)
+            s[f'{stat}_badge'] = health
+
+        # Sparkline SVG points (stack evolution)
+        sparkline = s.get('sparkline') or []
+        if sparkline:
+            vals = [p.get('profit', 0) for p in sparkline]
+            s['sparkline_points'] = _build_chart_points(vals, width=200, height=40, padding=2)
+            s['sparkline_final'] = vals[-1] if vals else 0
+        else:
+            s['sparkline_points'] = ''
+            s['sparkline_final'] = 0
+
+        # EV chart SVG points
+        ev = s.get('ev_data')
+        if ev and ev.get('chart_data'):
+            cd = ev['chart_data']
+            real_vals = [p.get('real', 0) for p in cd]
+            ev_vals = [p.get('ev', 0) for p in cd]
+            all_vals = real_vals + ev_vals
+            s['ev_chart'] = {
+                'real_points': _build_chart_points(real_vals, width=200, height=60, padding=4),
+                'ev_points': _build_chart_points(ev_vals, width=200, height=60, padding=4),
+                'y_min': min(all_vals) if all_vals else 0,
+                'y_max': max(all_vals) if all_vals else 0,
+            }
+        else:
+            s['ev_chart'] = None
+
+        # Leak count
+        s['leak_count'] = len(s.get('leak_summary') or [])
+
+        enriched_sessions.append(s)
+
+    day_report['sessions'] = enriched_sessions
+
+    # Comparison: best/worst session by profit
+    if len(enriched_sessions) > 1:
+        best_idx = max(range(len(enriched_sessions)),
+                       key=lambda i: enriched_sessions[i].get('profit', 0))
+        worst_idx = min(range(len(enriched_sessions)),
+                        key=lambda i: enriched_sessions[i].get('profit', 0))
+        day_report['best_session'] = best_idx
+        day_report['worst_session'] = worst_idx
+    else:
+        day_report['best_session'] = None
+        day_report['worst_session'] = None
+
+    data['session_day'] = day_report
+    return data
+
+
 # ── Overview helpers ─────────────────────────────────────────────
 
 

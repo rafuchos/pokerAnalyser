@@ -1,0 +1,32 @@
+{
+  "id": "US-029",
+  "title": "Páginas de Sessions: Lista por Dia + Drill-Down por Sessão",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Read existing sessions.html baseline, data.py, and routes/cash.py to understand current state",
+    "Enhance routes/cash.py to prepare session-level data (health badges per stat, sparkline chart points, day comparisons) and add optional /cash/sessions/<date> drill-down route",
+    "Rewrite src/web/templates/cash/sessions.html with: day-level summary cards (date, hands, net, VPIP/PFR/AF, health badge), expandable day sections with session cards showing full stats, sparklines, notable hands, EV mini-chart, leak button, and best/worst comparison",
+    "Add CSS to style.css for session detail cards, expandable sections, sparkline SVGs, mini EV charts, health badges per session stat, and responsive layout",
+    "Add JavaScript to app.js for expand/collapse day sections, pagination/infinite scroll, and sparkline rendering helpers",
+    "Create src/web/templates/tournament/sessions.html mirroring cash version with tournament-specific adaptations (ROI, tournament cards instead of session cards)",
+    "Update tournament routes if needed to support drill-down",
+    "Test all pages render correctly with real data from analytics.db"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/web/templates/cash/sessions.html",
+    "src/web/templates/tournament/sessions.html",
+    "src/web/static/css/style.css",
+    "src/web/static/js/app.js",
+    "src/web/routes/cash.py",
+    "src/web/routes/tournament.py",
+    "src/web/data.py"
+  ],
+  "created_at": "2026-03-10T05:17:02.339Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-029"
+}

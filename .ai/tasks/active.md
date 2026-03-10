@@ -91,6 +91,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-026: Analytics DB: Banco de Análises Pré-Processadas + Comando analyze (2026-03-10)
 - [x] US-027: Web App Flask: Estrutura Base + Servidor Local + Layout com Tabs (2026-03-10)
 - [x] US-028: Página Overview: Dashboard Resumido + Tabela de Stats Compacta (2026-03-10)
+- [x] US-029: Páginas de Sessions: Lista por Dia + Drill-Down por Sessão (2026-03-10)
 
 ---
 

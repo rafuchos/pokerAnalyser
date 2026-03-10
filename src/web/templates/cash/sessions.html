@@ -4,53 +4,73 @@
 {% block content %}
 <h1 class="page-title">Cash Sessions</h1>
 
-{% if data and data.get('daily_reports') %}
-<div class="session-list">
-    {% for report in data['daily_reports'] %}
-    <div class="session-card">
-        <div class="session-header">
-            <span class="session-date">{{ report.get('date', 'N/A') }}</span>
-            <span class="session-profit {{ 'positive' if (report.get('net', 0) or 0) >= 0 else 'negative' }}">
-                ${{ '{:+,.2f}'.format(report.get('net', 0) or 0) }}
+{% if data and data.get('sessions_days') %}
+
+{# ── Day List ─────────────────────────────────────────────── #}
+<div class="session-day-list">
+    {% for day in data['sessions_days'] %}
+    {% set ds = day.get('day_stats') or {} %}
+    <a href="{{ url_for('cash.session_day', date=day.get('date', '')) }}" class="session-day-row">
+        <div class="sdr-main">
+            <div class="sdr-date">
+                <span class="sdr-date-text">{{ day.get('date', 'N/A') }}</span>
+                <span class="badge badge-{{ day.get('health_badge', '') }}">
+                    {% if day.get('health_badge') == 'good' %}OK
+                    {% elif day.get('health_badge') == 'warning' %}WARN
+                    {% else %}ALERT{% endif %}
+                </span>
+            </div>
+            <div class="sdr-profit {{ 'positive' if (day.get('net', 0) or 0) >= 0 else 'negative' }}">
+                ${{ '{:+,.2f}'.format(day.get('net', 0) or 0) }}
+            </div>
+        </div>
+        <div class="sdr-stats">
+            <span class="sdr-stat">
+                <span class="sdr-stat-label">Hands</span>
+                <span class="sdr-stat-value">{{ (day.get('hands_count') or day.get('total_hands') or 0)|int }}</span>
             </span>
+            <span class="sdr-stat">
+                <span class="sdr-stat-label">Sessions</span>
+                <span class="sdr-stat-value">{{ day.get('num_sessions', (day.get('sessions') or [])|length) }}</span>
+            </span>
+            {% for stat, label in [('vpip', 'VPIP'), ('pfr', 'PFR'), ('af', 'AF')] %}
+            <span class="sdr-stat">
+                <span class="sdr-stat-label">{{ label }}</span>
+                {% if day.get(stat ~ '_val') is not none %}
+                <span class="sdr-stat-value hud-val badge-{{ day.get(stat ~ '_badge', '') }}">
+                    {% if stat == 'af' %}{{ '{:.2f}'.format(day[stat ~ '_val']) }}{% else %}{{ '{:.1f}'.format(day[stat ~ '_val']) }}{% endif %}
+                </span>
+                {% else %}
+                <span class="sdr-stat-value">-</span>
+                {% endif %}
+            </span>
+            {% endfor %}
+            {% if day.get('leak_count', 0) > 0 %}
+            <span class="sdr-stat">
+                <span class="sdr-stat-label">Leaks</span>
+                <span class="sdr-stat-value badge-danger">{{ day['leak_count'] }}</span>
+            </span>
+            {% endif %}
         </div>
-        <div class="stats-grid" style="margin-top: 0.5rem;">
-            <div class="stat-card">
-                <div class="stat-label">Hands</div>
-                <div class="stat-value neutral">{{ report.get('total_hands', 0)|int }}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Sessions</div>
-                <div class="stat-value neutral">{{ (report.get('sessions') or [])|length }}</div>
-            </div>
-        </div>
-        {% if report.get('sessions') %}
-        <table class="data-table" style="margin-top: 0.75rem;">
-            <thead>
-                <tr>
-                    <th>Session</th>
-                    <th>Hands</th>
-                    <th>Net</th>
-                    <th>Duration</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for sess in report['sessions'] %}
-                <tr>
-                    <td>{{ loop.index }}</td>
-                    <td class="num">{{ sess.get('total_hands', 0)|int }}</td>
-                    <td class="num {{ 'positive' if (sess.get('net', 0) or 0) >= 0 else 'negative' }}">
-                        ${{ '{:+,.2f}'.format(sess.get('net', 0) or 0) }}
-                    </td>
-                    <td>{{ sess.get('duration', 'N/A') }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-    </div>
+    </a>
     {% endfor %}
 </div>
+
+{# ── Pagination ───────────────────────────────────────────── #}
+{% if data.get('sessions_total_pages', 1) > 1 %}
+<div class="pagination">
+    {% set page = data.get('sessions_page', 1) %}
+    {% set total = data.get('sessions_total_pages', 1) %}
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}" class="filter-btn">&laquo; Prev</a>
+    {% endif %}
+    <span class="pagination-info">Page {{ page }} of {{ total }}</span>
+    {% if page < total %}
+    <a href="?page={{ page + 1 }}" class="filter-btn">Next &raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+
 {% else %}
 <div class="empty-state">
     <div class="empty-state-icon">&#128197;</div>
