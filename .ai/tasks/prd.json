@@ -400,7 +400,7 @@
         "src/web/templates/tournament/range.html",
         "src/web/templates/tournament/tilt.html"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }
