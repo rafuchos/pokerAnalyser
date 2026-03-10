@@ -534,7 +534,7 @@ class Repository:
         """Get all actions across all streets for tournament hands."""
         query = """
             SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
-                   ha.is_hero, ha.sequence_order, ha.position,
+                   ha.is_hero, ha.sequence_order, ha.position, ha.is_voluntary,
                    h.hero_position, h.net as hero_net, substr(h.date, 1, 10) as day,
                    h.tournament_id, h.blinds_bb
             FROM hand_actions ha
@@ -585,6 +585,77 @@ class Repository:
             params.append(f"{year}%")
         row = self.conn.execute(query, params).fetchone()
         return row['cnt']
+
+    def get_tournament_hands_with_position(self, year: Optional[str] = None,
+                                            tournament_id: Optional[str] = None) -> list[dict]:
+        """Get tournament hands with position and financial data.
+
+        Returns hand_id, hero_position, net, blinds_bb, hero_stack for each
+        tournament hand. Used for positional win rate and stack tier analysis.
+        """
+        query = """
+            SELECT hand_id, hero_position, net, blinds_bb, blinds_sb, hero_stack
+            FROM hands
+            WHERE game_type = 'tournament'
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND tournament_id = ?"
+            params.append(tournament_id)
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_hands_with_cards(self, year: Optional[str] = None,
+                                        tournament_id: Optional[str] = None) -> list[dict]:
+        """Get tournament hands with hero cards, position, and financial data.
+
+        Returns hand_id, hero_cards, hero_position, net, blinds_bb for each
+        tournament hand where hero_cards is known.
+        """
+        query = """
+            SELECT hand_id, hero_cards, hero_position, net, blinds_bb
+            FROM hands
+            WHERE game_type = 'tournament' AND hero_cards IS NOT NULL
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        if tournament_id:
+            query += " AND tournament_id = ?"
+            params.append(tournament_id)
+        query += " ORDER BY date"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_daily_stats(self, year: Optional[str] = None) -> list[dict]:
+        """Get aggregated daily tournament stats.
+
+        Used by LeakFinder for period comparison on tournament hands.
+        """
+        query = """
+            SELECT
+                substr(date, 1, 10) as day,
+                COUNT(*) as hands,
+                SUM(CASE WHEN net > 0 THEN net ELSE 0 END) as total_won,
+                SUM(CASE WHEN net < 0 THEN ABS(net) ELSE 0 END) as total_lost,
+                SUM(net) as net,
+                MAX(net) as biggest_win_net,
+                MIN(net) as biggest_loss_net
+            FROM hands
+            WHERE game_type = 'tournament'
+        """
+        params = []
+        if year:
+            query += " AND date LIKE ?"
+            params.append(f"{year}%")
+        query += " GROUP BY day ORDER BY day DESC"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
 
     def get_imported_files_count(self) -> int:
         """Get count of imported files."""

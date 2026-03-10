@@ -6,6 +6,7 @@ chip sparklines, daily session-level aggregation, and session comparisons.
 """
 
 from collections import defaultdict
+from datetime import datetime
 
 from src.analyzers.cash import (
     CashAnalyzer,
@@ -19,6 +20,8 @@ from src.db.repository import Repository
 class TournamentAnalyzer:
     """Analyze tournament data from the database."""
 
+    game_type = 'tournament'
+
     # Reuse health ranges from CashAnalyzer
     HEALTHY_RANGES = CashAnalyzer.HEALTHY_RANGES
     WARNING_RANGES = CashAnalyzer.WARNING_RANGES
@@ -28,6 +31,386 @@ class TournamentAnalyzer:
     def __init__(self, repo: Repository, year: str = '2026'):
         self.repo = repo
         self.year = year
+        self._healthy_ranges = type(self).HEALTHY_RANGES
+        self._postflop_healthy_ranges = type(self).POSTFLOP_HEALTHY_RANGES
+
+    # ── Preflop Stats ──────────────────────────────────────────────
+
+    def get_preflop_stats(self) -> dict:
+        """Calculate preflop statistics for tournament hands.
+
+        Returns dict with overall stats, by_position breakdown, and by_day breakdown.
+        Each stat includes value, counts, and health classification.
+        Reuses CashAnalyzer._analyze_preflop_hand() for per-hand analysis.
+        """
+        sequences = self.repo.get_tournament_preflop_actions(self.year)
+
+        # Group by hand_id
+        hands_actions = defaultdict(list)
+        hand_meta = {}
+        for action in sequences:
+            hand_id = action['hand_id']
+            hands_actions[hand_id].append(action)
+            if hand_id not in hand_meta:
+                hand_meta[hand_id] = {
+                    'hero_position': action.get('hero_position'),
+                    'day': action.get('day'),
+                }
+
+        # Counters
+        total_hands = 0
+        vpip_count = 0
+        pfr_count = 0
+        three_bet_opps = 0
+        three_bet_count = 0
+        fold_3bet_opps = 0
+        fold_3bet_count = 0
+        ats_opps = 0
+        ats_count = 0
+
+        # Per-position counters
+        pos_stats = defaultdict(lambda: {
+            'total': 0, 'vpip': 0, 'pfr': 0,
+            'three_bet_opps': 0, 'three_bet': 0,
+            'ats_opps': 0, 'ats': 0,
+        })
+
+        # Per-day counters
+        day_stats = defaultdict(lambda: {
+            'total': 0, 'vpip': 0, 'pfr': 0,
+        })
+
+        for hand_id, actions in hands_actions.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+
+            total_hands += 1
+            meta = hand_meta[hand_id]
+            hero_pos = meta['hero_position']
+            day = meta['day']
+
+            if hero_pos:
+                pos_stats[hero_pos]['total'] += 1
+            if day:
+                day_stats[day]['total'] += 1
+
+            # Filter out blind/ante posts for sequence analysis
+            voluntary_actions = [
+                a for a in actions
+                if a['action_type'] not in ('post_sb', 'post_bb', 'post_ante')
+            ]
+
+            result = CashAnalyzer._analyze_preflop_hand(voluntary_actions)
+
+            if result['vpip']:
+                vpip_count += 1
+                if hero_pos:
+                    pos_stats[hero_pos]['vpip'] += 1
+                if day:
+                    day_stats[day]['vpip'] += 1
+
+            if result['pfr']:
+                pfr_count += 1
+                if hero_pos:
+                    pos_stats[hero_pos]['pfr'] += 1
+                if day:
+                    day_stats[day]['pfr'] += 1
+
+            if result['three_bet_opp']:
+                three_bet_opps += 1
+                if hero_pos:
+                    pos_stats[hero_pos]['three_bet_opps'] += 1
+                if result['three_bet']:
+                    three_bet_count += 1
+                    if hero_pos:
+                        pos_stats[hero_pos]['three_bet'] += 1
+
+            if result['fold_3bet_opp']:
+                fold_3bet_opps += 1
+                if result['fold_3bet']:
+                    fold_3bet_count += 1
+
+            if result['ats_opp']:
+                ats_opps += 1
+                if hero_pos:
+                    pos_stats[hero_pos]['ats_opps'] += 1
+                if result['ats']:
+                    ats_count += 1
+                    if hero_pos:
+                        pos_stats[hero_pos]['ats'] += 1
+
+        return self._format_preflop_stats(
+            total_hands, vpip_count, pfr_count,
+            three_bet_opps, three_bet_count,
+            fold_3bet_opps, fold_3bet_count,
+            ats_opps, ats_count,
+            dict(pos_stats), dict(day_stats),
+        )
+
+    def _format_preflop_stats(self, total_hands, vpip_count, pfr_count,
+                              three_bet_opps, three_bet_count,
+                              fold_3bet_opps, fold_3bet_count,
+                              ats_opps, ats_count,
+                              pos_stats, day_stats) -> dict:
+        """Format raw preflop counts into percentages with health badges."""
+
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        overall = {
+            'total_hands': total_hands,
+            'vpip': pct(vpip_count, total_hands),
+            'vpip_hands': vpip_count,
+            'pfr': pct(pfr_count, total_hands),
+            'pfr_hands': pfr_count,
+            'three_bet': pct(three_bet_count, three_bet_opps),
+            'three_bet_hands': three_bet_count,
+            'three_bet_opps': three_bet_opps,
+            'fold_to_3bet': pct(fold_3bet_count, fold_3bet_opps),
+            'fold_to_3bet_hands': fold_3bet_count,
+            'fold_to_3bet_opps': fold_3bet_opps,
+            'ats': pct(ats_count, ats_opps),
+            'ats_hands': ats_count,
+            'ats_opps': ats_opps,
+        }
+
+        # Add health badges
+        for stat in ('vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats'):
+            overall[f'{stat}_health'] = CashAnalyzer._classify_health(stat, overall[stat])
+
+        # Format per-position
+        by_position = {}
+        for pos, counts in pos_stats.items():
+            t = counts['total']
+            by_position[pos] = {
+                'total_hands': t,
+                'vpip': pct(counts['vpip'], t),
+                'pfr': pct(counts['pfr'], t),
+                'three_bet': pct(counts['three_bet'], counts['three_bet_opps']),
+                'ats': pct(counts['ats'], counts['ats_opps']),
+            }
+
+        # Format per-day
+        by_day = {}
+        for day, counts in sorted(day_stats.items(), reverse=True):
+            t = counts['total']
+            by_day[day] = {
+                'total_hands': t,
+                'vpip': pct(counts['vpip'], t),
+                'pfr': pct(counts['pfr'], t),
+            }
+
+        return {
+            'overall': overall,
+            'by_position': by_position,
+            'by_day': by_day,
+        }
+
+    # ── Postflop Stats ──────────────────────────────────────────────
+
+    def get_postflop_stats(self) -> dict:
+        """Calculate postflop statistics for tournament hands.
+
+        Returns dict with overall stats, by_street breakdown, and by_week trends.
+        Reuses CashAnalyzer._analyze_postflop_hand() for per-hand analysis.
+        """
+        sequences = self.repo.get_tournament_all_actions(self.year)
+
+        # Group by hand_id
+        hands_actions = defaultdict(list)
+        hand_meta = {}
+        for action in sequences:
+            hand_id = action['hand_id']
+            hands_actions[hand_id].append(action)
+            if hand_id not in hand_meta:
+                hand_meta[hand_id] = {
+                    'hero_position': action.get('hero_position'),
+                    'hero_net': action.get('hero_net', 0) or 0,
+                    'day': action.get('day'),
+                }
+
+        # Overall counters
+        total_hands = 0
+        saw_flop_count = 0
+        wtsd_count = 0
+        wsd_count = 0
+        cbet_opps = 0
+        cbet_count = 0
+        fold_cbet_opps = 0
+        fold_cbet_count = 0
+
+        # Aggression counters per street
+        agg = {s: {'bets_raises': 0, 'calls': 0, 'total_actions': 0}
+               for s in ('flop', 'turn', 'river')}
+
+        # Check-raise counters per street
+        cr = {s: {'opps': 0, 'did': 0} for s in ('flop', 'turn', 'river')}
+
+        # Weekly counters
+        week_stats = defaultdict(lambda: {
+            'total': 0, 'saw_flop': 0, 'wtsd': 0, 'wsd': 0,
+            'cbet_opps': 0, 'cbet': 0,
+            'bets_raises': 0, 'calls': 0,
+        })
+
+        for hand_id, actions in hands_actions.items():
+            if not any(a['is_hero'] for a in actions):
+                continue
+
+            total_hands += 1
+            meta = hand_meta[hand_id]
+            week = self._get_week(meta['day'])
+            week_stats[week]['total'] += 1
+
+            result = CashAnalyzer._analyze_postflop_hand(actions, meta['hero_net'])
+
+            if result['saw_flop']:
+                saw_flop_count += 1
+                week_stats[week]['saw_flop'] += 1
+
+            if result['went_to_showdown']:
+                wtsd_count += 1
+                week_stats[week]['wtsd'] += 1
+
+            if result['won_at_showdown']:
+                wsd_count += 1
+                week_stats[week]['wsd'] += 1
+
+            if result['cbet_opp']:
+                cbet_opps += 1
+                week_stats[week]['cbet_opps'] += 1
+                if result['cbet']:
+                    cbet_count += 1
+                    week_stats[week]['cbet'] += 1
+
+            if result['fold_to_cbet_opp']:
+                fold_cbet_opps += 1
+                if result['fold_to_cbet']:
+                    fold_cbet_count += 1
+
+            # Aggregate aggression
+            for street in ('flop', 'turn', 'river'):
+                if street in result['hero_aggression']:
+                    ha = result['hero_aggression'][street]
+                    br = ha['bets'] + ha['raises']
+                    c = ha['calls']
+                    f = ha['folds']
+                    agg[street]['bets_raises'] += br
+                    agg[street]['calls'] += c
+                    agg[street]['total_actions'] += br + c + f
+                    week_stats[week]['bets_raises'] += br
+                    week_stats[week]['calls'] += c
+
+            # Aggregate check-raises
+            for street in ('flop', 'turn', 'river'):
+                if street in result['check_raise']:
+                    cr_data = result['check_raise'][street]
+                    if cr_data['opp']:
+                        cr[street]['opps'] += 1
+                        if cr_data['did']:
+                            cr[street]['did'] += 1
+
+        return self._format_postflop_stats(
+            total_hands, saw_flop_count, wtsd_count, wsd_count,
+            cbet_opps, cbet_count, fold_cbet_opps, fold_cbet_count,
+            agg, cr, dict(week_stats),
+        )
+
+    def _format_postflop_stats(self, total_hands, saw_flop_count, wtsd_count, wsd_count,
+                               cbet_opps, cbet_count, fold_cbet_opps, fold_cbet_count,
+                               agg, cr, week_stats) -> dict:
+        """Format raw postflop counts into percentages with health badges."""
+
+        def pct(num, den):
+            return (num / den * 100) if den > 0 else 0.0
+
+        # Overall AF / AFq
+        total_br = sum(agg[s]['bets_raises'] for s in ('flop', 'turn', 'river'))
+        total_calls = sum(agg[s]['calls'] for s in ('flop', 'turn', 'river'))
+        total_actions = sum(agg[s]['total_actions'] for s in ('flop', 'turn', 'river'))
+
+        overall_af = total_br / total_calls if total_calls > 0 else 0.0
+        overall_afq = pct(total_br, total_actions)
+
+        # Overall check-raise
+        total_cr_opps = sum(cr[s]['opps'] for s in ('flop', 'turn', 'river'))
+        total_cr_did = sum(cr[s]['did'] for s in ('flop', 'turn', 'river'))
+
+        overall = {
+            'total_hands': total_hands,
+            'saw_flop_hands': saw_flop_count,
+            'af': overall_af,
+            'af_bets_raises': total_br,
+            'af_calls': total_calls,
+            'afq': overall_afq,
+            'wtsd': pct(wtsd_count, saw_flop_count),
+            'wtsd_hands': wtsd_count,
+            'wtsd_opps': saw_flop_count,
+            'wsd': pct(wsd_count, wtsd_count),
+            'wsd_hands': wsd_count,
+            'wsd_opps': wtsd_count,
+            'cbet': pct(cbet_count, cbet_opps),
+            'cbet_hands': cbet_count,
+            'cbet_opps': cbet_opps,
+            'fold_to_cbet': pct(fold_cbet_count, fold_cbet_opps),
+            'fold_to_cbet_hands': fold_cbet_count,
+            'fold_to_cbet_opps': fold_cbet_opps,
+            'check_raise': pct(total_cr_did, total_cr_opps),
+            'check_raise_hands': total_cr_did,
+            'check_raise_opps': total_cr_opps,
+        }
+
+        # Health badges
+        for stat in ('af', 'wtsd', 'wsd', 'cbet', 'fold_to_cbet', 'check_raise'):
+            overall[f'{stat}_health'] = CashAnalyzer._classify_postflop_health(stat, overall[stat])
+
+        # By street
+        by_street = {}
+        for street in ('flop', 'turn', 'river'):
+            s_br = agg[street]['bets_raises']
+            s_calls = agg[street]['calls']
+            s_total = agg[street]['total_actions']
+            s_cr_opps = cr[street]['opps']
+            s_cr_did = cr[street]['did']
+            by_street[street] = {
+                'af': s_br / s_calls if s_calls > 0 else 0.0,
+                'afq': pct(s_br, s_total),
+                'check_raise': pct(s_cr_did, s_cr_opps),
+                'check_raise_hands': s_cr_did,
+                'check_raise_opps': s_cr_opps,
+            }
+
+        # By week
+        by_week = {}
+        for week, counts in sorted(week_stats.items()):
+            sf = counts['saw_flop']
+            w_br = counts['bets_raises']
+            w_calls = counts['calls']
+            by_week[week] = {
+                'total_hands': counts['total'],
+                'saw_flop': sf,
+                'af': w_br / w_calls if w_calls > 0 else 0.0,
+                'wtsd': pct(counts['wtsd'], sf),
+                'wsd': pct(counts['wsd'], counts['wtsd']),
+                'cbet': pct(counts['cbet'], counts['cbet_opps']),
+            }
+
+        return {
+            'overall': overall,
+            'by_street': by_street,
+            'by_week': by_week,
+        }
+
+    @staticmethod
+    def _get_week(day: str) -> str:
+        """Get ISO week string from a date string (YYYY-MM-DD)."""
+        if not day:
+            return 'unknown'
+        d = datetime.strptime(day, '%Y-%m-%d')
+        iso_year, iso_week, _ = d.isocalendar()
+        return f"{iso_year}-W{iso_week:02d}"
+
+    # ── Daily Reports ──────────────────────────────────────────────
 
     def get_daily_reports(self) -> list[dict]:
         """Build daily report data with session-level focus.
