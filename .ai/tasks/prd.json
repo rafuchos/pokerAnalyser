@@ -359,7 +359,7 @@
         "src/web/templates/tournament/stats.html",
         "src/web/static/js/app.js"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-031",
