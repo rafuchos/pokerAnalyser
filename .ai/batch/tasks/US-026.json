@@ -1,0 +1,35 @@
+{
+  "id": "US-026",
+  "title": "Analytics DB: Banco de Análises Pré-Processadas + Comando analyze",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Create src/db/analytics_schema.py with CREATE TABLE statements for all 11 tables (global_stats, session_stats, daily_stats, positional_stats, stack_depth_stats, leak_analysis, tilt_analysis, ev_analysis, bet_sizing_stats, hand_matrix, redline_blueline) plus analytics_meta, each with game_type column and proper indexes",
+    "Create src/db/analytics_connection.py with get_analytics_connection() singleton for analytics.db (following existing connection.py pattern with WAL mode)",
+    "Create src/db/analytics_repository.py with AnalyticsRepository class providing CRUD methods: save/load for each analysis type, metadata management (last_run_timestamp, source_hash), and clear_all for --force mode",
+    "Create src/analytics_runner.py with AnalyticsRunner class that orchestrates: instantiates CashAnalyzer + TournamentAnalyzer + EVAnalyzer + LeakFinder + TiltAnalyzer, runs all get_*() methods, serializes results to JSON, and persists via AnalyticsRepository",
+    "Implement incremental processing logic: compute hash of poker.db (file hash or row count), compare with analytics_meta.source_hash, skip if unchanged (unless --force)",
+    "Add 'analyze' subcommand to main.py following existing CLI pattern: analyze_parser with --force and --type cash|tournament|all arguments, cmd_analyze handler",
+    "Verify .gitignore already covers analytics.db (*.db wildcard exists)",
+    "Test the full pipeline: python main.py analyze --type all --force, verify analytics.db is created with populated tables"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/db/analytics_schema.py",
+    "src/db/analytics_connection.py",
+    "src/db/analytics_repository.py",
+    "src/analytics_runner.py",
+    "main.py",
+    "src/analyzers/cash.py",
+    "src/analyzers/tournament.py",
+    "src/analyzers/ev.py",
+    "src/analyzers/leak_finder.py",
+    "src/analyzers/tilt.py"
+  ],
+  "created_at": "2026-03-10T04:32:48.667Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-026"
+}

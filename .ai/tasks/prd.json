@@ -166,7 +166,7 @@
         "main.py",
         ".gitignore"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-027",
