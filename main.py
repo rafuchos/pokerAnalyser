@@ -4,7 +4,7 @@
 Poker Hand Tracking & Analysis Suite - CLI Entry Point
 
 Replaces generate_reports.py as the unified CLI interface.
-Subcommands: import, report, stats, analyze
+Subcommands: import, report, stats, analyze, serve
 """
 
 import sys
@@ -201,6 +201,38 @@ def cmd_analyze(args):
     print("=" * 60)
 
 
+def cmd_serve(args):
+    """Start Flask web server and open browser."""
+    import threading
+    import webbrowser
+    from src.web.app import create_app
+
+    port = args.port
+    analytics_db = getattr(args, 'analytics_db', None) or 'analytics.db'
+    debug = args.debug
+
+    print("=" * 60)
+    print("POKER ANALYZER - Web Server")
+    print("=" * 60)
+    print()
+    print(f"Analytics DB: {analytics_db}")
+    print(f"Port:         {port}")
+    print(f"Debug:        {debug}")
+    print()
+
+    app = create_app(analytics_db_path=analytics_db, debug=debug)
+
+    url = f"http://127.0.0.1:{port}"
+    if not args.no_browser:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+        print(f"Opening browser at {url} ...")
+    print(f"Server running at {url}")
+    print("Press Ctrl+C to stop.")
+    print()
+
+    app.run(host='127.0.0.1', port=port, debug=debug, use_reloader=debug)
+
+
 def cmd_stats(args):
     """Show quick stats in the terminal."""
     from src.db.connection import get_connection
@@ -334,6 +366,27 @@ def main():
         help='Path to analytics database (default: analytics.db)'
     )
 
+    # serve subcommand
+    serve_parser = subparsers.add_parser(
+        'serve', help='Start web UI server (Flask)'
+    )
+    serve_parser.add_argument(
+        '--port', type=int, default=5000,
+        help='Port to run the server on (default: 5000)'
+    )
+    serve_parser.add_argument(
+        '--analytics-db', dest='analytics_db', default='analytics.db',
+        help='Path to analytics database (default: analytics.db)'
+    )
+    serve_parser.add_argument(
+        '--debug', action='store_true',
+        help='Enable Flask debug mode (hot reload)'
+    )
+    serve_parser.add_argument(
+        '--no-browser', action='store_true',
+        help='Do not auto-open the browser'
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -350,6 +403,8 @@ def main():
         cmd_config(args)
     elif args.command == 'analyze':
         cmd_analyze(args)
+    elif args.command == 'serve':
+        cmd_serve(args)
 
 
 if __name__ == '__main__':

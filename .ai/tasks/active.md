@@ -89,6 +89,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-022: Tournament Backend: Positional Stats, Stack Depth, Hand Matrix, Bet Sizing (2026-03-10)
 - [x] US-023: Tournament Backend: LeakFinder + TiltAnalyzer + Decision EV Adaptados (2026-03-10)
 - [x] US-026: Analytics DB: Banco de Análises Pré-Processadas + Comando analyze (2026-03-10)
+- [x] US-027: Web App Flask: Estrutura Base + Servidor Local + Layout com Tabs (2026-03-10)
 
 ---
 
