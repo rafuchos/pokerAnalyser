@@ -1,7 +1,7 @@
 {
   "id": "US-023",
   "title": "Tournament Backend: LeakFinder + TiltAnalyzer + Decision EV Adaptados",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -33,7 +33,7 @@
     "tests/test_tournament_decision_ev.py"
   ],
   "created_at": "2026-03-10T04:18:47.306Z",
-  "completed_at": null,
+  "completed_at": "2026-03-10T04:30:50.886Z",
   "failure_reason": null,
   "branch": "feat/US-023"
 }
