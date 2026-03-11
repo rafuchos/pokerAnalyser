@@ -185,7 +185,8 @@
         "src/web/templates/tournament/stats.html",
         "config/targets.yaml",
         "tests/test_advanced_stats.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-018",
