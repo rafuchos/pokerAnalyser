@@ -239,7 +239,8 @@
         "src/analyzers/tournament.py",
         "src/web/templates/cash/overview.html",
         "src/web/templates/tournament/overview.html"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-020",
