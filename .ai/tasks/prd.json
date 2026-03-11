@@ -516,7 +516,8 @@
         "src/analytics_pipeline.py",
         "src/analyzers/tournament.py",
         "config/targets.yaml"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-037",

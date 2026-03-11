@@ -431,3 +431,6 @@ US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sess
 
 === US-035 completed at 2026-03-11T05:00:46.790Z ===
 - All quality gates passed
+
+=== US-036 completed at 2026-03-11T05:40:15.232Z ===
+- All quality gates passed
