@@ -62,7 +62,7 @@
         {% set cell = matrix[row_idx][col_idx] %}
         {% set has_data = cell.get('hands', 0) > 0 or cell.get('freq', 0) > 0 %}
         <div class="hm-cell hm-{{ cell['type'] }} {% if has_data %}hm-active{% endif %} {% if cell.get('net', 0) > 0 %}hm-profit{% elif cell.get('net', 0) < 0 %}hm-loss{% endif %}"
-             title="{{ cell['hand'] }}: {{ cell.get('hands', 0) }} hands, ${{ '{:+.2f}'.format(cell.get('net', 0)) }}">
+             title="{{ cell['hand'] }}: {{ cell.get('hands', 0) }} hands, {{ '{:+.1f}'.format(cell.get('net', 0)) }} BB">
             <span class="hm-hand">{{ cell['hand'] }}</span>
             {% if has_data %}
             <span class="hm-freq">{{ cell.get('hands', 0) }}</span>
@@ -96,7 +96,7 @@
                     <th>#</th>
                     <th>Hand</th>
                     <th class="num">Hands</th>
-                    <th class="num">Net</th>
+                    <th class="num">Net (BB)</th>
                     <th class="num">bb/100</th>
                 </tr>
             </thead>
@@ -106,8 +106,8 @@
                     <td>{{ loop.index }}</td>
                     <td><strong>{{ h.get('hand', '') }}</strong></td>
                     <td class="num">{{ (h.get('hands', 0) or 0)|int }}</td>
-                    <td class="num positive">${{ '{:+,.2f}'.format(h.get('net', 0) or 0) }}</td>
-                    <td class="num">{{ '{:+.1f}'.format(h.get('bb100', 0) or 0) }}</td>
+                    <td class="num positive">{{ '{:+,.1f}'.format(h.get('net', 0) or 0) }}</td>
+                    <td class="num">{% if (h.get('hands', 0) or 0) >= 10 %}{{ '{:+.1f}'.format(h.get('bb100', 0) or 0) }}{% else %}<span title="Sample < 10 hands">—</span>{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -126,7 +126,7 @@
                     <th>#</th>
                     <th>Hand</th>
                     <th class="num">Hands</th>
-                    <th class="num">Net</th>
+                    <th class="num">Net (BB)</th>
                     <th class="num">bb/100</th>
                 </tr>
             </thead>
@@ -136,8 +136,8 @@
                     <td>{{ loop.index }}</td>
                     <td><strong>{{ h.get('hand', '') }}</strong></td>
                     <td class="num">{{ (h.get('hands', 0) or 0)|int }}</td>
-                    <td class="num negative">${{ '{:+,.2f}'.format(h.get('net', 0) or 0) }}</td>
-                    <td class="num">{{ '{:+.1f}'.format(h.get('bb100', 0) or 0) }}</td>
+                    <td class="num negative">{{ '{:+,.1f}'.format(h.get('net', 0) or 0) }}</td>
+                    <td class="num">{% if (h.get('hands', 0) or 0) >= 10 %}{{ '{:+.1f}'.format(h.get('bb100', 0) or 0) }}{% else %}<span title="Sample < 10 hands">—</span>{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>

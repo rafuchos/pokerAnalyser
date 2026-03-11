@@ -165,26 +165,23 @@ class Repository:
     # ── Tournaments ──────────────────────────────────────────────────
 
     def insert_tournament(self, t: dict) -> bool:
-        """Insert a tournament, returning True if inserted."""
-        try:
-            self.conn.execute(
-                "INSERT INTO tournaments (tournament_id, platform, name, date, buy_in, rake, "
-                "bounty, total_buy_in, position, prize, bounty_won, total_players, entries, "
-                "is_bounty, is_satellite) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    t['tournament_id'], t.get('platform', 'GGPoker'), t.get('name', ''),
-                    t['date'].isoformat() if isinstance(t.get('date'), datetime) else t.get('date', ''),
-                    t.get('buy_in', 0), t.get('rake', 0), t.get('bounty', 0),
-                    t.get('total_buy_in', 0), t.get('position'),
-                    t.get('prize', 0), t.get('bounty_won', 0),
-                    t.get('total_players', 0), t.get('entries', 1),
-                    1 if t.get('is_bounty') else 0,
-                    1 if t.get('is_satellite') else 0,
-                )
+        """Insert or update a tournament, returning True if inserted/updated."""
+        self.conn.execute(
+            "INSERT OR REPLACE INTO tournaments (tournament_id, platform, name, date, buy_in, rake, "
+            "bounty, total_buy_in, position, prize, bounty_won, total_players, entries, "
+            "is_bounty, is_satellite) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                t['tournament_id'], t.get('platform', 'GGPoker'), t.get('name', ''),
+                t['date'].isoformat() if isinstance(t.get('date'), datetime) else t.get('date', ''),
+                t.get('buy_in', 0), t.get('rake', 0), t.get('bounty', 0),
+                t.get('total_buy_in', 0), t.get('position'),
+                t.get('prize', 0), t.get('bounty_won', 0),
+                t.get('total_players', 0), t.get('entries', 1),
+                1 if t.get('is_bounty') else 0,
+                1 if t.get('is_satellite') else 0,
             )
-            return True
-        except sqlite3.IntegrityError:
-            return False
+        )
+        return True
 
     def insert_tournament_summary(self, ts: TournamentSummaryData) -> bool:
         """Insert a tournament summary."""

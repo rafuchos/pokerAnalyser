@@ -53,9 +53,10 @@ class TournamentAnalyzer:
     STACK_3BET_HEALTHY = CashAnalyzer.STACK_3BET_HEALTHY
     STACK_3BET_WARNING = CashAnalyzer.STACK_3BET_WARNING
 
-    def __init__(self, repo: Repository, year: str = '2026'):
+    def __init__(self, repo: Repository, year: str = '2026', skip_ev: bool = False):
         self.repo = repo
         self.year = year
+        self.skip_ev = skip_ev
         self._healthy_ranges = type(self).HEALTHY_RANGES
         self._warning_ranges = type(self).WARNING_RANGES
         self._postflop_healthy_ranges = type(self).POSTFLOP_HEALTHY_RANGES
@@ -704,6 +705,14 @@ class TournamentAnalyzer:
         Returns same structure as get_ev_analysis but filtered to one day.
         Includes chart_data for mini EV sparkline and luck badge info.
         """
+        if self.skip_ev:
+            return {
+                'total_hands': 0, 'allin_hands': 0,
+                'real_net': 0, 'ev_net': 0, 'luck_factor': 0,
+                'bb100_real': 0, 'bb100_ev': 0,
+                'chart_data': [],
+            }
+
         all_hands = self.repo.get_tournament_hands(self.year)
         allin_hands = self.repo.get_tournament_allin_hands(self.year)
 
@@ -991,7 +1000,7 @@ class TournamentAnalyzer:
         all_hands = self.repo.get_tournament_hands(self.year)
         allin_hands = self.repo.get_tournament_allin_hands(self.year)
 
-        if not all_hands:
+        if self.skip_ev or not all_hands:
             return {
                 'overall': {
                     'total_hands': 0, 'allin_hands': 0,

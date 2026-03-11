@@ -142,6 +142,26 @@ def load_analytics_data(db_path: str, game_type: str) -> dict:
         for r in rl_rows:
             data['redline'] = json.loads(r['stat_json'])
 
+        # Hand matrix
+        hm_rows = conn.execute(
+            "SELECT position, hand_combo, dealt, played, total_net, bb100 "
+            "FROM hand_matrix WHERE game_type = ?",
+            (game_type,),
+        ).fetchall()
+        hand_matrix = {}
+        for r in hm_rows:
+            pos = r['position']
+            if pos not in hand_matrix:
+                hand_matrix[pos] = {}
+            hand_matrix[pos][r['hand_combo']] = {
+                'hands': r['dealt'] or 0,
+                'played': r['played'] or 0,
+                'net': r['total_net'] or 0,
+                'bb100': r['bb100'] or 0,
+                'frequency': round((r['played'] or 0) / (r['dealt'] or 1) * 100, 1),
+            }
+        data['hand_matrix'] = hand_matrix
+
     except sqlite3.OperationalError:
         pass
     finally:
@@ -918,8 +938,24 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
     else:
         data['ev_chart'] = {}
 
-    # Decision EV by street
-    data['decision_ev_data'] = data.get('decision_ev') or {}
+    # Decision EV by street — flatten nested dict into list for template
+    raw_dev = data.get('decision_ev') or {}
+    dev_by_street = raw_dev.get('by_street', {})
+    flat_rows = []
+    if isinstance(dev_by_street, dict):
+        for street, decisions in dev_by_street.items():
+            if isinstance(decisions, dict):
+                for decision, stats in decisions.items():
+                    if isinstance(stats, dict):
+                        flat_rows.append({
+                            'street': street,
+                            'decision': decision,
+                            'count': stats.get('count', 0),
+                            'total_net': stats.get('total_net', 0),
+                            'avg_net': stats.get('avg_net', 0),
+                        })
+    raw_dev['by_street'] = flat_rows
+    data['decision_ev_data'] = raw_dev
 
     # bb/100 comparison
     data['ev_bb_comparison'] = {
@@ -1007,8 +1043,28 @@ def prepare_range_data(data, period='year', from_date='', to_date=''):
         matrices[pos] = matrix_rows
     data['range_matrices'] = matrices
 
-    # Top 10 profitable and deficit hands
+    # Top 10 profitable and deficit hands — aggregate from hand_matrix across positions
     hand_stats = data.get('hand_stats') or data.get('hand_performance') or {}
+    if not hand_stats and hand_matrix_all:
+        # Aggregate combos across all positions
+        combo_totals = {}
+        for pos, combos in hand_matrix_all.items():
+            if not isinstance(combos, dict):
+                continue
+            for combo, stats in combos.items():
+                if not isinstance(stats, dict):
+                    continue
+                if combo not in combo_totals:
+                    combo_totals[combo] = {'hand': combo, 'hands': 0, 'played': 0, 'net': 0.0, 'bb100': 0.0}
+                combo_totals[combo]['hands'] += stats.get('hands', 0)
+                combo_totals[combo]['played'] += stats.get('played', 0)
+                combo_totals[combo]['net'] += stats.get('net', 0)
+        # Recalculate bb100 from aggregate
+        for c in combo_totals.values():
+            if c['hands'] > 0:
+                c['bb100'] = round(c['net'] / c['hands'] * 100, 1)
+        hand_stats = list(combo_totals.values())
+
     if isinstance(hand_stats, list):
         sorted_by_net = sorted(hand_stats, key=lambda h: h.get('net', 0), reverse=True)
         data['top_profitable'] = sorted_by_net[:10]
@@ -1122,7 +1178,22 @@ def prepare_sizing_data(data, period='year', from_date='', to_date=''):
 
     bs = data.get('bet_sizing') or {}
 
-    data['pot_types'] = bs.get('pot_types', [])
+    # pot_types may be a dict keyed by type name — flatten into list for template
+    raw_pt = bs.get('pot_types', [])
+    if isinstance(raw_pt, dict):
+        pot_list = []
+        for pt_name, pt_data in raw_pt.items():
+            if isinstance(pt_data, dict):
+                row = dict(pt_data)
+                row['label'] = pt_name
+                row.setdefault('count', pt_data.get('hands', 0))
+                row.setdefault('pct', 0)
+                row.setdefault('avg_pot', 0)
+                row.setdefault('win_rate', pt_data.get('wsd', 0))
+                row.setdefault('net', pt_data.get('net', 0))
+                pot_list.append(row)
+        raw_pt = pot_list
+    data['pot_types'] = raw_pt
     data['sizing_preflop'] = bs.get('preflop_sizing', [])
     data['sizing_postflop'] = bs.get('postflop_sizing', [])
     data['sizing_by_street'] = bs.get('by_street', {})

@@ -147,16 +147,16 @@ def _persist_cash_analysis(analytics: AnalyticsRepository,
     for leak in leak_result.get('leaks', []):
         analytics.insert_leak(
             game_type,
-            leak_name=leak.name,
-            category=leak.category,
-            stat_name=leak.stat_name,
-            current_value=leak.current_value,
-            healthy_low=leak.healthy_low,
-            healthy_high=leak.healthy_high,
-            cost_bb100=leak.cost_bb100,
-            direction=leak.direction,
-            suggestion=leak.suggestion,
-            position=leak.position,
+            leak_name=leak['name'],
+            category=leak['category'],
+            stat_name=leak['stat_name'],
+            current_value=leak['current_value'],
+            healthy_low=leak['healthy_low'],
+            healthy_high=leak['healthy_high'],
+            cost_bb100=leak['cost_bb100'],
+            direction=leak['direction'],
+            suggestion=leak['suggestion'],
+            position=leak.get('position'),
         )
     analytics.insert_global_stat(
         game_type, 'health_score',
@@ -177,13 +177,22 @@ def _persist_cash_analysis(analytics: AnalyticsRepository,
         )
 
     # ── EV Analysis ───────────────────────────────────────────────
-    ev_data = ev.get_ev_analysis()
-    analytics.insert_ev_analysis(game_type, 'allin_ev', _safe_json(ev_data))
+    import sys
+    print('  [cash] EV analysis (Monte Carlo, may take a few minutes)...', end='', flush=True)
+    try:
+        ev_data = ev.get_ev_analysis()
+        analytics.insert_ev_analysis(game_type, 'allin_ev', _safe_json(ev_data))
+        print(' done', flush=True)
+    except Exception:
+        print(' skipped (error)', flush=True)
 
-    decision_ev = ev.get_decision_ev_analysis()
-    analytics.insert_ev_analysis(
-        game_type, 'decision_ev', _safe_json(decision_ev),
-    )
+    try:
+        decision_ev = ev.get_decision_ev_analysis()
+        analytics.insert_ev_analysis(
+            game_type, 'decision_ev', _safe_json(decision_ev),
+        )
+    except Exception:
+        pass
 
     # ── Bet Sizing ────────────────────────────────────────────────
     sizing = cash.get_bet_sizing_analysis()
@@ -198,8 +207,8 @@ def _persist_cash_analysis(analytics: AnalyticsRepository,
                     game_type, pos, combo,
                     dealt=combo_data.get('dealt', 0),
                     played=combo_data.get('played', 0),
-                    total_net=combo_data.get('total_net', 0),
-                    bb100=combo_data.get('bb100', 0),
+                    total_net=combo_data.get('bb_net', combo_data.get('net', 0)),
+                    bb100=combo_data.get('win_rate', combo_data.get('bb100', 0)),
                     action_breakdown=combo_data.get('action_breakdown'),
                 )
 
@@ -312,16 +321,16 @@ def _persist_tournament_analysis(analytics: AnalyticsRepository,
     for leak in leak_result.get('leaks', []):
         analytics.insert_leak(
             game_type,
-            leak_name=leak.name,
-            category=leak.category,
-            stat_name=leak.stat_name,
-            current_value=leak.current_value,
-            healthy_low=leak.healthy_low,
-            healthy_high=leak.healthy_high,
-            cost_bb100=leak.cost_bb100,
-            direction=leak.direction,
-            suggestion=leak.suggestion,
-            position=leak.position,
+            leak_name=leak['name'],
+            category=leak['category'],
+            stat_name=leak['stat_name'],
+            current_value=leak['current_value'],
+            healthy_low=leak['healthy_low'],
+            healthy_high=leak['healthy_high'],
+            cost_bb100=leak['cost_bb100'],
+            direction=leak['direction'],
+            suggestion=leak['suggestion'],
+            position=leak.get('position'),
         )
     analytics.insert_global_stat(
         game_type, 'health_score',
@@ -342,13 +351,21 @@ def _persist_tournament_analysis(analytics: AnalyticsRepository,
         )
 
     # ── EV Analysis ───────────────────────────────────────────────
-    ev_data = tourn.get_ev_analysis()
-    analytics.insert_ev_analysis(game_type, 'allin_ev', _safe_json(ev_data))
+    print('  [tournament] EV analysis (Monte Carlo, may take a few minutes)...', end='', flush=True)
+    try:
+        ev_data = tourn.get_ev_analysis()
+        analytics.insert_ev_analysis(game_type, 'allin_ev', _safe_json(ev_data))
+        print(' done', flush=True)
+    except Exception:
+        print(' skipped (error)', flush=True)
 
-    decision_ev = ev.get_tournament_decision_ev_analysis()
-    analytics.insert_ev_analysis(
-        game_type, 'decision_ev', _safe_json(decision_ev),
-    )
+    try:
+        decision_ev = ev.get_tournament_decision_ev_analysis()
+        analytics.insert_ev_analysis(
+            game_type, 'decision_ev', _safe_json(decision_ev),
+        )
+    except Exception:
+        pass
 
     # ── Bet Sizing ────────────────────────────────────────────────
     sizing = tourn.get_bet_sizing_analysis()
@@ -363,8 +380,8 @@ def _persist_tournament_analysis(analytics: AnalyticsRepository,
                     game_type, pos, combo,
                     dealt=combo_data.get('dealt', 0),
                     played=combo_data.get('played', 0),
-                    total_net=combo_data.get('total_net', 0),
-                    bb100=combo_data.get('bb100', 0),
+                    total_net=combo_data.get('bb_net', combo_data.get('net', 0)),
+                    bb100=combo_data.get('win_rate', combo_data.get('bb100', 0)),
                     action_breakdown=combo_data.get('action_breakdown'),
                 )
 

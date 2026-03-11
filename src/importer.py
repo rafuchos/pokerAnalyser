@@ -281,6 +281,9 @@ class Importer:
         if all_tournament_hands:
             self._build_tournaments(all_tournament_hands, ps_summaries)
 
+        # Always update existing tournaments with new summary data
+        self._update_tournaments_from_summaries()
+
         # Import tournament hands into hands table as HandData with actions
         total_hand_data = 0
         total_actions = 0
@@ -418,6 +421,45 @@ class Importer:
 
         self.conn.commit()
         print(f"  {inserted} new tournament(s) imported")
+
+    def _update_tournaments_from_summaries(self):
+        """Update existing tournaments that are missing summary data (prize, position)."""
+        db_summaries = self.repo.get_tournament_summaries()
+        if not db_summaries:
+            return
+
+        # Find tournaments with prize=0 and position=NULL that have summaries
+        rows = self.conn.execute(
+            "SELECT tournament_id FROM tournaments WHERE prize = 0 AND position IS NULL"
+        ).fetchall()
+
+        updated = 0
+        for row in rows:
+            tid = row[0]
+            summary = db_summaries.get(tid)
+            if summary and (summary.get('prize', 0) > 0 or summary.get('position')):
+                self.conn.execute(
+                    "UPDATE tournaments SET prize = ?, position = ?, total_players = ?, "
+                    "bounty_won = ?, buy_in = ?, rake = ?, bounty = ?, total_buy_in = ?, "
+                    "entries = ? WHERE tournament_id = ?",
+                    (
+                        summary.get('prize', 0),
+                        summary.get('position'),
+                        summary.get('total_players', 0),
+                        summary.get('bounty_won', 0),
+                        summary.get('buy_in', 0),
+                        summary.get('rake', 0),
+                        summary.get('bounty', 0),
+                        summary.get('total_buy_in', 0),
+                        summary.get('entries', 1),
+                        tid,
+                    )
+                )
+                updated += 1
+
+        if updated > 0:
+            self.conn.commit()
+            print(f"  {updated} tournament(s) updated with summary data")
 
     def _extract_buy_in_from_name(self, name: str) -> float:
         """Extract buy-in value from tournament name (fallback)."""

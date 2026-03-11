@@ -52,22 +52,22 @@ postflop:
 # ── Per-Position Targets (VPIP and PFR) ───────────────────────────────────
 positions:
   vpip:
-    UTG:   {healthy: [12, 18], warning: [9, 24]}
-    UTG+1: {healthy: [13, 20], warning: [10, 26]}
-    MP:    {healthy: [15, 22], warning: [11, 28]}
-    MP+1:  {healthy: [16, 23], warning: [12, 29]}
-    HJ:    {healthy: [17, 24], warning: [13, 31]}
-    CO:    {healthy: [22, 30], warning: [17, 37]}
-    BTN:   {healthy: [30, 45], warning: [24, 55]}
-    SB:    {healthy: [20, 32], warning: [15, 40]}
-    BB:    {healthy: [25, 42], warning: [19, 52]}
+    UTG:   {healthy: [14, 20], warning: [10, 26]}
+    UTG+1: {healthy: [15, 22], warning: [11, 28]}
+    MP:    {healthy: [17, 25], warning: [13, 30]}
+    MP+1:  {healthy: [18, 26], warning: [14, 32]}
+    HJ:    {healthy: [22, 30], warning: [17, 36]}
+    CO:    {healthy: [28, 38], warning: [22, 45]}
+    BTN:   {healthy: [45, 60], warning: [38, 68]}
+    SB:    {healthy: [28, 40], warning: [20, 48]}
+    BB:    {healthy: [30, 48], warning: [23, 55]}
   pfr:
-    UTG:   {healthy: [10, 16], warning: [7, 20]}
-    UTG+1: {healthy: [11, 17], warning: [8, 21]}
-    MP:    {healthy: [12, 19], warning: [9, 24]}
-    MP+1:  {healthy: [13, 20], warning: [10, 25]}
-    HJ:    {healthy: [14, 21], warning: [11, 26]}
-    CO:    {healthy: [18, 27], warning: [13, 33]}
-    BTN:   {healthy: [25, 40], warning: [19, 50]}
-    SB:    {healthy: [15, 25], warning: [10, 32]}
-    BB:    {healthy: [8, 15],  warning: [5, 20]}
+    UTG:   {healthy: [12, 18], warning: [8, 22]}
+    UTG+1: {healthy: [13, 19], warning: [9, 23]}
+    MP:    {healthy: [15, 22], warning: [11, 26]}
+    MP+1:  {healthy: [16, 23], warning: [12, 28]}
+    HJ:    {healthy: [18, 26], warning: [14, 31]}
+    CO:    {healthy: [24, 34], warning: [18, 40]}
+    BTN:   {healthy: [38, 52], warning: [30, 60]}
+    SB:    {healthy: [22, 34], warning: [15, 40]}
+    BB:    {healthy: [10, 18], warning: [6, 24]}

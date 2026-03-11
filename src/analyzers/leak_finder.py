@@ -573,7 +573,10 @@ class LeakFinder:
         is_tournament = getattr(self.analyzer, 'game_type', 'cash') == 'tournament'
 
         # Calculate date threshold (30 days ago)
-        today = datetime.strptime(f'{self.year}-12-31', '%Y-%m-%d')
+        if self.year:
+            today = datetime.strptime(f'{self.year}-12-31', '%Y-%m-%d')
+        else:
+            today = datetime.now()
         try:
             # Try to get actual latest date from hands
             if is_tournament:

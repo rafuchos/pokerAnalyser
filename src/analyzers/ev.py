@@ -38,17 +38,137 @@ def evaluate_hand(cards):
     """Evaluate the best 5-card hand from 5-7 cards.
 
     Returns a comparable tuple (higher = better).
+    Uses optimized direct evaluation for 7 cards to avoid
+    generating all 21 5-card combinations.
     """
-    if len(cards) > 5:
-        best = None
-        for combo in combinations(cards, 5):
-            val = _eval_five(list(combo))
-            if best is None or val > best:
-                best = val
-        return best
-    if len(cards) == 5:
+    n = len(cards)
+    if n < 5:
+        return (0,)
+    if n == 5:
         return _eval_five(cards)
-    return (0,)
+    # For 6-7 cards, use direct best-hand evaluation
+    return _eval_best_seven(cards) if n == 7 else _eval_best_six(cards)
+
+
+def _eval_best_seven(cards):
+    """Evaluate best 5-card hand from exactly 7 cards.
+
+    Instead of C(7,5)=21 combos, evaluate all at once using
+    rank/suit analysis of all 7 cards.
+    """
+    ranks = [c[0] for c in cards]
+    suits = [c[1] for c in cards]
+
+    # Count ranks and suits
+    rank_counts = {}
+    for r in ranks:
+        rank_counts[r] = rank_counts.get(r, 0) + 1
+
+    suit_counts = {}
+    suit_cards = {}
+    for r, s in cards:
+        suit_counts[s] = suit_counts.get(s, 0) + 1
+        if s not in suit_cards:
+            suit_cards[s] = []
+        suit_cards[s].append(r)
+
+    # Check for flush (5+ of same suit)
+    flush_suit = None
+    for s, cnt in suit_counts.items():
+        if cnt >= 5:
+            flush_suit = s
+            break
+
+    # Find all straights in the 7 cards
+    unique_ranks = sorted(set(ranks), reverse=True)
+    best_straight = _find_best_straight(unique_ranks)
+
+    # Check straight flush
+    if flush_suit is not None:
+        flush_ranks = sorted(set(suit_cards[flush_suit]), reverse=True)
+        sf_high = _find_best_straight(flush_ranks)
+        if sf_high:
+            return (8, sf_high)
+
+    # Four of a kind
+    quads = [r for r, c in rank_counts.items() if c == 4]
+    if quads:
+        quad_rank = max(quads)
+        kicker = max(r for r in ranks if r != quad_rank)
+        return (7, quad_rank, kicker)
+
+    # Full house (pick best trip + best pair)
+    trips = sorted([r for r, c in rank_counts.items() if c >= 3], reverse=True)
+    pairs = sorted([r for r, c in rank_counts.items() if c >= 2], reverse=True)
+    if trips:
+        best_trip = trips[0]
+        # Pair can be second trips or any pair
+        best_pair = 0
+        for r in pairs:
+            if r != best_trip:
+                best_pair = r
+                break
+        if best_pair:
+            return (6, best_trip, best_pair)
+
+    # Flush
+    if flush_suit is not None:
+        flush_top5 = sorted(suit_cards[flush_suit], reverse=True)[:5]
+        return (5,) + tuple(flush_top5)
+
+    # Straight
+    if best_straight:
+        return (4, best_straight)
+
+    # Three of a kind
+    if trips:
+        best_trip = trips[0]
+        kickers = sorted([r for r in ranks if r != best_trip], reverse=True)[:2]
+        return (3, best_trip) + tuple(kickers)
+
+    # Two pair
+    if len(pairs) >= 2:
+        top2 = pairs[:2]
+        kicker = max(r for r in ranks if r not in top2)
+        return (2, top2[0], top2[1], kicker)
+
+    # One pair
+    if pairs:
+        pair_rank = pairs[0]
+        kickers = sorted([r for r in ranks if r != pair_rank], reverse=True)[:3]
+        return (1, pair_rank) + tuple(kickers)
+
+    # High card
+    top5 = sorted(ranks, reverse=True)[:5]
+    return (0,) + tuple(top5)
+
+
+def _eval_best_six(cards):
+    """Evaluate best 5-card hand from exactly 6 cards."""
+    # C(6,5)=6 combos — small enough to enumerate
+    best = None
+    for combo in combinations(cards, 5):
+        val = _eval_five(list(combo))
+        if best is None or val > best:
+            best = val
+    return best
+
+
+def _find_best_straight(unique_sorted_desc):
+    """Find highest straight from sorted unique ranks (descending).
+
+    Returns high card of best straight, or None.
+    """
+    if len(unique_sorted_desc) < 5:
+        return None
+    for i in range(len(unique_sorted_desc) - 4):
+        if unique_sorted_desc[i] - unique_sorted_desc[i + 4] == 4:
+            return unique_sorted_desc[i]
+    # Wheel (A-2-3-4-5)
+    rank_set = set(unique_sorted_desc)
+    if {14, 5, 4, 3, 2} <= rank_set:
+        return 5
+    return None
 
 
 def _eval_five(cards):
@@ -119,7 +239,7 @@ def _eval_five(cards):
 
 
 def calculate_equity(hero_cards, opponents_cards_list, board,
-                     simulations=10000, rng=None):
+                     simulations=1000, rng=None):
     """Calculate hero's equity against one or more opponents.
 
     Args:
