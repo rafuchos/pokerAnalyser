@@ -42,6 +42,7 @@ def create_app(analytics_db_path: str = 'analytics.db',
                 ('range', 'Range'),
                 ('tilt', 'Tilt'),
                 ('sizing', 'Sizing'),
+                ('satellites', 'Satellites'),
             ],
         }
 

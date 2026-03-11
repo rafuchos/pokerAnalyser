@@ -1,0 +1,32 @@
+{
+  "id": "US-037",
+  "title": "Satellite & Sit-and-Go Analysis: Tela Dedicada para Satélites e Spin & Gold",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Add satellite-specific repository queries in src/db/repository.py (get_satellites, get_satellite_hands, get_satellites_by_category)",
+    "Extend SpinAnalyzer in src/analyzers/spin.py to compute full satellite stats: breakdown by category (Spin & Gold, Steps, Regular Sats, MEGA), win rates, ROI, profit per category, comparative play stats (VPIP/PFR/3Bet/AF) for spin vs regular tournaments",
+    "Add satellite/spin analysis step to src/analytics_pipeline.py to persist satellite stats to analytics.db",
+    "Create prepare_satellites_data() function in src/web/data.py to load and format satellite analytics for the template",
+    "Add 'satellites' to VALID_TABS and route handler in src/web/routes/tournament.py",
+    "Create src/web/templates/tournament/satellites.html with overview cards, category breakdown tables, play stats comparison, and timeline/history",
+    "Update src/web/templates/base.html to add Satellites & S&G tab in tournament navigation",
+    "Run quality gates (typecheck, lint, tests, build)"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/db/repository.py",
+    "src/analyzers/spin.py",
+    "src/analytics_pipeline.py",
+    "src/web/data.py",
+    "src/web/routes/tournament.py",
+    "src/web/templates/tournament/satellites.html",
+    "src/web/templates/base.html"
+  ],
+  "created_at": "2026-03-11T05:41:35.784Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-037"
+}

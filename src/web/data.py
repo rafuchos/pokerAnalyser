@@ -1758,3 +1758,45 @@ def prepare_sizing_data(data, period='year', from_date='', to_date=''):
     data['sizing_by_street'] = by_street
 
     return data
+
+
+# ── Satellites / Spin helpers ───────────────────────────────────
+
+
+def prepare_satellites_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data for the satellites page.
+
+    Adds: sat_summary, sat_categories, sat_cycle, sat_timeline,
+    sat_recent, sat_chart.
+    """
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    sat = data.get('satellite_analysis') or {}
+    if not sat:
+        return data
+
+    data['sat_summary'] = sat.get('summary', {})
+    data['sat_categories'] = sat.get('by_category', {})
+    data['sat_cycle'] = sat.get('cycle', {})
+    data['sat_recent'] = sat.get('recent_results', [])
+
+    # Build timeline chart
+    timeline = sat.get('timeline', [])
+    if timeline:
+        cum_vals = [t.get('cumulative', 0) for t in timeline]
+        dates = [t.get('date', '') for t in timeline]
+        data['sat_chart'] = {
+            'points': _build_chart_points(cum_vals),
+            'dates': dates,
+            'y_min': min(cum_vals) if cum_vals else 0,
+            'y_max': max(cum_vals) if cum_vals else 0,
+            'final': cum_vals[-1] if cum_vals else 0,
+        }
+        data['sat_timeline'] = timeline
+    else:
+        data['sat_chart'] = {}
+        data['sat_timeline'] = []
+
+    return data

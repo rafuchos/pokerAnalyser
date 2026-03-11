@@ -389,6 +389,19 @@ def _persist_tournament_analysis(analytics: AnalyticsRepository,
     redline = tourn.get_redline_blueline()
     analytics.insert_redline_blueline(game_type, 'overall', _safe_json(redline))
 
+    # ── Satellite / Spin Analysis ──────────────────────────────────
+    try:
+        from src.analyzers.spin import SpinAnalyzer
+        spin = SpinAnalyzer(repo)
+        sat_analysis = spin.get_satellite_analysis()
+        if sat_analysis:
+            analytics.insert_global_stat(
+                game_type, 'satellite_analysis',
+                stat_json=_safe_json(sat_analysis),
+            )
+    except Exception:
+        pass
+
     analytics.commit()
     return True
 

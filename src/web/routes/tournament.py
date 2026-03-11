@@ -13,11 +13,12 @@ from src.web.data import (
     prepare_range_data,
     prepare_tilt_data,
     prepare_sizing_data,
+    prepare_satellites_data,
 )
 
 tournament_bp = Blueprint('tournament', __name__)
 
-VALID_TABS = ('overview', 'sessions', 'stats', 'leaks', 'ev', 'range', 'tilt', 'sizing')
+VALID_TABS = ('overview', 'sessions', 'stats', 'leaks', 'ev', 'range', 'tilt', 'sizing', 'satellites')
 
 
 @tournament_bp.route('/')
@@ -66,6 +67,9 @@ def sub_tab(tab):
     elif tab == 'sizing':
         prepare_sizing_data(data, period=period,
                             from_date=from_date, to_date=to_date)
+    elif tab == 'satellites':
+        prepare_satellites_data(data, period=period,
+                                from_date=from_date, to_date=to_date)
 
     return render_template(
         f'tournament/{tab}.html',
