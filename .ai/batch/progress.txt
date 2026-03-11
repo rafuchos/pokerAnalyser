@@ -367,3 +367,14 @@ US-021 (2026-03-10): Tournament Backend: Repository Queries + Analyzer Preflop/P
 
 === US-019 completed at 2026-03-11T03:52:58.022Z ===
 - All quality gates passed
+
+=== US-020 completed at 2026-03-11 ===
+- Implemented Leak Summary button + modal on cash and tournament overview pages
+- Created src/analyzers/leak_summary.py with grade_from_score(), grade_color(), build_leak_summary()
+- Integrated into prepare_overview_data() in src/web/data.py
+- Grade card (A+ to F) in stats-grid, clickable to open modal
+- Modal with 2 tabs: Overview (grade, top 3 leaks, categories table) and All Leaks (grouped by category)
+- 60 tests all passing (unit, integration, template, CSS, edge cases)
+- Key learning: JS functions in template {% block scripts %} always render even when modal div is conditionally excluded; test assertions should check for specific HTML element id="..." not bare string references
+- Pre-existing failures in test_web.py (Decision EV by Street) are NOT regressions from US-020
+

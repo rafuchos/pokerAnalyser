@@ -1,7 +1,7 @@
 {
   "id": "US-020",
   "title": "Botão Resumo de Leaks por Sessão (Consolidação de Todas as Análises)",
-  "status": "planned",
+  "status": "done",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
