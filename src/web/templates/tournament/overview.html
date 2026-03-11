@@ -66,6 +66,14 @@
         </div>
     </div>
     {% endif %}
+    {% if data.get('leak_summary') %}
+    {% set ls = data['leak_summary'] %}
+    <div class="stat-card leak-summary-card" onclick="openLeakSummaryModal()" style="cursor:pointer;">
+        <div class="stat-label">Grade</div>
+        <div class="stat-value badge-text-{{ ls.grade_color }}">{{ ls.grade }}</div>
+        <div class="stat-hint">{{ ls.total_leaks }} leaks &middot; click for details</div>
+    </div>
+    {% endif %}
 </div>
 
 {# ── HUD Stats Table ──────────────────────────────────────── #}
@@ -219,6 +227,129 @@
 </div>
 {% endif %}
 
+{# ── Leak Summary Modal ──────────────────────────────────── #}
+{% if data.get('leak_summary') %}
+{% set ls = data['leak_summary'] %}
+<div id="leak-summary-modal" class="leak-modal-overlay" style="display:none;" onclick="closeLeakSummaryOverlay(event)">
+    <div class="leak-modal">
+        <div class="leak-modal-header">
+            <h2 class="leak-modal-title">Resumo de Leaks</h2>
+            <button class="leak-modal-close" onclick="closeLeakSummaryModal()">&times;</button>
+        </div>
+
+        {# Tab Buttons #}
+        <div class="leak-modal-tabs">
+            <button class="leak-modal-tab active" onclick="switchLeakSummaryTab('overview')">Overview</button>
+            <button class="leak-modal-tab" onclick="switchLeakSummaryTab('all-leaks')">Todos os Leaks</button>
+        </div>
+
+        {# Overview Tab #}
+        <div id="leak-tab-overview" class="leak-modal-panel">
+            {# Grade Card #}
+            <div class="grade-card grade-{{ ls.grade_color }}">
+                <div class="grade-letter">{{ ls.grade }}</div>
+                <div class="grade-details">
+                    <div class="grade-score">Health Score: {{ ls.health_score }}/100</div>
+                    <div class="grade-summary">{{ ls.total_leaks }} leaks detected &middot; {{ '{:.2f}'.format(ls.total_cost) }} bb/100 total cost</div>
+                </div>
+            </div>
+
+            {# Top 3 Priority Leaks #}
+            {% if ls.top_leaks %}
+            <div class="leak-modal-section">
+                <div class="leak-modal-section-title">Top Priority Leaks</div>
+                <div class="leak-list">
+                    {% for leak in ls.top_leaks %}
+                    <div class="leak-card {% if (leak.get('cost_bb100', 0) or 0) > 2 %}high{% endif %}">
+                        <div class="leak-name">
+                            #{{ loop.index }} &mdash; {{ leak.get('leak_name', leak.get('stat_name', 'Unknown')) }}
+                            <span class="badge badge-{{ 'danger' if (leak.get('cost_bb100', 0) or 0) > 2 else 'warning' }}">
+                                {{ leak.get('category', '') }}
+                            </span>
+                        </div>
+                        <div class="leak-detail">
+                            {{ leak.get('stat_name', '') }}: {{ '{:.1f}'.format(leak.get('current_value', 0) or 0) }}
+                            (healthy: {{ '{:.0f}'.format(leak.get('healthy_low', 0) or 0) }}&ndash;{{ '{:.0f}'.format(leak.get('healthy_high', 0) or 0) }})
+                        </div>
+                        <div class="leak-detail">
+                            Cost: <span class="leak-cost">{{ '{:.2f}'.format(leak.get('cost_bb100', 0) or 0) }} bb/100</span>
+                            | {{ leak.get('direction', '') }}
+                        </div>
+                        {% if leak.get('suggestion') %}
+                        <div class="leak-detail" style="margin-top: 0.25rem; color: var(--accent-blue);">
+                            {{ leak['suggestion'] }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {# Categories Summary #}
+            {% if ls.categories %}
+            <div class="leak-modal-section">
+                <div class="leak-modal-section-title">By Category</div>
+                <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th class="num">Leaks</th>
+                            <th class="num">Total Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cat in ls.categories %}
+                        <tr>
+                            <td>{{ cat.name }}</td>
+                            <td class="num">{{ cat.count }}</td>
+                            <td class="num"><span class="leak-cost">{{ '{:.2f}'.format(cat.total_cost) }} bb/100</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        {# All Leaks Tab #}
+        <div id="leak-tab-all-leaks" class="leak-modal-panel" style="display:none;">
+            {% for cat_name, cat_leaks in ls.by_category.items() %}
+            <div class="leak-modal-section">
+                <div class="leak-modal-section-title">
+                    {{ cat_name }}
+                    <span class="badge badge-warning">{{ cat_leaks|length }}</span>
+                </div>
+                <div class="leak-list">
+                    {% for leak in cat_leaks %}
+                    <div class="leak-card {% if (leak.get('cost_bb100', 0) or 0) > 2 %}high{% endif %}">
+                        <div class="leak-name">{{ leak.get('leak_name', leak.get('stat_name', 'Unknown')) }}</div>
+                        <div class="leak-detail">
+                            {{ leak.get('stat_name', '') }}: {{ '{:.1f}'.format(leak.get('current_value', 0) or 0) }}
+                            (healthy: {{ '{:.0f}'.format(leak.get('healthy_low', 0) or 0) }}&ndash;{{ '{:.0f}'.format(leak.get('healthy_high', 0) or 0) }})
+                            &mdash; Cost: <span class="leak-cost">{{ '{:.2f}'.format(leak.get('cost_bb100', 0) or 0) }} bb/100</span>
+                        </div>
+                        {% if leak.get('suggestion') %}
+                        <div class="leak-detail" style="color: var(--accent-blue);">{{ leak['suggestion'] }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+
+            {% if not ls.by_category %}
+            <div class="empty-state">
+                <div class="empty-state-text">No leaks detected</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% else %}
 <div class="empty-state">
     <div class="empty-state-icon">&#127942;</div>
@@ -252,5 +383,35 @@ function toggleCustomFilter() {
     var el = document.getElementById('custom-filter');
     if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
 }
+
+function openLeakSummaryModal() {
+    var m = document.getElementById('leak-summary-modal');
+    if (m) m.style.display = 'flex';
+}
+
+function closeLeakSummaryModal() {
+    var m = document.getElementById('leak-summary-modal');
+    if (m) m.style.display = 'none';
+}
+
+function closeLeakSummaryOverlay(e) {
+    if (e.target === e.currentTarget) closeLeakSummaryModal();
+}
+
+function switchLeakSummaryTab(tab) {
+    var panels = ['overview', 'all-leaks'];
+    var btns = document.querySelectorAll('.leak-modal-tab');
+    panels.forEach(function(p) {
+        var el = document.getElementById('leak-tab-' + p);
+        if (el) el.style.display = p === tab ? '' : 'none';
+    });
+    btns.forEach(function(b) {
+        b.classList.toggle('active', b.textContent.trim() === (tab === 'overview' ? 'Overview' : 'Todos os Leaks'));
+    });
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLeakSummaryModal();
+});
 </script>
 {% endblock %}

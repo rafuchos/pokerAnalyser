@@ -1,17 +1,39 @@
 {
   "id": "US-020",
   "title": "Botão Resumo de Leaks por Sessão (Consolidação de Todas as Análises)",
-  "status": "completed",
+  "status": "planned",
   "estimated_time_seconds": 900,
-  "timeout_seconds": 900,
+  "timeout_seconds": 945,
   "plan": [
-    "fallback - no plan available"
+    "Analyze existing LeakFinder output structure and health_score computation in src/analyzers/leak_finder.py",
+    "Create src/analyzers/leak_summary.py with LeakSummaryAnalyzer class that wraps LeakFinder, computes session grade (A+ to F from health_score), extracts top 3 priority leaks, and organizes all leaks by category",
+    "Add grade_to_letter() and grade_to_color() helper functions for A+ through F mapping",
+    "Integrate LeakSummaryAnalyzer into analytics pipeline (src/analytics_pipeline.py) to store consolidated summary",
+    "Create prepare_leak_summary_data() function in src/web/data.py to prepare template data",
+    "Update cash route in src/web/routes/cash.py to pass leak summary data to overview template",
+    "Add 'Resumo de Leaks' button to src/web/templates/cash/overview.html with prominent placement",
+    "Create leak summary modal HTML in overview.html following US-018/US-019 modal pattern (hidden overlay div)",
+    "Implement modal sections: Session Grade card with color-coded badge, Top 3 Priorities cards with cost/suggestion, All Leaks by Category with expandable sections showing severity/description/impact/study suggestion",
+    "Add CSS styles to src/web/static/css/style.css for grade badge, leak summary modal, category sections, severity indicators",
+    "Add JavaScript handlers in overview.html for modal open/close, category toggle, ESC key close, backdrop blur animation",
+    "Replicate implementation for tournament overview template (src/web/templates/tournament/overview.html)",
+    "Run quality gates: typecheck, lint, tests, build verification"
   ],
-  "complexity": "unknown",
-  "recommended_model": "sonnet",
-  "files_likely_affected": [],
-  "created_at": "2026-03-02T13:26:16.088Z",
-  "completed_at": "2026-03-02T13:36:00.675Z",
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/leak_summary.py",
+    "src/analyzers/leak_finder.py",
+    "src/analytics_pipeline.py",
+    "src/web/data.py",
+    "src/web/routes/cash.py",
+    "src/web/templates/cash/overview.html",
+    "src/web/templates/tournament/overview.html",
+    "src/web/static/css/style.css",
+    "src/web/static/js/app.js"
+  ],
+  "created_at": "2026-03-11T03:54:48.080Z",
+  "completed_at": null,
   "failure_reason": null,
   "branch": "feat/US-020"
 }

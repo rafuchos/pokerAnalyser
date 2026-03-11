@@ -829,6 +829,15 @@ def prepare_overview_data(data, period='year', from_date='', to_date=''):
     else:
         data['redline_chart'] = {}
 
+    # ── Leak Summary ─────────────────────────────────────────────
+    from src.analyzers.leak_summary import build_leak_summary
+    hs = data.get('health_score')
+    leaks = data.get('leaks', [])
+    if hs is not None or leaks:
+        data['leak_summary'] = build_leak_summary(hs or 0, leaks)
+    else:
+        data['leak_summary'] = None
+
     return data
 
 
