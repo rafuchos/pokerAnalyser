@@ -1768,3 +1768,172 @@ body {
         gap: 0.5rem;
     }
 }
+
+/* ── US-034 Session Day Drill-Down Enhancements ────────────── */
+
+/* Global average row in day stats table */
+.global-avg-row {
+    background: none;
+}
+
+.global-avg-row td {
+    border-bottom: none;
+    padding-top: 0;
+}
+
+.global-avg-val {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+
+.global-avg-hint {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+    padding-left: 0.5rem;
+}
+
+/* vs-global arrows in session stats */
+.vs-global-arrow {
+    font-size: 0.55rem;
+    margin-left: 0.15rem;
+    vertical-align: middle;
+}
+
+.vs-global-arrow.up {
+    color: var(--accent-orange);
+}
+
+.vs-global-arrow.down {
+    color: var(--accent-blue);
+}
+
+/* Extended session summary meta */
+.sdc-winrate, .sdc-bb100 {
+    font-size: 0.8rem;
+}
+
+/* Larger charts */
+.sdc-chart-large {
+    min-width: 280px;
+}
+
+.sparkline-large, .ev-chart-large {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* Positional breakdown mini table */
+.sdc-positional {
+    margin-bottom: 0.75rem;
+}
+
+.pos-mini-table {
+    font-size: 0.8rem;
+}
+
+.pos-mini-table th,
+.pos-mini-table td {
+    padding: 0.3rem 0.5rem;
+}
+
+.pos-label {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--accent-blue);
+}
+
+/* Notable hand cards display */
+.notable-cards {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.notable-board {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+/* Top hands section */
+.top-hands-section {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.top-hands-col {
+    flex: 1;
+    min-width: 200px;
+}
+
+.top-hands-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.25rem;
+}
+
+.top-hand-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    margin-bottom: 0.15rem;
+    font-size: 0.8rem;
+}
+
+.top-hand-row.win {
+    background: rgba(63, 185, 80, 0.05);
+}
+
+.top-hand-row.loss {
+    background: rgba(248, 81, 73, 0.05);
+}
+
+.top-hand-net {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    min-width: 70px;
+}
+
+.top-hand-pos {
+    color: var(--accent-blue);
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.top-hand-cards {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+/* Session Comparison Table */
+.session-comparison-table {
+    font-size: 0.85rem;
+}
+
+.session-comparison-table th.global-col,
+.session-comparison-table td.global-col {
+    color: var(--text-muted);
+    border-left: 1px solid var(--border-color);
+}
+
+@media (max-width: 768px) {
+    .top-hands-section {
+        flex-direction: column;
+    }
+
+    .sdc-chart-large {
+        min-width: 0;
+    }
+}

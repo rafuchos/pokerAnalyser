@@ -10,8 +10,9 @@
 {% if data and data.get('session_day') %}
 {% set day = data['session_day'] %}
 {% set ds = day.get('day_stats') or {} %}
+{% set global_avgs = day.get('global_avgs') or {} %}
 
-{# ── Day Summary Cards ──────────────────────────────────────── #}
+{# ── Day Summary Cards (extended) ─────────────────────────── #}
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-label">Total Hands</div>
@@ -28,9 +29,22 @@
         <div class="stat-label">Sessions</div>
         <div class="stat-value neutral">{{ day.get('num_sessions', (day.get('sessions') or [])|length) }}</div>
     </div>
+    <div class="stat-card">
+        <div class="stat-label">Duration</div>
+        <div class="stat-value neutral">{{ day.get('total_duration_fmt', '-') }}</div>
+    </div>
+    {% if day.get('win_rate_hourly') is not none %}
+    <div class="stat-card">
+        <div class="stat-label">$/hr</div>
+        {% set whr = day.get('win_rate_hourly', 0) or 0 %}
+        <div class="stat-value {{ 'positive' if whr >= 0 else 'negative' }}">
+            ${{ '{:+,.2f}'.format(whr) }}
+        </div>
+    </div>
+    {% endif %}
 </div>
 
-{# ── Day Aggregate Stats ────────────────────────────────────── #}
+{# ── Day Aggregate Stats with Global Comparison ───────────── #}
 <div class="card" style="margin-top: 1.25rem;">
     <div class="card-title">Day Stats</div>
     <div class="table-responsive">
@@ -59,8 +73,24 @@
                 </td>
                 {% endfor %}
             </tr>
+            {% if global_avgs %}
+            <tr class="global-avg-row">
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd'] %}
+                <td class="num">
+                    {% if global_avgs.get(stat) is not none %}
+                    <span class="global-avg-val">
+                        {% if stat == 'af' %}{{ '{:.2f}'.format(global_avgs[stat]) }}{% else %}{{ '{:.1f}'.format(global_avgs[stat]) }}{% endif %}
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endif %}
         </tbody>
     </table>
+    {% if global_avgs %}
+    <div class="global-avg-hint">Global averages shown in second row</div>
+    {% endif %}
     </div>
 </div>
 
@@ -99,9 +129,15 @@
         </div>
     </div>
 
-    {# Session Summary #}
+    {# Session Summary (extended) #}
     <div class="sdc-summary">
         <span class="sdc-meta">{{ (sess.get('hands_count', 0) or 0)|int }} hands</span>
+        {% if sess.get('win_rate_hourly') is not none %}
+        <span class="sdc-meta sdc-winrate">$/hr: <strong class="{{ 'positive' if sess['win_rate_hourly'] >= 0 else 'negative' }}">${{ '{:+,.2f}'.format(sess['win_rate_hourly']) }}</strong></span>
+        {% endif %}
+        {% if sess.get('bb100') is not none %}
+        <span class="sdc-meta sdc-bb100">bb/100: <strong class="{{ 'positive' if sess['bb100'] >= 0 else 'negative' }}">{{ '{:+.1f}'.format(sess['bb100']) }}</strong></span>
+        {% endif %}
         {% if sess.get('leak_count', 0) > 0 %}
         <button class="filter-btn leak-toggle" data-toggle="accordion" data-target="leaks-{{ loop.index }}">
             Ver Leaks ({{ sess['leak_count'] }})
@@ -109,7 +145,7 @@
         {% endif %}
     </div>
 
-    {# HUD Stats Row #}
+    {# HUD Stats Row with global comparison arrows #}
     <div class="table-responsive">
     <table class="data-table hud-table sdc-stats-table">
         <thead>
@@ -131,6 +167,11 @@
                     <span class="hud-val {% if sess.get(stat ~ '_badge') %}badge-{{ sess[stat ~ '_badge'] }}{% endif %}">
                         {% if stat == 'af' %}{{ '{:.2f}'.format(sess[stat ~ '_val']) }}{% else %}{{ '{:.1f}'.format(sess[stat ~ '_val']) }}{% endif %}
                     </span>
+                    {% if sess.get(stat ~ '_vs_global') == 'up' %}
+                    <span class="vs-global-arrow up" title="Above global avg">&#9650;</span>
+                    {% elif sess.get(stat ~ '_vs_global') == 'down' %}
+                    <span class="vs-global-arrow down" title="Below global avg">&#9660;</span>
+                    {% endif %}
                     {% else %}-{% endif %}
                 </td>
                 {% endfor %}
@@ -139,12 +180,12 @@
     </table>
     </div>
 
-    {# Charts Row: Sparkline + EV #}
+    {# Charts Row: Sparkline + EV (larger) #}
     <div class="sdc-charts">
         {% if sess.get('sparkline_points') %}
-        <div class="sdc-chart-box">
-            <div class="sdc-chart-label">Stack</div>
-            <svg viewBox="0 0 200 40" class="sparkline-chart" xmlns="http://www.w3.org/2000/svg">
+        <div class="sdc-chart-box sdc-chart-large">
+            <div class="sdc-chart-label">Stack Evolution</div>
+            <svg viewBox="0 0 400 80" class="sparkline-chart sparkline-large" xmlns="http://www.w3.org/2000/svg">
                 <polyline points="{{ sess['sparkline_points'] }}" fill="none"
                           stroke="{{ 'var(--accent-green)' if sess.get('sparkline_final', 0) >= 0 else 'var(--accent-red)' }}"
                           stroke-width="1.5"/>
@@ -153,9 +194,9 @@
         {% endif %}
 
         {% if sess.get('ev_chart') %}
-        <div class="sdc-chart-box">
+        <div class="sdc-chart-box sdc-chart-large">
             <div class="sdc-chart-label">EV vs Real</div>
-            <svg viewBox="0 0 200 60" class="ev-mini-chart" xmlns="http://www.w3.org/2000/svg">
+            <svg viewBox="0 0 400 80" class="ev-mini-chart ev-chart-large" xmlns="http://www.w3.org/2000/svg">
                 <polyline points="{{ sess['ev_chart']['real_points'] }}" fill="none"
                           stroke="var(--accent-green)" stroke-width="1.5"/>
                 <polyline points="{{ sess['ev_chart']['ev_points'] }}" fill="none"
@@ -169,8 +210,39 @@
         {% endif %}
     </div>
 
-    {# Notable Hands #}
-    {% if sess.get('biggest_win') or sess.get('biggest_loss') %}
+    {# Positional Breakdown #}
+    {% if sess.get('positional_breakdown') %}
+    <div class="sdc-positional">
+        <div class="sdc-chart-label">Positional Breakdown</div>
+        <div class="table-responsive">
+        <table class="data-table hud-table pos-mini-table">
+            <thead>
+                <tr>
+                    <th>Pos</th>
+                    <th class="num">Hands</th>
+                    <th class="num">VPIP</th>
+                    <th class="num">PFR</th>
+                    <th class="num">bb/100</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in sess['positional_breakdown'] %}
+                <tr>
+                    <td class="pos-label">{{ p['position'] }}</td>
+                    <td class="num">{{ p.get('hands', 0) or 0 }}</td>
+                    <td class="num">{% if p.get('vpip') is not none %}{{ '{:.1f}'.format(p['vpip']) }}{% else %}-{% endif %}</td>
+                    <td class="num">{% if p.get('pfr') is not none %}{{ '{:.1f}'.format(p['pfr']) }}{% else %}-{% endif %}</td>
+                    <td class="num">{% if p.get('bb100') is not none %}<span class="{{ 'positive' if p['bb100'] >= 0 else 'negative' }}">{{ '{:+.1f}'.format(p['bb100']) }}</span>{% else %}-{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Notable Hands (basic + extended) #}
+    {% if sess.get('biggest_win') or sess.get('biggest_loss') or sess.get('top_wins') or sess.get('top_losses') %}
     <div class="sdc-notable">
         <div class="sdc-chart-label">Notable Hands</div>
         <div class="notable-hands-grid">
@@ -181,6 +253,12 @@
                 {% if sess['biggest_win'].get('hero_position') %}
                 <span class="notable-meta">{{ sess['biggest_win']['hero_position'] }}</span>
                 {% endif %}
+                {% if sess['biggest_win'].get('hero_cards') %}
+                <span class="notable-cards">{{ sess['biggest_win']['hero_cards'] }}</span>
+                {% endif %}
+                {% if sess['biggest_win'].get('board') %}
+                <span class="notable-board">{{ sess['biggest_win']['board'] }}</span>
+                {% endif %}
             </div>
             {% endif %}
             {% if sess.get('biggest_loss') %}
@@ -190,9 +268,45 @@
                 {% if sess['biggest_loss'].get('hero_position') %}
                 <span class="notable-meta">{{ sess['biggest_loss']['hero_position'] }}</span>
                 {% endif %}
+                {% if sess['biggest_loss'].get('hero_cards') %}
+                <span class="notable-cards">{{ sess['biggest_loss']['hero_cards'] }}</span>
+                {% endif %}
+                {% if sess['biggest_loss'].get('board') %}
+                <span class="notable-board">{{ sess['biggest_loss']['board'] }}</span>
+                {% endif %}
             </div>
             {% endif %}
         </div>
+
+        {# Extended top hands #}
+        {% if sess.get('top_wins') or sess.get('top_losses') %}
+        <div class="top-hands-section">
+            {% if sess.get('top_wins') %}
+            <div class="top-hands-col">
+                <div class="top-hands-title positive">Top Wins</div>
+                {% for h in sess['top_wins'] %}
+                <div class="top-hand-row win">
+                    <span class="top-hand-net positive">${{ '{:+,.2f}'.format(h.get('net', 0)) }}</span>
+                    {% if h.get('hero_position') %}<span class="top-hand-pos">{{ h['hero_position'] }}</span>{% endif %}
+                    {% if h.get('hero_cards') %}<span class="top-hand-cards">{{ h['hero_cards'] }}</span>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if sess.get('top_losses') %}
+            <div class="top-hands-col">
+                <div class="top-hands-title negative">Top Losses</div>
+                {% for h in sess['top_losses'] %}
+                <div class="top-hand-row loss">
+                    <span class="top-hand-net negative">${{ '{:+,.2f}'.format(h.get('net', 0)) }}</span>
+                    {% if h.get('hero_position') %}<span class="top-hand-pos">{{ h['hero_position'] }}</span>{% endif %}
+                    {% if h.get('hero_cards') %}<span class="top-hand-cards">{{ h['hero_cards'] }}</span>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
     {% endif %}
 
@@ -223,6 +337,51 @@
 
 </div>
 {% endfor %}
+
+{# ── Session Comparison Table ──────────────────────────────── #}
+{% if day.get('session_comparison') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">Session Comparison</div>
+    <div class="table-responsive">
+    <table class="data-table session-comparison-table">
+        <thead>
+            <tr>
+                <th>Stat</th>
+                {% for sess in day.get('sessions', []) %}
+                <th class="num">S#{{ sess['index'] }}</th>
+                {% endfor %}
+                <th class="num global-col">Global</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in day['session_comparison'] %}
+            <tr>
+                <td>{{ row['label'] }}</td>
+                {% for v in row['values'] %}
+                <td class="num">
+                    {% if v.get('value') is not none %}
+                    {% if row['stat'] == 'profit' %}
+                    <span class="{{ 'positive' if v['value'] >= 0 else 'negative' }}">${{ '{:+,.2f}'.format(v['value']) }}</span>
+                    {% elif row['stat'] == 'af' %}
+                    <span class="hud-val {% if v.get('badge') %}badge-{{ v['badge'] }}{% endif %}">{{ '{:.2f}'.format(v['value']) }}</span>
+                    {% else %}
+                    <span class="hud-val {% if v.get('badge') %}badge-{{ v['badge'] }}{% endif %}">{{ '{:.1f}'.format(v['value']) }}</span>
+                    {% endif %}
+                    {% else %}-{% endif %}
+                </td>
+                {% endfor %}
+                <td class="num global-col">
+                    {% if row.get('global') is not none %}
+                    {% if row['stat'] == 'af' %}{{ '{:.2f}'.format(row['global']) }}{% else %}{{ '{:.1f}'.format(row['global']) }}{% endif %}
+                    {% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
 
 {% else %}
 <div class="empty-state">

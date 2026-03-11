@@ -236,12 +236,76 @@ def prepare_sessions_list(data, page=1, per_page=15):
     return data
 
 
+def _get_global_averages(data):
+    """Extract global stat averages from preflop/postflop overall data."""
+    pf = data.get('preflop_overall') or {}
+    po = data.get('postflop_overall') or {}
+    avgs = {}
+    for s in _STAT_NAMES:
+        val = pf.get(s) if pf.get(s) is not None else po.get(s)
+        if val is not None:
+            avgs[s] = val
+    return avgs
+
+
+def _compute_session_bb100(sess):
+    """Compute bb/100 for a session if blinds_bb available."""
+    ev = sess.get('ev_data') or {}
+    bb100 = ev.get('bb100_real')
+    if bb100 is not None:
+        return bb100
+    # Fallback: compute from profit / hands if we have a rough BB
+    return None
+
+
+def _compute_win_rate_per_hour(profit, duration_minutes):
+    """Compute $/hr win rate."""
+    if not duration_minutes or duration_minutes <= 0:
+        return None
+    return round(profit / (duration_minutes / 60.0), 2)
+
+
+def _build_session_comparison(enriched_sessions, global_avgs):
+    """Build side-by-side comparison table for multi-session days."""
+    if len(enriched_sessions) < 2:
+        return None
+    _COMPARE_STATS = ['vpip', 'pfr', 'three_bet', 'af', 'cbet', 'wtsd', 'wsd']
+    rows = []
+    for stat in _COMPARE_STATS:
+        row = {'stat': stat, 'label': _stat_label(stat), 'values': [], 'global': global_avgs.get(stat)}
+        vals = []
+        for s in enriched_sessions:
+            val = s.get(f'{stat}_val')
+            row['values'].append({
+                'value': val,
+                'badge': s.get(f'{stat}_badge', ''),
+            })
+            if val is not None:
+                vals.append(val)
+        # Identify best/worst for highlighting
+        if vals:
+            h = _HEALTHY_RANGES.get(stat)
+            if h:
+                mid = (h[0] + h[1]) / 2
+                for v in row['values']:
+                    if v['value'] is not None:
+                        v['deviation'] = abs(v['value'] - mid)
+        rows.append(row)
+    # Add profit row
+    profit_row = {'stat': 'profit', 'label': 'Profit', 'values': [], 'global': None}
+    for s in enriched_sessions:
+        profit_row['values'].append({'value': s.get('profit', 0), 'badge': ''})
+    rows.append(profit_row)
+    return rows
+
+
 def prepare_session_day(data, date):
     """Enrich analytics data with detail for a specific day.
 
     Adds: session_day (the day report with enriched sessions).
     Each session gets sparkline SVG points, EV chart SVG points,
-    health badges, and best/worst comparison markers.
+    health badges, global comparison, extended stats, and best/worst
+    comparison markers.
     """
     daily_reports = data.get('daily_reports', [])
     sessions_map = data.get('sessions', {})
@@ -256,12 +320,29 @@ def prepare_session_day(data, date):
         data['session_day'] = None
         return data
 
+    # Global averages for comparison
+    global_avgs = _get_global_averages(data)
+    day_report['global_avgs'] = global_avgs
+
     # Add health badges for day-level stats
     ds = day_report.get('day_stats') or {}
     for s in _STAT_NAMES:
         val = ds.get(s)
         day_report[f'{s}_val'] = val
         day_report[f'{s}_badge'] = _classify_health(s, val)
+
+    # Day-level extended stats
+    total_hands = day_report.get('hands_count') or day_report.get('total_hands') or 0
+    total_net = day_report.get('net', 0) or 0
+    total_duration = 0
+    for sess in (day_report.get('sessions') or []):
+        total_duration += (sess.get('duration_minutes') or 0)
+    day_report['total_duration'] = total_duration
+    if total_duration >= 60:
+        day_report['total_duration_fmt'] = f"{total_duration // 60}h {total_duration % 60}m"
+    else:
+        day_report['total_duration_fmt'] = f"{total_duration}m"
+    day_report['win_rate_hourly'] = _compute_win_rate_per_hour(total_net, total_duration)
 
     # Enrich each session
     sess_list = day_report.get('sessions') or []
@@ -289,7 +370,7 @@ def prepare_session_day(data, date):
         else:
             s['end_fmt'] = ''
 
-        # Stats with health badges
+        # Stats with health badges + global comparison
         stats = s.get('stats') or {}
         for stat in _STAT_NAMES:
             val = stats.get(stat)
@@ -298,18 +379,55 @@ def prepare_session_day(data, date):
             if not health and val is not None:
                 health = _classify_health(stat, val)
             s[f'{stat}_badge'] = health
+            # Global comparison arrow
+            g = global_avgs.get(stat)
+            if val is not None and g is not None:
+                diff = val - g
+                if abs(diff) < 0.5:
+                    s[f'{stat}_vs_global'] = 'same'
+                elif diff > 0:
+                    s[f'{stat}_vs_global'] = 'up'
+                else:
+                    s[f'{stat}_vs_global'] = 'down'
+            else:
+                s[f'{stat}_vs_global'] = ''
 
-        # Sparkline SVG points (stack evolution)
+        # Win rate $/hr per session
+        s['win_rate_hourly'] = _compute_win_rate_per_hour(
+            s.get('profit', 0) or 0, mins)
+
+        # bb/100 per session
+        s['bb100'] = _compute_session_bb100(s)
+
+        # Positional breakdown (if available)
+        pos_data = stats.get('by_position') or s.get('positional') or {}
+        if pos_data:
+            pos_rows = []
+            for pos in ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB']:
+                pd = pos_data.get(pos)
+                if pd:
+                    pos_rows.append({
+                        'position': pos,
+                        'vpip': pd.get('vpip'),
+                        'pfr': pd.get('pfr'),
+                        'hands': pd.get('hands', pd.get('total_hands', 0)),
+                        'bb100': pd.get('bb100', pd.get('bb_per_100')),
+                    })
+            s['positional_breakdown'] = pos_rows
+        else:
+            s['positional_breakdown'] = []
+
+        # Sparkline SVG points (larger chart: 400x80)
         sparkline = s.get('sparkline') or []
         if sparkline:
             vals = [p.get('profit', 0) for p in sparkline]
-            s['sparkline_points'] = _build_chart_points(vals, width=200, height=40, padding=2)
+            s['sparkline_points'] = _build_chart_points(vals, width=400, height=80, padding=4)
             s['sparkline_final'] = vals[-1] if vals else 0
         else:
             s['sparkline_points'] = ''
             s['sparkline_final'] = 0
 
-        # EV chart SVG points
+        # EV chart SVG points (larger chart: 400x80)
         ev = s.get('ev_data')
         if ev and ev.get('chart_data'):
             cd = ev['chart_data']
@@ -317,13 +435,26 @@ def prepare_session_day(data, date):
             ev_vals = [p.get('ev', 0) for p in cd]
             all_vals = real_vals + ev_vals
             s['ev_chart'] = {
-                'real_points': _build_chart_points(real_vals, width=200, height=60, padding=4),
-                'ev_points': _build_chart_points(ev_vals, width=200, height=60, padding=4),
+                'real_points': _build_chart_points(real_vals, width=400, height=80, padding=4),
+                'ev_points': _build_chart_points(ev_vals, width=400, height=80, padding=4),
                 'y_min': min(all_vals) if all_vals else 0,
                 'y_max': max(all_vals) if all_vals else 0,
             }
         else:
             s['ev_chart'] = None
+
+        # Extended notable hands (top 5 wins + top 5 losses)
+        top_hands = s.get('top_hands') or []
+        if top_hands:
+            wins = sorted([h for h in top_hands if (h.get('net', 0) or 0) > 0],
+                          key=lambda h: h.get('net', 0), reverse=True)[:5]
+            losses = sorted([h for h in top_hands if (h.get('net', 0) or 0) < 0],
+                            key=lambda h: h.get('net', 0))[:5]
+            s['top_wins'] = wins
+            s['top_losses'] = losses
+        else:
+            s['top_wins'] = []
+            s['top_losses'] = []
 
         # Leak count
         s['leak_count'] = len(s.get('leak_summary') or [])
@@ -343,6 +474,10 @@ def prepare_session_day(data, date):
     else:
         day_report['best_session'] = None
         day_report['worst_session'] = None
+
+    # Session-vs-session comparison table
+    day_report['session_comparison'] = _build_session_comparison(
+        enriched_sessions, global_avgs)
 
     data['session_day'] = day_report
     return data
