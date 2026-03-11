@@ -1,7 +1,7 @@
 {
   "id": "US-036",
   "title": "Bugfix: Correções de Dados e Rendering em Todas as Páginas Web",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 1800,
   "timeout_seconds": 1890,
   "plan": [
@@ -11,7 +11,7 @@
   "recommended_model": "opus",
   "files_likely_affected": [],
   "created_at": "2026-03-11T05:02:50.315Z",
-  "completed_at": null,
+  "completed_at": "2026-03-11T05:40:15.992Z",
   "failure_reason": null,
   "branch": "feat/US-036",
   "replanned_at": "2026-03-11T05:33:36.222Z",
