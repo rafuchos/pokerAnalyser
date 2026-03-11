@@ -1,7 +1,7 @@
 {
   "id": "US-018",
   "title": "VPIP Drill-Down Modal com Breakdown por Posição e Stack Depth",
-  "status": "done",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -26,7 +26,7 @@
     "src/reports/tournament_report.py"
   ],
   "created_at": "2026-03-11T03:43:21.473Z",
-  "completed_at": "2026-03-11T04:00:00.000Z",
+  "completed_at": "2026-03-11T03:47:31.829Z",
   "failure_reason": null,
   "branch": "feat/US-018"
 }
