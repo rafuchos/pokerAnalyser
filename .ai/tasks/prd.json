@@ -216,7 +216,8 @@
         "src/web/templates/tournament/overview.html",
         "src/web/static/js/app.js",
         "src/web/static/css/style.css"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-019",
