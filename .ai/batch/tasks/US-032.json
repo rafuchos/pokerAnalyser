@@ -1,7 +1,7 @@
 {
   "id": "US-032",
   "title": "Stats Avançados: River Actions, Probe, Open Shove, Won Flop, XF OOP e mais",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 1800,
   "timeout_seconds": 1890,
   "plan": [
@@ -36,7 +36,7 @@
     "tests/test_postflop.py"
   ],
   "created_at": "2026-03-11T03:10:58.583Z",
-  "completed_at": null,
+  "completed_at": "2026-03-11T03:41:41.460Z",
   "failure_reason": null,
   "branch": "feat/US-032",
   "replanned_at": "2026-03-11T03:26:44.036Z",
