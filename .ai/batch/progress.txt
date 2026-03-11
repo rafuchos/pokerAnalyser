@@ -391,3 +391,22 @@ US-021 (2026-03-10): Tournament Backend: Repository Queries + Analyzer Preflop/P
 
 === US-033 completed at 2026-03-11T04:21:44.905Z ===
 - All quality gates passed
+
+---
+US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sessão
+- Enhanced prepare_session_day() with _get_global_averages(), _compute_win_rate_per_hour(), _build_session_comparison()
+- Extended day summary: total_duration, total_duration_fmt, win_rate_hourly
+- Global averages comparison: second row in day stats table with global-avg-val styling
+- Per-session vs-global arrows: up/down/same based on 0.5 threshold from global stat
+- Session-level: win_rate_hourly, bb100 (from ev_data.bb100_real), positional_breakdown
+- Positional breakdown: iterates canonical order ['UTG','MP','CO','BTN','SB','BB'], skips missing
+- Larger charts: sparkline/EV use 400x80 viewport (was 200x40 and 200x60)
+- Extended notable hands: top_wins/top_losses from top_hands data (max 5 each)
+- Session comparison table: _build_session_comparison() with 7 stat rows + profit row + global column
+- Pattern: reuse _stat_label() and _classify_health() for comparison table labels/badges
+- Pattern: _get_global_averages() merges preflop_overall + postflop_overall into flat dict
+- Pre-existing failures in test_web.py (Decision EV by Street) are NOT regressions
+- 63 new tests (2111 total passing)
+
+=== US-034 completed at 2026-03-11 ===
+- All quality gates passed
