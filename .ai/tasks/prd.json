@@ -578,7 +578,8 @@
         "src/db/repository.py",
         "src/analyzers/tournament.py",
         "src/analytics_pipeline.py"
-      ]
+      ],
+      "passes": true
     }
   ]
 }
