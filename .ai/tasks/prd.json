@@ -262,7 +262,8 @@
         "src/analyzers/leak_summary.py",
         "src/web/templates/cash/overview.html",
         "src/web/templates/tournament/overview.html"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-033",

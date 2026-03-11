@@ -378,3 +378,6 @@ US-021 (2026-03-10): Tournament Backend: Repository Queries + Analyzer Preflop/P
 - Key learning: JS functions in template {% block scripts %} always render even when modal div is conditionally excluded; test assertions should check for specific HTML element id="..." not bare string references
 - Pre-existing failures in test_web.py (Decision EV by Street) are NOT regressions from US-020
 
+
+=== US-020 completed at 2026-03-11T04:08:37.076Z ===
+- All quality gates passed
