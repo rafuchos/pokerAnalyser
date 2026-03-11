@@ -39,6 +39,19 @@
 </div>
 {% endif %}
 
+{# ── Toggle Buttons & Played-Only Filter ─────────────────── #}
+<div class="range-controls">
+    <div class="range-toggles" id="range-toggles">
+        <button class="range-toggle active" data-metric="hands">Dealt</button>
+        <button class="range-toggle" data-metric="played">Played</button>
+        <button class="range-toggle" data-metric="net">Net $</button>
+        <button class="range-toggle" data-metric="bb100">bb/100</button>
+    </div>
+    <label class="range-filter-check">
+        <input type="checkbox" id="played-only-filter"> Played only
+    </label>
+</div>
+
 {# ── Hand Matrix 13x13 ────────────────────────────────────── #}
 {% set matrices = data.get('range_matrices', {}) %}
 {% set matrix = matrices.get(active_pos, []) %}
@@ -48,7 +61,7 @@
     <div class="card-title">Hand Matrix — {{ active_pos }}</div>
     {% if matrix %}
     <div class="table-responsive">
-    <div class="hand-matrix">
+    <div class="hand-matrix" id="hand-matrix">
         {# Column headers #}
         <div class="hm-cell hm-header"></div>
         {% for r in ranks %}
@@ -62,22 +75,39 @@
         {% set cell = matrix[row_idx][col_idx] %}
         {% set has_data = cell.get('hands', 0) > 0 or cell.get('freq', 0) > 0 %}
         <div class="hm-cell hm-{{ cell['type'] }} {% if has_data %}hm-active{% endif %} {% if cell.get('net', 0) > 0 %}hm-profit{% elif cell.get('net', 0) < 0 %}hm-loss{% endif %}"
-             title="{{ cell['hand'] }}: {{ cell.get('hands', 0) }} hands, {{ '{:+.1f}'.format(cell.get('net', 0)) }} BB">
+             {% if cell.get('heatmap_bg') %}style="background: {{ cell['heatmap_bg'] }}"{% endif %}
+             title="{{ cell['hand'] }}: {{ cell.get('dealt', cell.get('hands', 0)) }} dealt, {{ cell.get('played', 0) }} played, {{ '{:+.1f}'.format(cell.get('net', 0)) }} BB"
+             data-hand="{{ cell['hand'] }}"
+             data-type="{{ cell['type'] }}"
+             data-dealt="{{ cell.get('dealt', cell.get('hands', 0)) }}"
+             data-played="{{ cell.get('played', 0) }}"
+             data-net="{{ cell.get('net', 0) }}"
+             data-bb100="{{ cell.get('bb100', 0) }}"
+             data-freq="{{ cell.get('freq_pct', 0) }}"
+             data-open-raise="{{ cell.get('open_raise', 0) }}"
+             data-call="{{ cell.get('call', 0) }}"
+             data-three-bet="{{ cell.get('three_bet', 0) }}"
+             data-hands="{{ cell.get('hands', 0) }}"
+             onclick="showHandModal(this)">
             <span class="hm-hand">{{ cell['hand'] }}</span>
             {% if has_data %}
-            <span class="hm-freq">{{ cell.get('hands', 0) }}</span>
+            <span class="hm-freq" data-val-hands="{{ cell.get('hands', 0) }}" data-val-played="{{ cell.get('played', 0) }}" data-val-net="{{ '{:+.1f}'.format(cell.get('net', 0)) }}" data-val-bb100="{{ '{:+.1f}'.format(cell.get('bb100', 0)) }}">{{ cell.get('hands', 0) }}</span>
             {% endif %}
         </div>
         {% endfor %}
         {% endfor %}
     </div>
     </div>
+    {# ── Legend with gradient bar ─────────────────────────── #}
     <div class="hm-legend">
         <span class="hm-legend-item"><span class="hm-dot hm-dot-pair"></span> Pair</span>
         <span class="hm-legend-item"><span class="hm-dot hm-dot-suited"></span> Suited</span>
         <span class="hm-legend-item"><span class="hm-dot hm-dot-offsuit"></span> Offsuit</span>
-        <span class="hm-legend-item"><span class="hm-dot hm-dot-profit"></span> Profitable</span>
-        <span class="hm-legend-item"><span class="hm-dot hm-dot-loss"></span> Deficit</span>
+        <span class="hm-legend-sep">|</span>
+        <span class="hm-legend-item">
+            <span class="hm-gradient-bar"></span>
+            <span class="hm-gradient-labels"><span>Loss</span><span>Profit</span></span>
+        </span>
     </div>
     {% else %}
     <p style="color: var(--text-secondary);">No hand matrix data for this position.</p>
@@ -95,9 +125,11 @@
                 <tr>
                     <th>#</th>
                     <th>Hand</th>
-                    <th class="num">Hands</th>
+                    <th class="num">Dealt</th>
+                    <th class="num">Freq%</th>
                     <th class="num">Net (BB)</th>
                     <th class="num">bb/100</th>
+                    <th class="num">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -106,8 +138,10 @@
                     <td>{{ loop.index }}</td>
                     <td><strong>{{ h.get('hand', '') }}</strong></td>
                     <td class="num">{{ (h.get('hands', 0) or 0)|int }}</td>
+                    <td class="num">{% if (h.get('hands', 0) or 0) > 0 and (h.get('played', 0) or 0) > 0 %}{{ '{:.0f}'.format((h.get('played', 0) or 0) / (h.get('hands', 0) or 1) * 100) }}%{% else %}—{% endif %}</td>
                     <td class="num positive">{{ '{:+,.1f}'.format(h.get('net', 0) or 0) }}</td>
                     <td class="num">{% if (h.get('hands', 0) or 0) >= 10 %}{{ '{:+.1f}'.format(h.get('bb100', 0) or 0) }}{% else %}<span title="Sample < 10 hands">—</span>{% endif %}</td>
+                    <td class="num hm-action-col">{% if h.get('played', 0) %}R{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -125,9 +159,11 @@
                 <tr>
                     <th>#</th>
                     <th>Hand</th>
-                    <th class="num">Hands</th>
+                    <th class="num">Dealt</th>
+                    <th class="num">Freq%</th>
                     <th class="num">Net (BB)</th>
                     <th class="num">bb/100</th>
+                    <th class="num">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -136,8 +172,10 @@
                     <td>{{ loop.index }}</td>
                     <td><strong>{{ h.get('hand', '') }}</strong></td>
                     <td class="num">{{ (h.get('hands', 0) or 0)|int }}</td>
+                    <td class="num">{% if (h.get('hands', 0) or 0) > 0 and (h.get('played', 0) or 0) > 0 %}{{ '{:.0f}'.format((h.get('played', 0) or 0) / (h.get('hands', 0) or 1) * 100) }}%{% else %}—{% endif %}</td>
                     <td class="num negative">{{ '{:+,.1f}'.format(h.get('net', 0) or 0) }}</td>
                     <td class="num">{% if (h.get('hands', 0) or 0) >= 10 %}{{ '{:+.1f}'.format(h.get('bb100', 0) or 0) }}{% else %}<span title="Sample < 10 hands">—</span>{% endif %}</td>
+                    <td class="num hm-action-col">{% if h.get('played', 0) %}R{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -147,6 +185,30 @@
     {% endif %}
 </div>
 {% endif %}
+
+{# ── Hand Detail Modal ────────────────────────────────────── #}
+<div id="hand-modal" class="hm-modal-overlay" style="display:none;" onclick="closeHandModal(event)">
+    <div class="hm-modal" onclick="event.stopPropagation()">
+        <button class="hm-modal-close" onclick="closeHandModal(event)">&times;</button>
+        <h3 class="hm-modal-title" id="modal-title">AA</h3>
+        <div class="hm-modal-body">
+            <div class="hm-modal-grid">
+                <div class="hm-modal-stat"><span class="hm-modal-label">Dealt</span><span class="hm-modal-value" id="modal-dealt">0</span></div>
+                <div class="hm-modal-stat"><span class="hm-modal-label">Played</span><span class="hm-modal-value" id="modal-played">0</span></div>
+                <div class="hm-modal-stat"><span class="hm-modal-label">Frequency</span><span class="hm-modal-value" id="modal-freq">0%</span></div>
+                <div class="hm-modal-stat"><span class="hm-modal-label">Net (BB)</span><span class="hm-modal-value" id="modal-net">0</span></div>
+                <div class="hm-modal-stat"><span class="hm-modal-label">bb/100</span><span class="hm-modal-value" id="modal-bb100">0</span></div>
+                <div class="hm-modal-stat"><span class="hm-modal-label">Type</span><span class="hm-modal-value" id="modal-type">—</span></div>
+            </div>
+            <h4 class="hm-modal-section-title">Action Breakdown</h4>
+            <div class="hm-modal-actions">
+                <div class="hm-modal-action"><span class="hm-action-dot hm-action-raise"></span> Open Raise: <strong id="modal-raise">0</strong></div>
+                <div class="hm-modal-action"><span class="hm-action-dot hm-action-call"></span> Call: <strong id="modal-call">0</strong></div>
+                <div class="hm-modal-action"><span class="hm-action-dot hm-action-3bet"></span> 3-Bet: <strong id="modal-3bet">0</strong></div>
+            </div>
+        </div>
+    </div>
+</div>
 
 {% else %}
 <div class="empty-state">
@@ -163,5 +225,80 @@ function toggleCustomFilter() {
     var el = document.getElementById('custom-filter');
     if (el) el.style.display = el.style.display === 'none' ? 'flex' : 'none';
 }
+
+/* ── Range toggle: switch displayed metric ─────────────────── */
+function initRangeToggles() {
+    var btns = document.querySelectorAll('.range-toggle');
+    btns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            btns.forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            var metric = btn.dataset.metric;
+            document.querySelectorAll('.hm-freq').forEach(function(el) {
+                if (metric === 'hands') el.textContent = el.dataset.valHands || '';
+                else if (metric === 'played') el.textContent = el.dataset.valPlayed || '';
+                else if (metric === 'net') el.textContent = el.dataset.valNet || '';
+                else if (metric === 'bb100') el.textContent = el.dataset.valBb100 || '';
+            });
+        });
+    });
+}
+
+/* ── Played-only filter ────────────────────────────────────── */
+function initPlayedOnlyFilter() {
+    var cb = document.getElementById('played-only-filter');
+    if (!cb) return;
+    cb.addEventListener('change', function() {
+        var matrix = document.getElementById('hand-matrix');
+        if (!matrix) return;
+        matrix.querySelectorAll('.hm-cell:not(.hm-header)').forEach(function(cell) {
+            if (cb.checked) {
+                var played = parseInt(cell.dataset.played || '0', 10);
+                if (played === 0) cell.classList.add('hm-hidden');
+                else cell.classList.remove('hm-hidden');
+            } else {
+                cell.classList.remove('hm-hidden');
+            }
+        });
+    });
+}
+
+/* ── Cell click modal ──────────────────────────────────────── */
+function showHandModal(el) {
+    var modal = document.getElementById('hand-modal');
+    if (!modal) return;
+    document.getElementById('modal-title').textContent = el.dataset.hand || '';
+    document.getElementById('modal-dealt').textContent = el.dataset.dealt || '0';
+    document.getElementById('modal-played').textContent = el.dataset.played || '0';
+    var freq = parseFloat(el.dataset.freq || '0');
+    document.getElementById('modal-freq').textContent = freq.toFixed(1) + '%';
+    var net = parseFloat(el.dataset.net || '0');
+    var netEl = document.getElementById('modal-net');
+    netEl.textContent = (net >= 0 ? '+' : '') + net.toFixed(1);
+    netEl.className = 'hm-modal-value ' + (net > 0 ? 'positive' : net < 0 ? 'negative' : '');
+    document.getElementById('modal-bb100').textContent = parseFloat(el.dataset.bb100 || '0').toFixed(1);
+    var typeMap = {'pair': 'Pair', 'suited': 'Suited', 'offsuit': 'Offsuit'};
+    document.getElementById('modal-type').textContent = typeMap[el.dataset.type] || el.dataset.type || '—';
+    document.getElementById('modal-raise').textContent = el.dataset.openRaise || '0';
+    document.getElementById('modal-call').textContent = el.dataset.call || '0';
+    document.getElementById('modal-3bet').textContent = el.dataset.threeBet || '0';
+    modal.style.display = 'flex';
+}
+
+function closeHandModal(e) {
+    var modal = document.getElementById('hand-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+/* ── ESC to close modal ────────────────────────────────────── */
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeHandModal(e);
+});
+
+/* ── Init ──────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function() {
+    initRangeToggles();
+    initPlayedOnlyFilter();
+});
 </script>
 {% endblock %}

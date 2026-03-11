@@ -1541,3 +1541,230 @@ body {
         font-size: 0.45rem;
     }
 }
+
+/* ── Range Controls (US-033) ──────────────────────────────── */
+.range-controls {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin: 0.75rem 0;
+    flex-wrap: wrap;
+}
+
+.range-toggles {
+    display: flex;
+    gap: 4px;
+    background: var(--surface-secondary, rgba(255,255,255,0.04));
+    border-radius: 6px;
+    padding: 3px;
+}
+
+.range-toggle {
+    padding: 4px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.range-toggle:hover {
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.06);
+}
+
+.range-toggle.active {
+    background: var(--accent-blue, #58a6ff);
+    color: #fff;
+}
+
+.range-filter-check {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.range-filter-check input[type="checkbox"] {
+    accent-color: var(--accent-blue, #58a6ff);
+}
+
+/* ── Clickable matrix cells ──────────────────────────────── */
+.hm-cell:not(.hm-header) {
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.15s;
+}
+
+.hm-cell:not(.hm-header):hover {
+    transform: scale(1.08);
+    z-index: 2;
+    box-shadow: 0 0 6px rgba(88, 166, 255, 0.4);
+}
+
+.hm-hidden {
+    opacity: 0.08 !important;
+    pointer-events: none;
+}
+
+/* ── Legend gradient bar ─────────────────────────────────── */
+.hm-legend-sep {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin: 0 0.25rem;
+}
+
+.hm-gradient-bar {
+    display: inline-block;
+    width: 80px;
+    height: 10px;
+    border-radius: 2px;
+    background: linear-gradient(to right, rgba(248,81,73,0.45), rgba(139,148,158,0.1), rgba(63,185,80,0.45));
+    vertical-align: middle;
+}
+
+.hm-gradient-labels {
+    display: inline-flex;
+    justify-content: space-between;
+    width: 80px;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+}
+
+/* ── Modal (US-033) ──────────────────────────────────────── */
+.hm-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.hm-modal {
+    background: var(--surface-primary, #161b22);
+    border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+    border-radius: 10px;
+    padding: 1.5rem;
+    min-width: 320px;
+    max-width: 420px;
+    position: relative;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.hm-modal-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.4rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.hm-modal-close:hover {
+    color: var(--text-primary);
+}
+
+.hm-modal-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    color: var(--text-primary);
+}
+
+.hm-modal-body {
+    font-size: 0.85rem;
+}
+
+.hm-modal-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.hm-modal-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.hm-modal-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.hm-modal-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+}
+
+.hm-modal-section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0.75rem 0 0.5rem;
+    border-top: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+    padding-top: 0.75rem;
+}
+
+.hm-modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.hm-modal-action {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.hm-action-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.hm-action-raise { background: var(--accent-blue, #58a6ff); }
+.hm-action-call  { background: #e3b341; }
+.hm-action-3bet  { background: #f85149; }
+
+.hm-action-col {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+/* ── Responsive for modal ────────────────────────────────── */
+@media (max-width: 480px) {
+    .hm-modal {
+        min-width: auto;
+        margin: 1rem;
+        max-width: calc(100vw - 2rem);
+    }
+
+    .hm-modal-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .range-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+}

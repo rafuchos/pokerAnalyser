@@ -3077,5 +3077,215 @@ class TestUS031CSS(unittest.TestCase):
         self.assertIn('.sizing-bar-fill', css)
 
 
+class TestUS033RangeVisualImprovements(unittest.TestCase):
+    """Tests for US-033: Hand Range Matrix visual and UX improvements."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, 'analytics.db')
+        _create_analytics_db(self.db_path, cash=True, tournament=True)
+        self.app = create_app(analytics_db_path=self.db_path)
+        self.client = self.app.test_client()
+
+    def test_cash_range_has_toggle_buttons(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('range-toggles', html)
+        self.assertIn('data-metric="hands"', html)
+        self.assertIn('data-metric="played"', html)
+        self.assertIn('data-metric="net"', html)
+        self.assertIn('data-metric="bb100"', html)
+
+    def test_cash_range_has_played_only_filter(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('played-only-filter', html)
+        self.assertIn('Played only', html)
+
+    def test_cash_range_has_modal_markup(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('hand-modal', html)
+        self.assertIn('hm-modal-overlay', html)
+        self.assertIn('modal-title', html)
+        self.assertIn('Action Breakdown', html)
+
+    def test_cash_range_cells_have_data_attrs(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('data-hand=', html)
+        self.assertIn('data-dealt=', html)
+        self.assertIn('data-played=', html)
+        self.assertIn('data-net=', html)
+        self.assertIn('data-bb100=', html)
+
+    def test_cash_range_has_gradient_legend(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('hm-gradient-bar', html)
+        self.assertIn('Loss', html)
+        self.assertIn('Profit', html)
+
+    def test_cash_range_has_overall_tab(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('Overall', html)
+
+    def test_cash_range_template_has_freq_and_action_cols(self):
+        """Verify template source contains Freq% and Action column headers."""
+        import os
+        tpl_path = os.path.join(
+            os.path.dirname(__file__), '..', 'src', 'web', 'templates', 'cash', 'range.html')
+        with open(tpl_path) as f:
+            tpl = f.read()
+        self.assertIn('Freq%', tpl)
+        self.assertIn('Action', tpl)
+
+    def test_cash_range_has_js_functions(self):
+        r = self.client.get('/cash/range')
+        html = r.data.decode()
+        self.assertIn('showHandModal', html)
+        self.assertIn('closeHandModal', html)
+        self.assertIn('initRangeToggles', html)
+        self.assertIn('initPlayedOnlyFilter', html)
+
+    def test_tournament_range_has_toggle_buttons(self):
+        r = self.client.get('/tournament/range')
+        html = r.data.decode()
+        self.assertIn('range-toggles', html)
+        self.assertIn('data-metric="hands"', html)
+
+    def test_tournament_range_has_modal(self):
+        r = self.client.get('/tournament/range')
+        html = r.data.decode()
+        self.assertIn('hand-modal', html)
+        self.assertIn('hm-modal-overlay', html)
+
+    def test_css_has_range_controls(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.range-controls', css)
+        self.assertIn('.range-toggle', css)
+        self.assertIn('.range-toggle.active', css)
+
+    def test_css_has_modal_styles(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.hm-modal-overlay', css)
+        self.assertIn('.hm-modal', css)
+        self.assertIn('.hm-modal-close', css)
+        self.assertIn('.hm-modal-grid', css)
+
+    def test_css_has_gradient_bar(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.hm-gradient-bar', css)
+
+    def test_css_has_hidden_class(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.hm-hidden', css)
+
+    def test_css_has_action_dots(self):
+        r = self.client.get('/static/css/style.css')
+        css = r.data.decode()
+        self.assertIn('.hm-action-raise', css)
+        self.assertIn('.hm-action-call', css)
+        self.assertIn('.hm-action-3bet', css)
+
+
+class TestPrepareRangeDataUS033(unittest.TestCase):
+    """Tests for US-033: prepare_range_data enhancements."""
+
+    def setUp(self):
+        from src.web.data import prepare_range_data
+        self.prepare = prepare_range_data
+
+    def test_overall_tab_present(self):
+        data = {
+            'positional': {
+                'BTN': {'hand_matrix': {'AA': {'hands': 5, 'net': 10.0, 'played': 4, 'dealt': 5}}},
+                'CO': {'hand_matrix': {'AA': {'hands': 3, 'net': -2.0, 'played': 2, 'dealt': 3}}},
+            },
+        }
+        self.prepare(data)
+        positions = data['range_positions']
+        self.assertEqual(positions[0], 'Overall')
+        self.assertIn('BTN', positions)
+        self.assertIn('CO', positions)
+
+    def test_overall_aggregates_hands(self):
+        data = {
+            'positional': {
+                'BTN': {'hand_matrix': {'AA': {'hands': 5, 'net': 10.0, 'played': 4, 'dealt': 5}}},
+                'CO': {'hand_matrix': {'AA': {'hands': 3, 'net': -2.0, 'played': 2, 'dealt': 3}}},
+            },
+        }
+        self.prepare(data)
+        overall_matrix = data['range_matrices']['Overall']
+        aa = overall_matrix[0][0]
+        self.assertEqual(aa['hands'], 8)
+        self.assertAlmostEqual(aa['net'], 8.0, places=1)
+
+    def test_heatmap_bg_set(self):
+        data = {
+            'positional': {
+                'BTN': {'hand_matrix': {
+                    'AA': {'hands': 5, 'net': 10.0, 'played': 4, 'dealt': 5},
+                    'AKs': {'hands': 3, 'net': -5.0, 'played': 2, 'dealt': 3},
+                }},
+            },
+        }
+        self.prepare(data)
+        btn_matrix = data['range_matrices']['BTN']
+        aa = btn_matrix[0][0]
+        self.assertIn('rgba(63,185,80,', aa['heatmap_bg'])
+        aks = btn_matrix[0][1]
+        self.assertIn('rgba(248,81,73,', aks['heatmap_bg'])
+
+    def test_net_bounds_calculated(self):
+        data = {
+            'positional': {
+                'BTN': {'hand_matrix': {
+                    'AA': {'hands': 5, 'net': 20.0, 'played': 4, 'dealt': 5},
+                    'AKs': {'hands': 3, 'net': -15.0, 'played': 2, 'dealt': 3},
+                }},
+            },
+        }
+        self.prepare(data)
+        bounds = data['range_net_bounds']
+        self.assertEqual(bounds['max'], 20.0)
+        self.assertEqual(bounds['min'], -15.0)
+
+    def test_cell_has_new_fields(self):
+        data = {
+            'positional': {
+                'BTN': {'hand_matrix': {
+                    'AA': {'hands': 5, 'net': 10.0, 'played': 4, 'dealt': 5,
+                           'bb100': 200.0,
+                           'action_breakdown': {'open_raise': 3, 'call': 1, 'three_bet': 0}},
+                }},
+            },
+        }
+        self.prepare(data)
+        btn_matrix = data['range_matrices']['BTN']
+        aa = btn_matrix[0][0]
+        self.assertEqual(aa['played'], 4)
+        self.assertEqual(aa['dealt'], 5)
+        self.assertEqual(aa['bb100'], 200.0)
+        self.assertEqual(aa['open_raise'], 3)
+        self.assertEqual(aa['call'], 1)
+        self.assertEqual(aa['three_bet'], 0)
+        self.assertAlmostEqual(aa['freq_pct'], 80.0, places=1)
+        self.assertIn('heatmap_bg', aa)
+        self.assertIn('heatmap_intensity', aa)
+
+    def test_empty_positional_still_has_overall(self):
+        data = {'positional': {}}
+        self.prepare(data)
+        self.assertEqual(data['range_positions'], ['Overall'])
+        self.assertIn('Overall', data['range_matrices'])
+
+
 if __name__ == '__main__':
     unittest.main()

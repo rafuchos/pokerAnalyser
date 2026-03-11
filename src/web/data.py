@@ -1014,10 +1014,102 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
 # ── Range helpers ────────────────────────────────────────────
 
 
+def _build_range_matrix(raw_matrix):
+    """Build a 13×13 matrix from a raw hand-combo dict.
+
+    Returns (matrix_rows, net_min, net_max) where net_min/max are used for
+    heatmap gradient scaling.
+    """
+    net_min = 0.0
+    net_max = 0.0
+    matrix_rows = []
+    for r in range(13):
+        row = []
+        for c in range(13):
+            if r == c:
+                hand = _HAND_RANKS[r] + _HAND_RANKS[c]
+                hand_type = 'pair'
+            elif r < c:
+                hand = _HAND_RANKS[r] + _HAND_RANKS[c] + 's'
+                hand_type = 'suited'
+            else:
+                hand = _HAND_RANKS[c] + _HAND_RANKS[r] + 'o'
+                hand_type = 'offsuit'
+            cell_data = raw_matrix.get(hand, {})
+            if isinstance(cell_data, dict):
+                freq = cell_data.get('frequency', 0)
+                net = cell_data.get('net', 0)
+                hands_count = cell_data.get('hands', 0)
+                played = cell_data.get('played', 0)
+                bb100 = cell_data.get('bb100', cell_data.get('win_rate', 0))
+                action = cell_data.get('action_breakdown', {})
+                if isinstance(action, str):
+                    try:
+                        import json as _json
+                        action = _json.loads(action)
+                    except (ValueError, TypeError):
+                        action = {}
+            else:
+                freq = cell_data if isinstance(cell_data, (int, float)) else 0
+                net = 0
+                hands_count = 0
+                played = 0
+                bb100 = 0
+                action = {}
+            dealt = cell_data.get('dealt', hands_count) if isinstance(cell_data, dict) else hands_count
+            freq_pct = round(played / dealt * 100, 1) if dealt > 0 else freq
+            open_raise = action.get('open_raise', 0) if isinstance(action, dict) else 0
+            call = action.get('call', 0) if isinstance(action, dict) else 0
+            three_bet = action.get('three_bet', 0) if isinstance(action, dict) else 0
+            if hands_count > 0:
+                if net < net_min:
+                    net_min = net
+                if net > net_max:
+                    net_max = net
+            row.append({
+                'hand': hand, 'type': hand_type,
+                'freq': freq, 'freq_pct': freq_pct, 'net': net,
+                'hands': hands_count, 'dealt': dealt, 'played': played,
+                'bb100': bb100,
+                'open_raise': open_raise, 'call': call, 'three_bet': three_bet,
+            })
+        matrix_rows.append(row)
+    return matrix_rows, net_min, net_max
+
+
+def _compute_heatmap_intensity(net, net_min, net_max):
+    """Return heatmap intensity 0.0–1.0 and color (green/red) for a net value."""
+    if net > 0 and net_max > 0:
+        intensity = min(net / net_max, 1.0)
+        return intensity, 'green'
+    elif net < 0 and net_min < 0:
+        intensity = min(abs(net) / abs(net_min), 1.0)
+        return intensity, 'red'
+    return 0.0, 'neutral'
+
+
+def _apply_heatmap_styles(matrix_rows, net_min, net_max):
+    """Add heatmap_bg inline style to each cell in the matrix."""
+    for row in matrix_rows:
+        for cell in row:
+            intensity, color = _compute_heatmap_intensity(
+                cell['net'], net_min, net_max)
+            if color == 'green' and intensity > 0:
+                alpha = round(0.1 + intensity * 0.35, 3)
+                cell['heatmap_bg'] = f'rgba(63,185,80,{alpha})'
+            elif color == 'red' and intensity > 0:
+                alpha = round(0.1 + intensity * 0.35, 3)
+                cell['heatmap_bg'] = f'rgba(248,81,73,{alpha})'
+            else:
+                cell['heatmap_bg'] = ''
+            cell['heatmap_intensity'] = round(intensity, 3)
+
+
 def prepare_range_data(data, period='year', from_date='', to_date=''):
     """Enrich analytics data for the range analysis page.
 
-    Adds: range_positions, hand_ranks, range_matrices, top_profitable, top_deficit.
+    Adds: range_positions, hand_ranks, range_matrices, range_net_bounds,
+    top_profitable, top_deficit.
     """
     data['active_period'] = period
     data['custom_from'] = from_date
@@ -1030,44 +1122,79 @@ def prepare_range_data(data, period='year', from_date='', to_date=''):
     for pos in _POSITION_ORDER:
         if pos in positional:
             positions.append(pos)
-    if not positions:
+
+    # Build Overall aggregate from all position data
+    overall_raw = {}
+    for pos in positions:
+        pos_data = positional.get(pos, {})
+        raw = pos_data.get('hand_matrix') or hand_matrix_all.get(pos, {})
+        if not isinstance(raw, dict):
+            continue
+        for combo, stats in raw.items():
+            if not isinstance(stats, dict):
+                continue
+            if combo not in overall_raw:
+                overall_raw[combo] = {
+                    'hands': 0, 'played': 0, 'dealt': 0, 'net': 0.0,
+                    'frequency': 0, 'open_raise': 0, 'call': 0, 'three_bet': 0,
+                }
+            overall_raw[combo]['hands'] += stats.get('hands', 0)
+            overall_raw[combo]['played'] += stats.get('played', 0)
+            overall_raw[combo]['dealt'] += stats.get('dealt', stats.get('hands', 0))
+            overall_raw[combo]['net'] += stats.get('net', 0)
+            ab = stats.get('action_breakdown', {})
+            if isinstance(ab, str):
+                try:
+                    import json as _json
+                    ab = _json.loads(ab)
+                except (ValueError, TypeError):
+                    ab = {}
+            if isinstance(ab, dict):
+                overall_raw[combo]['open_raise'] += ab.get('open_raise', 0)
+                overall_raw[combo]['call'] += ab.get('call', 0)
+                overall_raw[combo]['three_bet'] += ab.get('three_bet', 0)
+    # Finalize overall aggregate fields
+    for combo, stats in overall_raw.items():
+        d = stats.get('dealt', 0)
+        p = stats.get('played', 0)
+        stats['frequency'] = round(p / d * 100, 1) if d > 0 else 0
+        stats['bb100'] = round(stats['net'] / stats['hands'] * 100, 1) if stats['hands'] > 0 else 0
+        stats['action_breakdown'] = {
+            'open_raise': stats.pop('open_raise', 0),
+            'call': stats.pop('call', 0),
+            'three_bet': stats.pop('three_bet', 0),
+        }
+
+    # Insert Overall as first tab when there are position-level matrices
+    if positions:
+        positions = ['Overall'] + positions
+    else:
         positions = ['Overall']
     data['range_positions'] = positions
     data['hand_ranks'] = _HAND_RANKS
 
     matrices = {}
+    global_net_min = 0.0
+    global_net_max = 0.0
     for pos in positions:
-        pos_data = positional.get(pos, {})
-        raw_matrix = pos_data.get('hand_matrix') or hand_matrix_all.get(pos, {})
-        matrix_rows = []
-        for r in range(13):
-            row = []
-            for c in range(13):
-                if r == c:
-                    hand = _HAND_RANKS[r] + _HAND_RANKS[c]
-                    hand_type = 'pair'
-                elif r < c:
-                    hand = _HAND_RANKS[r] + _HAND_RANKS[c] + 's'
-                    hand_type = 'suited'
-                else:
-                    hand = _HAND_RANKS[c] + _HAND_RANKS[r] + 'o'
-                    hand_type = 'offsuit'
-                cell_data = raw_matrix.get(hand, {})
-                if isinstance(cell_data, dict):
-                    freq = cell_data.get('frequency', 0)
-                    net = cell_data.get('net', 0)
-                    hands_count = cell_data.get('hands', 0)
-                else:
-                    freq = cell_data if isinstance(cell_data, (int, float)) else 0
-                    net = 0
-                    hands_count = 0
-                row.append({
-                    'hand': hand, 'type': hand_type,
-                    'freq': freq, 'net': net, 'hands': hands_count,
-                })
-            matrix_rows.append(row)
+        if pos == 'Overall':
+            raw_matrix = overall_raw
+        else:
+            pos_data = positional.get(pos, {})
+            raw_matrix = pos_data.get('hand_matrix') or hand_matrix_all.get(pos, {})
+        matrix_rows, nmin, nmax = _build_range_matrix(raw_matrix)
+        if nmin < global_net_min:
+            global_net_min = nmin
+        if nmax > global_net_max:
+            global_net_max = nmax
         matrices[pos] = matrix_rows
+
+    # Apply heatmap intensity styles using global bounds
+    for pos in positions:
+        _apply_heatmap_styles(matrices[pos], global_net_min, global_net_max)
+
     data['range_matrices'] = matrices
+    data['range_net_bounds'] = {'min': global_net_min, 'max': global_net_max}
 
     # Top 10 profitable and deficit hands — aggregate from hand_matrix across positions
     hand_stats = data.get('hand_stats') or data.get('hand_performance') or {}

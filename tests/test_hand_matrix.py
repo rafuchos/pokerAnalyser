@@ -866,5 +866,124 @@ class TestHandMatrixEdgeCases(unittest.TestCase):
         self.assertEqual(result['by_position']['UTG']['JJ']['net'], -3.0)
 
 
+class TestBuildRangeMatrix(unittest.TestCase):
+    """Tests for US-033: _build_range_matrix helper."""
+
+    def test_empty_raw_matrix(self):
+        from src.web.data import _build_range_matrix
+        rows, nmin, nmax = _build_range_matrix({})
+        self.assertEqual(len(rows), 13)
+        for row in rows:
+            self.assertEqual(len(row), 13)
+        self.assertEqual(nmin, 0.0)
+        self.assertEqual(nmax, 0.0)
+
+    def test_diagonal_pairs(self):
+        from src.web.data import _build_range_matrix
+        raw = {'AA': {'hands': 5, 'net': 10.0, 'played': 4, 'dealt': 5,
+                       'frequency': 80.0, 'bb100': 200.0}}
+        rows, nmin, nmax = _build_range_matrix(raw)
+        cell = rows[0][0]
+        self.assertEqual(cell['hand'], 'AA')
+        self.assertEqual(cell['type'], 'pair')
+        self.assertEqual(cell['hands'], 5)
+        self.assertEqual(cell['net'], 10.0)
+        self.assertEqual(cell['played'], 4)
+        self.assertEqual(cell['bb100'], 200.0)
+        self.assertEqual(nmax, 10.0)
+
+    def test_suited_upper_triangle(self):
+        from src.web.data import _build_range_matrix
+        raw = {'AKs': {'hands': 3, 'net': -5.0, 'played': 2, 'dealt': 3}}
+        rows, nmin, nmax = _build_range_matrix(raw)
+        cell = rows[0][1]
+        self.assertEqual(cell['hand'], 'AKs')
+        self.assertEqual(cell['type'], 'suited')
+        self.assertEqual(nmin, -5.0)
+
+    def test_offsuit_lower_triangle(self):
+        from src.web.data import _build_range_matrix
+        raw = {'AKo': {'hands': 2, 'net': 3.0, 'played': 1, 'dealt': 2}}
+        rows, nmin, nmax = _build_range_matrix(raw)
+        cell = rows[1][0]
+        self.assertEqual(cell['hand'], 'AKo')
+        self.assertEqual(cell['type'], 'offsuit')
+
+    def test_action_breakdown_dict(self):
+        from src.web.data import _build_range_matrix
+        raw = {'AA': {'hands': 5, 'net': 10.0, 'played': 4, 'dealt': 5,
+                       'action_breakdown': {'open_raise': 3, 'call': 1, 'three_bet': 0}}}
+        rows, _, _ = _build_range_matrix(raw)
+        cell = rows[0][0]
+        self.assertEqual(cell['open_raise'], 3)
+        self.assertEqual(cell['call'], 1)
+        self.assertEqual(cell['three_bet'], 0)
+
+    def test_freq_pct_calculated(self):
+        from src.web.data import _build_range_matrix
+        raw = {'AA': {'hands': 10, 'net': 0, 'played': 8, 'dealt': 10}}
+        rows, _, _ = _build_range_matrix(raw)
+        self.assertAlmostEqual(rows[0][0]['freq_pct'], 80.0, places=1)
+
+
+class TestComputeHeatmapIntensity(unittest.TestCase):
+    """Tests for US-033: _compute_heatmap_intensity helper."""
+
+    def test_positive_net(self):
+        from src.web.data import _compute_heatmap_intensity
+        intensity, color = _compute_heatmap_intensity(50.0, -100.0, 100.0)
+        self.assertEqual(color, 'green')
+        self.assertAlmostEqual(intensity, 0.5, places=1)
+
+    def test_negative_net(self):
+        from src.web.data import _compute_heatmap_intensity
+        intensity, color = _compute_heatmap_intensity(-80.0, -100.0, 100.0)
+        self.assertEqual(color, 'red')
+        self.assertAlmostEqual(intensity, 0.8, places=1)
+
+    def test_zero_net(self):
+        from src.web.data import _compute_heatmap_intensity
+        intensity, color = _compute_heatmap_intensity(0.0, -100.0, 100.0)
+        self.assertEqual(color, 'neutral')
+        self.assertAlmostEqual(intensity, 0.0)
+
+    def test_max_positive(self):
+        from src.web.data import _compute_heatmap_intensity
+        intensity, color = _compute_heatmap_intensity(100.0, -50.0, 100.0)
+        self.assertEqual(color, 'green')
+        self.assertAlmostEqual(intensity, 1.0)
+
+    def test_beyond_max_clamps(self):
+        from src.web.data import _compute_heatmap_intensity
+        intensity, color = _compute_heatmap_intensity(200.0, -50.0, 100.0)
+        self.assertLessEqual(intensity, 1.0)
+
+
+class TestApplyHeatmapStyles(unittest.TestCase):
+    """Tests for US-033: _apply_heatmap_styles helper."""
+
+    def test_styles_applied_to_profit(self):
+        from src.web.data import _apply_heatmap_styles
+        matrix = [[{'hand': 'AA', 'net': 10.0, 'hands': 5}]]
+        _apply_heatmap_styles(matrix, -5.0, 10.0)
+        cell = matrix[0][0]
+        self.assertIn('rgba(63,185,80,', cell['heatmap_bg'])
+        self.assertGreater(cell['heatmap_intensity'], 0)
+
+    def test_styles_applied_to_loss(self):
+        from src.web.data import _apply_heatmap_styles
+        matrix = [[{'hand': 'AA', 'net': -5.0, 'hands': 5}]]
+        _apply_heatmap_styles(matrix, -10.0, 10.0)
+        cell = matrix[0][0]
+        self.assertIn('rgba(248,81,73,', cell['heatmap_bg'])
+
+    def test_zero_net_no_heatmap(self):
+        from src.web.data import _apply_heatmap_styles
+        matrix = [[{'hand': 'AA', 'net': 0.0, 'hands': 0}]]
+        _apply_heatmap_styles(matrix, -10.0, 10.0)
+        cell = matrix[0][0]
+        self.assertEqual(cell['heatmap_bg'], '')
+
+
 if __name__ == '__main__':
     unittest.main()
