@@ -66,6 +66,20 @@
         </div>
     </div>
     {% endif %}
+    {% if data.get('running_luck') %}
+    {% set rl = data['running_luck'] %}
+    <div class="stat-card">
+        <div class="stat-label">Running Luck</div>
+        <div class="stat-value {{ 'positive' if rl['total_luck'] >= 0 else 'negative' }}">
+            ${{ '{:+,.2f}'.format(rl['total_luck']) }}
+        </div>
+        <div class="stat-hint">
+            <span class="luck-badge-{{ rl['status'] }}">
+                {% if rl['status'] == 'hot' %}&#9650; +{{ '{:.2f}'.format(rl['luck_bb100']) }} bb/100{% elif rl['status'] == 'cold' %}&#9660; {{ '{:.2f}'.format(rl['luck_bb100']) }} bb/100{% else %}Neutral{% endif %}
+            </span>
+        </div>
+    </div>
+    {% endif %}
     {% if data.get('leak_summary') %}
     {% set ls = data['leak_summary'] %}
     <div class="stat-card leak-summary-card" onclick="openLeakSummaryModal()" style="cursor:pointer;">
@@ -192,6 +206,46 @@
             {% if pc.dates|length > 0 %}
             <text x="40" y="180" text-anchor="start" fill="var(--text-muted)" font-size="9">{{ pc.dates[0] }}</text>
             <text x="660" y="180" text-anchor="end" fill="var(--text-muted)" font-size="9">{{ pc.dates[-1] }}</text>
+            {% endif %}
+        </svg>
+    </div>
+</div>
+{% endif %}
+
+{# ── EV vs Real Mini Chart ──────────────────────────────────── #}
+{% if data.get('overview_ev_chart', {}).get('real_points') %}
+<div class="card" style="margin-top: 1.25rem;">
+    <div class="card-title">EV Line vs Real Line</div>
+    <div class="chart-container">
+        {% set ec = data['overview_ev_chart'] %}
+        <svg viewBox="0 0 700 200" class="overview-chart" xmlns="http://www.w3.org/2000/svg">
+            <line x1="40" y1="160" x2="660" y2="160" stroke="var(--border-color)" stroke-width="0.5"/>
+            <line x1="40" y1="100" x2="660" y2="100" stroke="var(--border-color)" stroke-width="0.5" stroke-dasharray="4"/>
+            <line x1="40" y1="40" x2="660" y2="40" stroke="var(--border-color)" stroke-width="0.5"/>
+
+            {% if ec.y_min < 0 and ec.y_max > 0 %}
+            {% set zero_y = 160.0 - ((0 - ec.y_min) / (ec.y_max - ec.y_min)) * 120.0 %}
+            <line x1="40" y1="{{ '{:.1f}'.format(zero_y) }}" x2="660" y2="{{ '{:.1f}'.format(zero_y) }}"
+                  stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="2"/>
+            {% endif %}
+
+            <polyline points="{{ ec.real_points }}" fill="none"
+                      stroke="{{ 'var(--accent-green)' if ec.final_real >= 0 else 'var(--accent-red)' }}"
+                      stroke-width="2"/>
+            <polyline points="{{ ec.ev_points }}" fill="none"
+                      stroke="var(--accent-purple)" stroke-width="2" stroke-dasharray="6,3"/>
+
+            <rect x="500" y="8" width="10" height="10" fill="{{ 'var(--accent-green)' if ec.final_real >= 0 else 'var(--accent-red)' }}"/>
+            <text x="514" y="17" fill="var(--text-secondary)" font-size="10">Real (${{ '{:+,.0f}'.format(ec.final_real) }})</text>
+            <rect x="590" y="8" width="10" height="10" fill="var(--accent-purple)"/>
+            <text x="604" y="17" fill="var(--text-secondary)" font-size="10">EV (${{ '{:+,.0f}'.format(ec.final_ev) }})</text>
+
+            <text x="36" y="44" text-anchor="end" fill="var(--text-secondary)" font-size="10">${{ '{:,.0f}'.format(ec.y_max) }}</text>
+            <text x="36" y="164" text-anchor="end" fill="var(--text-secondary)" font-size="10">${{ '{:,.0f}'.format(ec.y_min) }}</text>
+
+            {% if ec.dates|length > 0 %}
+            <text x="40" y="180" text-anchor="start" fill="var(--text-muted)" font-size="9">{{ ec.dates[0] }}</text>
+            <text x="660" y="180" text-anchor="end" fill="var(--text-muted)" font-size="9">{{ ec.dates[-1] }}</text>
             {% endif %}
         </svg>
     </div>

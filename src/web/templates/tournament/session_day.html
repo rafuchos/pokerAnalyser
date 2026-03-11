@@ -177,6 +177,41 @@
     </table>
     </div>
 
+    {# Session Luck Factor Card #}
+    {% if sess.get('luck_factor') %}
+    {% set lf = sess['luck_factor'] %}
+    <div class="luck-factor-card {{ lf['status'] }}">
+        <div class="luck-factor-header">
+            <span class="luck-factor-title">Session Luck Factor</span>
+            <span class="luck-factor-badge {{ lf['status'] }}">
+                {% if lf['status'] == 'hot' %}Running Hot &#9650;{% elif lf['status'] == 'cold' %}Running Cold &#9660;{% else %}Neutral{% endif %}
+            </span>
+        </div>
+        <div class="luck-factor-grid">
+            <div class="luck-factor-item">
+                <span class="luck-factor-label">Real Net</span>
+                <span class="luck-factor-value {{ 'positive' if lf['real_net'] >= 0 else 'negative' }}">${{ '{:+,.2f}'.format(lf['real_net']) }}</span>
+            </div>
+            <div class="luck-factor-item">
+                <span class="luck-factor-label">EV Net</span>
+                <span class="luck-factor-value {{ 'positive' if lf['ev_net'] >= 0 else 'negative' }}">${{ '{:+,.2f}'.format(lf['ev_net']) }}</span>
+            </div>
+            <div class="luck-factor-item">
+                <span class="luck-factor-label">Luck (Real-EV)</span>
+                <span class="luck-factor-value {{ 'positive' if lf['luck'] >= 0 else 'negative' }}">${{ '{:+,.2f}'.format(lf['luck']) }}</span>
+            </div>
+            <div class="luck-factor-item">
+                <span class="luck-factor-label">Luck bb/100</span>
+                <span class="luck-factor-value {{ 'positive' if lf['luck_bb100'] >= 0 else 'negative' }}">{{ '{:+.2f}'.format(lf['luck_bb100']) }}</span>
+            </div>
+            <div class="luck-factor-item">
+                <span class="luck-factor-label">All-Ins</span>
+                <span class="luck-factor-value neutral">{{ lf['allin_hands'] }} / {{ lf['total_hands'] }}</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="sdc-charts">
         {% if sess.get('sparkline_points') %}
         <div class="sdc-chart-box sdc-chart-large">

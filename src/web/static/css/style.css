@@ -1937,3 +1937,107 @@ body {
         min-width: 0;
     }
 }
+
+/* ── Luck Factor Card (US-035) ───────────────────────────── */
+
+.luck-factor-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    margin-top: 0.75rem;
+}
+
+.luck-factor-card.hot {
+    border-left: 3px solid var(--accent-green);
+}
+
+.luck-factor-card.cold {
+    border-left: 3px solid var(--accent-red);
+}
+
+.luck-factor-card.neutral {
+    border-left: 3px solid var(--text-muted);
+}
+
+.luck-factor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.luck-factor-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.luck-factor-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+}
+
+.luck-factor-badge.hot {
+    color: var(--accent-green);
+    background: rgba(63, 185, 80, 0.1);
+}
+
+.luck-factor-badge.cold {
+    color: var(--accent-red);
+    background: rgba(248, 81, 73, 0.1);
+}
+
+.luck-factor-badge.neutral {
+    color: var(--text-muted);
+    background: rgba(110, 118, 129, 0.1);
+}
+
+.luck-factor-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+}
+
+.luck-factor-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.luck-factor-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.luck-factor-value {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.luck-factor-value.neutral {
+    color: var(--text-secondary);
+}
+
+/* Running Luck badge in overview */
+.luck-badge-hot {
+    color: var(--accent-green);
+    font-weight: 600;
+    font-size: 0.8rem;
+}
+
+.luck-badge-cold {
+    color: var(--accent-red);
+    font-weight: 600;
+    font-size: 0.8rem;
+}
+
+.luck-badge-neutral {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.8rem;
+}

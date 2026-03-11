@@ -203,12 +203,22 @@ def prepare_sessions_list(data, page=1, per_page=15):
             day[f'{s}_val'] = val
             day[f'{s}_badge'] = _classify_health(s, val)
 
-        # Count leaks across sessions
+        # Count leaks across sessions + aggregate daily luck
         sess_list = day.get('sessions') or []
         leak_count = 0
+        day_luck = 0.0
+        day_has_ev = False
         for sess in sess_list:
             leak_count += len(sess.get('leak_summary') or [])
+            ev = sess.get('ev_data') or {}
+            if ev.get('total_hands', 0) > 0:
+                day_has_ev = True
+                day_luck += (ev.get('real_net', 0) or 0) - (ev.get('ev_net', 0) or 0)
         day['leak_count'] = leak_count
+        if day_has_ev:
+            day['daily_luck'] = round(day_luck, 2)
+        else:
+            day['daily_luck'] = None
 
         # Overall health badge for the day
         badges = [day.get(f'{s}_badge') for s in _STAT_NAMES]
@@ -442,6 +452,22 @@ def prepare_session_day(data, date):
             }
         else:
             s['ev_chart'] = None
+
+        # Session Luck Factor card data
+        if ev and ev.get('total_hands', 0) > 0:
+            luck = (ev.get('real_net', 0) or 0) - (ev.get('ev_net', 0) or 0)
+            luck_bb100 = (ev.get('bb100_real', 0) or 0) - (ev.get('bb100_ev', 0) or 0)
+            s['luck_factor'] = {
+                'real_net': ev.get('real_net', 0) or 0,
+                'ev_net': ev.get('ev_net', 0) or 0,
+                'luck': round(luck, 2),
+                'luck_bb100': round(luck_bb100, 2),
+                'allin_hands': ev.get('allin_hands', 0) or 0,
+                'total_hands': ev.get('total_hands', 0) or 0,
+                'status': 'hot' if luck > 0 else ('cold' if luck < 0 else 'neutral'),
+            }
+        else:
+            s['luck_factor'] = None
 
         # Extended notable hands (top 5 wins + top 5 losses)
         top_hands = s.get('top_hands') or []
@@ -964,6 +990,50 @@ def prepare_overview_data(data, period='year', from_date='', to_date=''):
     else:
         data['redline_chart'] = {}
 
+    # ── Running Luck Card ───────────────────────────────────────
+    ev_data = data.get('allin_ev') or {}
+    ev_overall = ev_data.get('overall', ev_data) if isinstance(ev_data, dict) else {}
+    total_luck = (ev_overall.get('real_net', 0) or 0) - (ev_overall.get('ev_net', 0) or 0)
+    luck_bb100_diff = (ev_overall.get('bb100_real', 0) or 0) - (ev_overall.get('bb100_ev', 0) or 0)
+    if ev_overall.get('total_hands', 0) > 0:
+        data['running_luck'] = {
+            'total_luck': round(total_luck, 2),
+            'luck_bb100': round(luck_bb100_diff, 2),
+            'status': 'hot' if luck_bb100_diff > 0 else ('cold' if luck_bb100_diff < 0 else 'neutral'),
+            'real_net': ev_overall.get('real_net', 0) or 0,
+            'ev_net': ev_overall.get('ev_net', 0) or 0,
+            'allin_hands': ev_overall.get('allin_hands', 0) or 0,
+        }
+    else:
+        data['running_luck'] = None
+
+    # ── Mini EV Line for Overview ────────────────────────────────
+    cum_real = 0.0
+    cum_ev = 0.0
+    mini_real_vals = []
+    mini_ev_vals = []
+    for r in sorted_reports:
+        cum_real += (r.get('net', 0) or 0)
+        mini_real_vals.append(round(cum_real, 2))
+        ev_net = r.get('ev_net')
+        if ev_net is None:
+            ev_net = r.get('net', 0) or 0
+        cum_ev += ev_net
+        mini_ev_vals.append(round(cum_ev, 2))
+    all_mini = mini_real_vals + mini_ev_vals
+    if all_mini and any(v != 0 for v in all_mini):
+        data['overview_ev_chart'] = {
+            'real_points': _build_chart_points(mini_real_vals),
+            'ev_points': _build_chart_points(mini_ev_vals),
+            'y_min': min(all_mini),
+            'y_max': max(all_mini),
+            'final_real': mini_real_vals[-1] if mini_real_vals else 0,
+            'final_ev': mini_ev_vals[-1] if mini_ev_vals else 0,
+            'dates': chart_dates,
+        }
+    else:
+        data['overview_ev_chart'] = None
+
     # ── Leak Summary ─────────────────────────────────────────────
     from src.analyzers.leak_summary import build_leak_summary
     hs = data.get('health_score')
@@ -1102,8 +1172,10 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
     # Decision EV by street — flatten nested dict into list for template
     raw_dev = data.get('decision_ev') or {}
     dev_by_street = raw_dev.get('by_street', {})
-    flat_rows = []
-    if isinstance(dev_by_street, dict):
+    if isinstance(dev_by_street, list):
+        flat_rows = dev_by_street
+    elif isinstance(dev_by_street, dict):
+        flat_rows = []
         for street, decisions in dev_by_street.items():
             if isinstance(decisions, dict):
                 for decision, stats in decisions.items():
@@ -1115,6 +1187,8 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
                             'total_net': stats.get('total_net', 0),
                             'avg_net': stats.get('avg_net', 0),
                         })
+    else:
+        flat_rows = []
     raw_dev['by_street'] = flat_rows
     data['decision_ev_data'] = raw_dev
 
@@ -1142,6 +1216,57 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
         }
     else:
         data['ev_redline_chart'] = {}
+
+    # ── EV Per Session Table ─────────────────────────────────────
+    ev_sessions = []
+    cum_luck = 0.0
+    luck_trend_vals = []
+    luck_trend_dates = []
+    for r in sorted_reports:
+        date = r.get('date', '')
+        sess_list = r.get('sessions') or []
+        day_luck = 0.0
+        day_has_ev = False
+        day_hands = r.get('hands_count') or r.get('total_hands') or 0
+        day_allin = 0
+        day_real = r.get('net', 0) or 0
+        day_ev = 0.0
+        for sess in sess_list:
+            sev = sess.get('ev_data') or {}
+            if sev.get('total_hands', 0) > 0:
+                day_has_ev = True
+                s_luck = (sev.get('real_net', 0) or 0) - (sev.get('ev_net', 0) or 0)
+                day_luck += s_luck
+                day_allin += sev.get('allin_hands', 0) or 0
+                day_ev += sev.get('ev_net', 0) or 0
+        if not day_has_ev:
+            day_ev = day_real
+        cum_luck += day_luck
+        luck_trend_vals.append(round(cum_luck, 2))
+        luck_trend_dates.append(date)
+        if day_has_ev:
+            ev_sessions.append({
+                'date': date,
+                'hands': day_hands,
+                'allins': day_allin,
+                'real_net': round(day_real, 2),
+                'ev_net': round(day_ev, 2),
+                'luck': round(day_luck, 2),
+                'luck_bb100': None,
+            })
+    data['ev_sessions_table'] = ev_sessions
+
+    # ── Luck Over Time Chart ─────────────────────────────────────
+    if luck_trend_vals and any(v != 0 for v in luck_trend_vals):
+        data['luck_trend_chart'] = {
+            'points': _build_chart_points(luck_trend_vals),
+            'dates': luck_trend_dates,
+            'y_min': min(luck_trend_vals),
+            'y_max': max(luck_trend_vals),
+            'final': luck_trend_vals[-1] if luck_trend_vals else 0,
+        }
+    else:
+        data['luck_trend_chart'] = None
 
     return data
 

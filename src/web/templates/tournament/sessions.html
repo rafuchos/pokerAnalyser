@@ -45,6 +45,15 @@
                 {% endif %}
             </span>
             {% endfor %}
+            {% if day.get('daily_luck') is not none %}
+            <span class="sdr-stat">
+                <span class="sdr-stat-label">Luck</span>
+                <span class="sdr-stat-value {{ 'positive' if day['daily_luck'] >= 0 else 'negative' }}">
+                    {% if day['daily_luck'] >= 0 %}&#9650;{% else %}&#9660;{% endif %}
+                    ${{ '{:+,.2f}'.format(day['daily_luck']) }}
+                </span>
+            </span>
+            {% endif %}
             {% if day.get('leak_count', 0) > 0 %}
             <span class="sdr-stat">
                 <span class="sdr-stat-label">Leaks</span>
