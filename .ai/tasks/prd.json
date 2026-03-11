@@ -426,7 +426,8 @@
         "src/web/templates/tournament/ev.html",
         "src/web/templates/tournament/overview.html",
         "src/web/templates/tournament/session_day.html"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-036",
