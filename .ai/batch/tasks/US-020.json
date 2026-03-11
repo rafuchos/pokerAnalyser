@@ -1,7 +1,7 @@
 {
   "id": "US-020",
   "title": "Botão Resumo de Leaks por Sessão (Consolidação de Todas as Análises)",
-  "status": "done",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -33,7 +33,7 @@
     "src/web/static/js/app.js"
   ],
   "created_at": "2026-03-11T03:54:48.080Z",
-  "completed_at": null,
+  "completed_at": "2026-03-11T04:08:37.789Z",
   "failure_reason": null,
   "branch": "feat/US-020"
 }
