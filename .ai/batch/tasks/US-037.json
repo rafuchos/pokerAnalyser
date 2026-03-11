@@ -1,7 +1,7 @@
 {
   "id": "US-037",
   "title": "Satellite & Sit-and-Go Analysis: Tela Dedicada para Satélites e Spin & Gold",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -26,7 +26,7 @@
     "src/web/templates/base.html"
   ],
   "created_at": "2026-03-11T05:41:35.784Z",
-  "completed_at": null,
+  "completed_at": "2026-03-11T05:53:03.094Z",
   "failure_reason": null,
   "branch": "feat/US-037"
 }
