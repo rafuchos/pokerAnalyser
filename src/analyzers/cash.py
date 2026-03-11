@@ -183,6 +183,8 @@ class CashAnalyzer:
         'three_bet': (7, 12),
         'fold_to_3bet': (40, 55),
         'ats': (30, 45),
+        'open_shove': (0, 5),
+        'rbw': (50, 80),
     }
 
     # Warning ranges (wider band around healthy)
@@ -192,6 +194,8 @@ class CashAnalyzer:
         'three_bet': (4, 15),
         'fold_to_3bet': (30, 65),
         'ats': (20, 55),
+        'open_shove': (0, 10),
+        'rbw': (35, 90),
     }
 
     # Healthy ranges for 6-max NL postflop stats
@@ -202,6 +206,13 @@ class CashAnalyzer:
         'cbet': (60, 75),
         'fold_to_cbet': (35, 50),
         'check_raise': (6, 12),
+        'won_saw_flop': (45, 55),
+        'bet_river': (30, 50),
+        'call_river': (25, 40),
+        'probe': (30, 50),
+        'fold_to_probe': (35, 55),
+        'bet_vs_missed_cbet': (30, 50),
+        'xf_oop': (20, 35),
     }
 
     POSTFLOP_WARNING_RANGES = {
@@ -211,6 +222,13 @@ class CashAnalyzer:
         'cbet': (50, 85),
         'fold_to_cbet': (25, 60),
         'check_raise': (3, 18),
+        'won_saw_flop': (38, 62),
+        'bet_river': (20, 60),
+        'call_river': (15, 55),
+        'probe': (20, 60),
+        'fold_to_probe': (25, 65),
+        'bet_vs_missed_cbet': (20, 60),
+        'xf_oop': (10, 45),
     }
 
     def get_preflop_stats(self) -> dict:
@@ -243,6 +261,10 @@ class CashAnalyzer:
         fold_3bet_count = 0
         ats_opps = 0
         ats_count = 0
+        # US-032
+        open_shove_count = 0
+        rbw_opps = 0
+        rbw_count = 0
 
         # Per-position counters
         pos_stats = defaultdict(lambda: {
@@ -316,12 +338,22 @@ class CashAnalyzer:
                     if hero_pos:
                         pos_stats[hero_pos]['ats'] += 1
 
+            # US-032
+            if result['open_shove']:
+                open_shove_count += 1
+            if result['rbw_opp']:
+                rbw_opps += 1
+                if result['rbw']:
+                    rbw_count += 1
+
         return self._format_preflop_stats(
             total_hands, vpip_count, pfr_count,
             three_bet_opps, three_bet_count,
             fold_3bet_opps, fold_3bet_count,
             ats_opps, ats_count,
             dict(pos_stats), dict(day_stats),
+            open_shove_count=open_shove_count,
+            rbw_opps=rbw_opps, rbw_count=rbw_count,
         )
 
     @staticmethod
@@ -342,6 +374,11 @@ class CashAnalyzer:
         hero_got_3bet = False
         hero_folded_to_3bet = False
         three_bettor_position = None
+        # US-032: Open Shove (hero goes all-in as first raiser)
+        hero_open_shove = False
+        # US-032: Raise By Walk (hero raises when walked in BB)
+        rbw_opp = False
+        rbw = False
 
         for action in actions:
             is_raise = action['action_type'] in ('raise', 'bet')
@@ -355,6 +392,12 @@ class CashAnalyzer:
                         hero_pfr = True
                         if raises_before_hero == 0:
                             hero_open_raised = True
+                    # Open shove: hero goes all-in with no prior raises
+                    if action['action_type'] == 'all-in' and raises_before_hero == 0:
+                        hero_open_shove = True
+                        hero_vpip = True
+                        hero_pfr = True
+                        hero_open_raised = True
                 else:
                     # Hero's subsequent action (facing a re-raise)
                     if action['action_type'] == 'fold' and hero_got_3bet:
@@ -386,6 +429,12 @@ class CashAnalyzer:
                    and hero_first_acted)
         ats = ats_opp and hero_pfr
 
+        # RBW: hero is in BB, everyone folds to hero (walk), hero raises
+        if hero_pos == 'BB' and all_fold_before_hero and hero_first_acted:
+            rbw_opp = True
+            if hero_pfr or hero_open_shove:
+                rbw = True
+
         return {
             'vpip': hero_vpip,
             'pfr': hero_pfr,
@@ -397,13 +446,18 @@ class CashAnalyzer:
             'ats': ats,
             'raiser_position': raiser_position,       # opener pos (US-019)
             'three_bettor_position': three_bettor_position,  # re-raiser vs hero (US-019)
+            'open_shove': hero_open_shove,            # US-032
+            'rbw_opp': rbw_opp,                       # US-032
+            'rbw': rbw,                               # US-032
         }
 
     def _format_preflop_stats(self, total_hands, vpip_count, pfr_count,
                               three_bet_opps, three_bet_count,
                               fold_3bet_opps, fold_3bet_count,
                               ats_opps, ats_count,
-                              pos_stats, day_stats) -> dict:
+                              pos_stats, day_stats,
+                              open_shove_count=0,
+                              rbw_opps=0, rbw_count=0) -> dict:
         """Format raw counts into percentages with health badges."""
 
         def pct(num, den):
@@ -424,10 +478,17 @@ class CashAnalyzer:
             'ats': pct(ats_count, ats_opps),
             'ats_hands': ats_count,
             'ats_opps': ats_opps,
+            # US-032
+            'open_shove': pct(open_shove_count, total_hands),
+            'open_shove_hands': open_shove_count,
+            'rbw': pct(rbw_count, rbw_opps),
+            'rbw_hands': rbw_count,
+            'rbw_opps': rbw_opps,
         }
 
         # Add health badges
-        for stat in ('vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats'):
+        for stat in ('vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats',
+                     'open_shove', 'rbw'):
             overall[f'{stat}_health'] = self._classify_health(stat, overall[stat])
 
         # Format per-position
@@ -513,10 +574,24 @@ class CashAnalyzer:
         saw_flop_count = 0
         wtsd_count = 0
         wsd_count = 0
+        won_saw_flop_count = 0
         cbet_opps = 0
         cbet_count = 0
         fold_cbet_opps = 0
         fold_cbet_count = 0
+        # US-032 counters
+        bet_river_opps = 0
+        bet_river_count = 0
+        call_river_opps = 0
+        call_river_count = 0
+        probe_opps = 0
+        probe_count = 0
+        fold_to_probe_opps = 0
+        fold_to_probe_count = 0
+        bet_vs_missed_cbet_opps = 0
+        bet_vs_missed_cbet_count = 0
+        xf_oop_opps = 0
+        xf_oop_count = 0
 
         # Aggression counters per street
         agg = {s: {'bets_raises': 0, 'calls': 0, 'total_actions': 0}
@@ -546,6 +621,8 @@ class CashAnalyzer:
             if result['saw_flop']:
                 saw_flop_count += 1
                 week_stats[week]['saw_flop'] += 1
+                if result.get('won_saw_flop'):
+                    won_saw_flop_count += 1
 
             if result['went_to_showdown']:
                 wtsd_count += 1
@@ -566,6 +643,32 @@ class CashAnalyzer:
                 fold_cbet_opps += 1
                 if result['fold_to_cbet']:
                     fold_cbet_count += 1
+
+            # US-032: accumulate new stats
+            if result.get('bet_river_opp'):
+                bet_river_opps += 1
+                if result.get('bet_river'):
+                    bet_river_count += 1
+            if result.get('call_river_opp'):
+                call_river_opps += 1
+                if result.get('call_river'):
+                    call_river_count += 1
+            if result.get('probe_opp'):
+                probe_opps += 1
+                if result.get('probe'):
+                    probe_count += 1
+            if result.get('fold_to_probe_opp'):
+                fold_to_probe_opps += 1
+                if result.get('fold_to_probe'):
+                    fold_to_probe_count += 1
+            if result.get('bet_vs_missed_cbet_opp'):
+                bet_vs_missed_cbet_opps += 1
+                if result.get('bet_vs_missed_cbet'):
+                    bet_vs_missed_cbet_count += 1
+            if result.get('xf_oop_opp'):
+                xf_oop_opps += 1
+                if result.get('xf_oop'):
+                    xf_oop_count += 1
 
             # Aggregate aggression
             for street in ('flop', 'turn', 'river'):
@@ -593,6 +696,14 @@ class CashAnalyzer:
             total_hands, saw_flop_count, wtsd_count, wsd_count,
             cbet_opps, cbet_count, fold_cbet_opps, fold_cbet_count,
             agg, cr, dict(week_stats),
+            won_saw_flop_count=won_saw_flop_count,
+            bet_river_opps=bet_river_opps, bet_river_count=bet_river_count,
+            call_river_opps=call_river_opps, call_river_count=call_river_count,
+            probe_opps=probe_opps, probe_count=probe_count,
+            fold_to_probe_opps=fold_to_probe_opps, fold_to_probe_count=fold_to_probe_count,
+            bet_vs_missed_cbet_opps=bet_vs_missed_cbet_opps,
+            bet_vs_missed_cbet_count=bet_vs_missed_cbet_count,
+            xf_oop_opps=xf_oop_opps, xf_oop_count=xf_oop_count,
         )
 
     @staticmethod
@@ -724,21 +835,141 @@ class CashAnalyzer:
             if cr_opp:
                 check_raise[street] = {'opp': True, 'did': cr_did}
 
+        # ── US-032: River stats ──────────────────────────────────────
+        river_actions = [a for a in postflop if a['street'] == 'river']
+        hero_river = [a for a in river_actions if a['is_hero']]
+        bet_river_opp = len(hero_river) > 0
+        bet_river = any(a['action_type'] in ('bet', 'all-in') for a in hero_river)
+        call_river_opp = False
+        call_river = False
+        # Call river: hero faced a bet on river from opponent
+        for i, a in enumerate(river_actions):
+            if not a['is_hero'] and a['action_type'] in ('bet', 'raise', 'all-in'):
+                # Opponent bet/raised → hero has opportunity to call
+                for b in river_actions[i + 1:]:
+                    if b['is_hero']:
+                        call_river_opp = True
+                        if b['action_type'] in ('call', 'all-in'):
+                            call_river = True
+                        break
+                break
+
+        # ── US-032: Probe Bet (hero bets when villain didn't cbet) ───
+        # Probe: on flop/turn/river, when the PFA didn't cbet that street,
+        # hero bets (hero is NOT the PFA)
+        probe_opp = False
+        probe = False
+        fold_to_probe_opp = False
+        fold_to_probe = False
+        bet_vs_missed_cbet_opp = False
+        bet_vs_missed_cbet = False
+
+        if not hero_is_pfa and last_raiser is not None:
+            # Check if PFA missed cbet on flop (didn't bet the flop)
+            pfa_bet_flop = any(
+                a['action_type'] in ('bet', 'all-in')
+                and not a['is_hero'] and a['player'] == last_raiser
+                for a in flop_actions
+            )
+            if not pfa_bet_flop:
+                # PFA missed cbet → probe/bet-vs-missed-cbet opportunity
+                bet_vs_missed_cbet_opp = True
+                probe_opp = True
+                hero_bet_flop = any(
+                    a['action_type'] in ('bet', 'all-in') and a['is_hero']
+                    for a in flop_actions
+                )
+                if hero_bet_flop:
+                    probe = True
+                    bet_vs_missed_cbet = True
+
+        # Fold to Probe: hero IS the PFA, missed cbet, and opponent bets
+        if hero_is_pfa:
+            hero_bet_flop = any(
+                a['action_type'] in ('bet', 'all-in') and a['is_hero']
+                for a in flop_actions
+            )
+            if not hero_bet_flop:
+                # Hero missed cbet → check if opponent probed
+                for a in flop_actions:
+                    if not a['is_hero'] and a['action_type'] in ('bet', 'all-in'):
+                        fold_to_probe_opp = True
+                        # Hero's response
+                        for b in flop_actions[flop_actions.index(a) + 1:]:
+                            if b['is_hero']:
+                                if b['action_type'] == 'fold':
+                                    fold_to_probe = True
+                                break
+                        break
+
+        # ── US-032: XF OOP (check-fold out of position) ──────────────
+        # Hero checks then folds to a bet when out of position
+        # "Out of position" = hero acts first on postflop streets
+        xf_oop_opp = False
+        xf_oop = False
+        for street in ('flop', 'turn', 'river'):
+            street_actions = [a for a in postflop if a['street'] == street]
+            if not street_actions:
+                continue
+            # Hero is OOP if hero acts first in the street
+            first_actor = street_actions[0] if street_actions else None
+            if first_actor and first_actor['is_hero']:
+                hero_checked_street = False
+                opp_bet_street = False
+                for a in street_actions:
+                    if a['is_hero']:
+                        if a['action_type'] == 'check' and not hero_checked_street:
+                            hero_checked_street = True
+                        elif hero_checked_street and opp_bet_street:
+                            xf_oop_opp = True
+                            if a['action_type'] == 'fold':
+                                xf_oop = True
+                            break
+                    else:
+                        if hero_checked_street and not opp_bet_street:
+                            if a['action_type'] in ('bet', 'raise', 'all-in'):
+                                opp_bet_street = True
+                if xf_oop_opp:
+                    break  # Count once per hand
+
+        # ── US-032: Won Saw Flop (hero won $ among hands that saw flop) ─
+        won_saw_flop = hero_net > 0  # Already saw_flop=True at this point
+
         return {
             'saw_flop': True,
             'went_to_showdown': went_to_showdown,
             'won_at_showdown': won_at_showdown,
+            'won_saw_flop': won_saw_flop,                  # US-032
             'cbet_opp': cbet_opp,
             'cbet': cbet,
             'fold_to_cbet_opp': fold_to_cbet_opp,
             'fold_to_cbet': fold_to_cbet,
             'hero_aggression': hero_aggression,
             'check_raise': check_raise,
+            'bet_river_opp': bet_river_opp,                # US-032
+            'bet_river': bet_river,                        # US-032
+            'call_river_opp': call_river_opp,              # US-032
+            'call_river': call_river,                      # US-032
+            'probe_opp': probe_opp,                        # US-032
+            'probe': probe,                                # US-032
+            'fold_to_probe_opp': fold_to_probe_opp,        # US-032
+            'fold_to_probe': fold_to_probe,                # US-032
+            'bet_vs_missed_cbet_opp': bet_vs_missed_cbet_opp,  # US-032
+            'bet_vs_missed_cbet': bet_vs_missed_cbet,      # US-032
+            'xf_oop_opp': xf_oop_opp,                     # US-032
+            'xf_oop': xf_oop,                             # US-032
         }
 
     def _format_postflop_stats(self, total_hands, saw_flop_count, wtsd_count, wsd_count,
                                cbet_opps, cbet_count, fold_cbet_opps, fold_cbet_count,
-                               agg, cr, week_stats) -> dict:
+                               agg, cr, week_stats,
+                               won_saw_flop_count=0,
+                               bet_river_opps=0, bet_river_count=0,
+                               call_river_opps=0, call_river_count=0,
+                               probe_opps=0, probe_count=0,
+                               fold_to_probe_opps=0, fold_to_probe_count=0,
+                               bet_vs_missed_cbet_opps=0, bet_vs_missed_cbet_count=0,
+                               xf_oop_opps=0, xf_oop_count=0) -> dict:
         """Format raw postflop counts into percentages with health badges."""
 
         def pct(num, den):
@@ -778,10 +1009,34 @@ class CashAnalyzer:
             'check_raise': pct(total_cr_did, total_cr_opps),
             'check_raise_hands': total_cr_did,
             'check_raise_opps': total_cr_opps,
+            # US-032: new stats
+            'won_saw_flop': pct(won_saw_flop_count, saw_flop_count),
+            'won_saw_flop_hands': won_saw_flop_count,
+            'won_saw_flop_opps': saw_flop_count,
+            'bet_river': pct(bet_river_count, bet_river_opps),
+            'bet_river_hands': bet_river_count,
+            'bet_river_opps': bet_river_opps,
+            'call_river': pct(call_river_count, call_river_opps),
+            'call_river_hands': call_river_count,
+            'call_river_opps': call_river_opps,
+            'probe': pct(probe_count, probe_opps),
+            'probe_hands': probe_count,
+            'probe_opps': probe_opps,
+            'fold_to_probe': pct(fold_to_probe_count, fold_to_probe_opps),
+            'fold_to_probe_hands': fold_to_probe_count,
+            'fold_to_probe_opps': fold_to_probe_opps,
+            'bet_vs_missed_cbet': pct(bet_vs_missed_cbet_count, bet_vs_missed_cbet_opps),
+            'bet_vs_missed_cbet_hands': bet_vs_missed_cbet_count,
+            'bet_vs_missed_cbet_opps': bet_vs_missed_cbet_opps,
+            'xf_oop': pct(xf_oop_count, xf_oop_opps),
+            'xf_oop_hands': xf_oop_count,
+            'xf_oop_opps': xf_oop_opps,
         }
 
         # Health badges
-        for stat in ('af', 'wtsd', 'wsd', 'cbet', 'fold_to_cbet', 'check_raise'):
+        for stat in ('af', 'wtsd', 'wsd', 'cbet', 'fold_to_cbet', 'check_raise',
+                     'won_saw_flop', 'bet_river', 'call_river', 'probe',
+                     'fold_to_probe', 'bet_vs_missed_cbet', 'xf_oop'):
             overall[f'{stat}_health'] = self._classify_postflop_health(stat, overall[stat])
 
         # By street

@@ -27,6 +27,12 @@ preflop:
   ats:
     healthy: [30, 45]    # Attempt to Steal % (ideal: 30-45%)
     warning: [20, 55]
+  open_shove:
+    healthy: [0, 5]      # Open Shove % (ideal: 0-5% in cash)
+    warning: [0, 10]
+  rbw:
+    healthy: [50, 80]    # Raise By Walk % (ideal: 50-80%)
+    warning: [35, 90]
 
 # ── Postflop Stats ─────────────────────────────────────────────────────────
 postflop:
@@ -48,6 +54,27 @@ postflop:
   check_raise:
     healthy: [6, 12]     # Check-Raise % (ideal: 6-12%)
     warning: [3, 18]
+  won_saw_flop:
+    healthy: [45, 55]    # Won Saw Flop % (ideal: 45-55%)
+    warning: [38, 62]
+  bet_river:
+    healthy: [30, 50]    # Bet River % (ideal: 30-50%)
+    warning: [20, 60]
+  call_river:
+    healthy: [25, 40]    # Call River % (ideal: 25-40%)
+    warning: [15, 55]
+  probe:
+    healthy: [30, 50]    # Probe Bet % (ideal: 30-50%)
+    warning: [20, 60]
+  fold_to_probe:
+    healthy: [35, 55]    # Fold to Probe % (ideal: 35-55%)
+    warning: [25, 65]
+  bet_vs_missed_cbet:
+    healthy: [30, 50]    # Bet vs Missed CBet % (ideal: 30-50%)
+    warning: [20, 60]
+  xf_oop:
+    healthy: [20, 35]    # XF OOP % (ideal: 20-35%)
+    warning: [10, 45]
 
 # ── Per-Position Targets (VPIP and PFR) ───────────────────────────────────
 positions:

@@ -94,6 +94,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-029: Páginas de Sessions: Lista por Dia + Drill-Down por Sessão (2026-03-10)
 - [x] US-030: Páginas de Stats Detalhadas: Preflop, Postflop, Posicional, Stack Depth (2026-03-10)
 - [x] US-031: Páginas de Leaks, EV, Range, Tilt e Sizing (2026-03-10)
+- [x] US-032: Stats Avançados: River Actions, Probe, Open Shove, Won Flop, XF OOP e mais (2026-03-11)
 
 ---
 

@@ -85,11 +85,20 @@
                 <th class="num">3Bet</th>
                 <th class="num">F3B</th>
                 <th class="num">ATS</th>
+                <th class="num">OShv</th>
+                <th class="num">RBW</th>
                 <th class="num">AF</th>
                 <th class="num">CBet</th>
                 <th class="num">FCB</th>
                 <th class="num">WTSD</th>
                 <th class="num">W$SD</th>
+                <th class="num">WFlop</th>
+                <th class="num">BRvr</th>
+                <th class="num">CRvr</th>
+                <th class="num">Probe</th>
+                <th class="num">FProbe</th>
+                <th class="num">BMCB</th>
+                <th class="num">XF</th>
                 <th class="num">EV bb/100</th>
                 <th></th>
             </tr>
@@ -100,7 +109,7 @@
             <tr class="overall-row">
                 <td><strong>{{ o.period_label }}</strong></td>
                 <td class="num">{{ '{:,}'.format(o.hands|int) }}</td>
-                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd'] %}
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'open_shove', 'rbw', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd', 'won_saw_flop', 'bet_river', 'call_river', 'probe', 'fold_to_probe', 'bet_vs_missed_cbet', 'xf_oop'] %}
                 <td class="num">
                     {% if o.get(stat) is not none %}
                     <span class="hud-val {% if o.get(stat ~ '_badge') %}badge-{{ o[stat ~ '_badge'] }}{% endif %}">
@@ -123,7 +132,7 @@
             <tr>
                 <td>{{ m.period_label }}</td>
                 <td class="num">{{ '{:,}'.format(m.hands|int) }}</td>
-                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd'] %}
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'open_shove', 'rbw', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd', 'won_saw_flop', 'bet_river', 'call_river', 'probe', 'fold_to_probe', 'bet_vs_missed_cbet', 'xf_oop'] %}
                 <td class="num">
                     {% if m.get(stat) is not none %}
                     <span class="hud-val {% if m.get(stat ~ '_badge') %}badge-{{ m[stat ~ '_badge'] }}{% endif %}">
@@ -143,7 +152,7 @@
             <tr>
                 <td>{{ w.period_label }}</td>
                 <td class="num">{{ '{:,}'.format(w.hands|int) }}</td>
-                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd'] %}
+                {% for stat in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'open_shove', 'rbw', 'af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd', 'won_saw_flop', 'bet_river', 'call_river', 'probe', 'fold_to_probe', 'bet_vs_missed_cbet', 'xf_oop'] %}
                 <td class="num">
                     {% if w.get(stat) is not none %}
                     <span class="hud-val {% if w.get(stat ~ '_badge') %}badge-{{ w[stat ~ '_badge'] }}{% endif %}">

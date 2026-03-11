@@ -11,15 +11,23 @@ from datetime import datetime, timedelta
 _HEALTHY_RANGES = {
     'vpip': (22, 30), 'pfr': (17, 25), 'three_bet': (7, 12),
     'fold_to_3bet': (40, 55), 'ats': (30, 45),
+    'open_shove': (0, 5), 'rbw': (50, 80),
     'af': (2.0, 3.5), 'cbet': (60, 80), 'fold_to_cbet': (35, 50),
     'wtsd': (25, 33), 'wsd': (50, 65),
+    'won_saw_flop': (45, 55), 'bet_river': (30, 50), 'call_river': (25, 40),
+    'probe': (30, 50), 'fold_to_probe': (35, 55),
+    'bet_vs_missed_cbet': (30, 50), 'xf_oop': (20, 35),
 }
 
 _WARNING_RANGES = {
     'vpip': (18, 35), 'pfr': (14, 30), 'three_bet': (5, 15),
     'fold_to_3bet': (35, 65), 'ats': (25, 50),
+    'open_shove': (0, 10), 'rbw': (35, 90),
     'af': (1.5, 4.5), 'cbet': (50, 90), 'fold_to_cbet': (30, 60),
     'wtsd': (22, 38), 'wsd': (45, 70),
+    'won_saw_flop': (38, 62), 'bet_river': (20, 60), 'call_river': (15, 55),
+    'probe': (20, 60), 'fold_to_probe': (25, 65),
+    'bet_vs_missed_cbet': (20, 60), 'xf_oop': (10, 45),
 }
 
 _STAT_NAMES = [
@@ -443,7 +451,7 @@ def prepare_stats_data(data, period='year', from_date='', to_date=''):
     # ── Preflop tab data ─────────────────────────────────────────
     pf = data.get('preflop_overall') or {}
     preflop_stats = []
-    _PF_STATS = ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats']
+    _PF_STATS = ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'open_shove', 'rbw']
     for s in _PF_STATS:
         val = pf.get(s)
         badge = pf.get(f'{s}_badge', '') or pf.get(f'{s}_health', '')
@@ -474,7 +482,9 @@ def prepare_stats_data(data, period='year', from_date='', to_date=''):
     # ── Postflop tab data ────────────────────────────────────────
     po = data.get('postflop_overall') or {}
     postflop_stats = []
-    _PO_STATS = ['af', 'afq', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd', 'check_raise']
+    _PO_STATS = ['af', 'afq', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd', 'check_raise',
+                 'won_saw_flop', 'bet_river', 'call_river', 'probe',
+                 'fold_to_probe', 'bet_vs_missed_cbet', 'xf_oop']
     for s in _PO_STATS:
         val = po.get(s)
         badge = po.get(f'{s}_badge', '') or po.get(f'{s}_health', '')
@@ -689,9 +699,14 @@ _HAND_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
 _STAT_LABELS = {
     'vpip': 'VPIP', 'pfr': 'PFR', 'three_bet': '3-Bet',
     'fold_to_3bet': 'Fold to 3-Bet', 'ats': 'ATS',
+    'open_shove': 'Open Shove', 'rbw': 'RBW',
     'af': 'AF', 'afq': 'AFq', 'cbet': 'CBet',
     'fold_to_cbet': 'Fold to CBet', 'wtsd': 'WTSD',
     'wsd': 'W$SD', 'check_raise': 'Check-Raise',
+    'won_saw_flop': 'Won Flop', 'bet_river': 'Bet River',
+    'call_river': 'Call River', 'probe': 'Probe Bet',
+    'fold_to_probe': 'Fold to Probe', 'bet_vs_missed_cbet': 'Bet vs MCB',
+    'xf_oop': 'XF OOP',
 }
 
 
@@ -781,12 +796,14 @@ def prepare_overview_data(data, period='year', from_date='', to_date=''):
     overall['days'] = summary.get('total_days', 0)
 
     pf = data.get('preflop_overall', {})
-    for s in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats']:
+    for s in ['vpip', 'pfr', 'three_bet', 'fold_to_3bet', 'ats', 'open_shove', 'rbw']:
         overall[s] = pf.get(s)
         overall[f'{s}_badge'] = pf.get(f'{s}_badge', '') or pf.get(f'{s}_health', '')
 
     po = data.get('postflop_overall', {})
-    for s in ['af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd']:
+    for s in ['af', 'cbet', 'fold_to_cbet', 'wtsd', 'wsd',
+              'won_saw_flop', 'bet_river', 'call_river', 'probe',
+              'fold_to_probe', 'bet_vs_missed_cbet', 'xf_oop']:
         overall[s] = po.get(s)
         overall[f'{s}_badge'] = po.get(f'{s}_badge', '') or po.get(f'{s}_health', '')
 

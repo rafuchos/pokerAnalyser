@@ -2104,7 +2104,7 @@ class TestPrepareStatsData(unittest.TestCase):
         data = self._make_data()
         prepare_stats_data(data)
         pf = data['stats_preflop_overall']
-        self.assertEqual(len(pf), 5)
+        self.assertEqual(len(pf), 7)  # 5 original + open_shove + rbw (US-032)
         self.assertEqual(pf[0]['name'], 'vpip')
         self.assertEqual(pf[0]['value'], 24.5)
         self.assertEqual(pf[0]['badge'], 'good')
