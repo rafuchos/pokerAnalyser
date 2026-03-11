@@ -213,7 +213,7 @@
 {% endif %}
 
 {# ── EV vs Real Mini Chart ──────────────────────────────────── #}
-{% if data.get('overview_ev_chart', {}).get('real_points') %}
+{% if (data.get('overview_ev_chart') or {}).get('real_points') %}
 <div class="card" style="margin-top: 1.25rem;">
     <div class="card-title">EV Line vs Real Line</div>
     <div class="chart-container">

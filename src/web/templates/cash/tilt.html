@@ -257,14 +257,29 @@
 
 {# ── Diagnostics ───────────────────────────────────────────── #}
 {% set diag = data.get('tilt', {}).get('diagnostics', {}) %}
-{% if diag and diag.get('messages') %}
+{% set diag_msgs = diag.get('messages', []) if diag is mapping else [] %}
+{% if diag_msgs %}
 <div class="card" style="margin-top: 1.25rem;">
     <div class="card-title">Diagnostics</div>
-    <ul style="color: var(--text-secondary); padding-left: 1.25rem;">
-        {% for msg in diag['messages'] %}
-        <li>{{ msg }}</li>
+    <div class="leak-list">
+        {% for msg in diag_msgs %}
+        {% if msg is mapping %}
+        <div class="leak-card {% if msg.get('type') == 'danger' %}high{% endif %}">
+            <div class="leak-name">
+                <span class="badge badge-{{ msg.get('type', 'warning') }}">{{ msg.get('type', 'info')|upper }}</span>
+                {{ msg.get('title', '') }}
+            </div>
+            {% if msg.get('message') %}
+            <div class="leak-detail">{{ msg['message'] }}</div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="leak-card">
+            <div class="leak-detail">{{ msg }}</div>
+        </div>
+        {% endif %}
         {% endfor %}
-    </ul>
+    </div>
 </div>
 {% endif %}
 

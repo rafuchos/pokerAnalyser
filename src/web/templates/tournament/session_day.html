@@ -279,7 +279,7 @@
             {% if sess.get('biggest_win') %}
             <div class="notable-hand win">
                 <span class="notable-label">Biggest Win</span>
-                <span class="notable-value positive">${{ '{:+,.2f}'.format(sess['biggest_win'].get('net', 0) or 0) }}</span>
+                <span class="notable-value positive">{{ '{:+,.0f}'.format(sess['biggest_win'].get('net', 0) or 0) }} chips</span>
                 {% if sess['biggest_win'].get('hero_position') %}
                 <span class="notable-meta">{{ sess['biggest_win']['hero_position'] }}</span>
                 {% endif %}
@@ -291,7 +291,7 @@
             {% if sess.get('biggest_loss') %}
             <div class="notable-hand loss">
                 <span class="notable-label">Biggest Loss</span>
-                <span class="notable-value negative">${{ '{:+,.2f}'.format(sess['biggest_loss'].get('net', 0) or 0) }}</span>
+                <span class="notable-value negative">{{ '{:+,.0f}'.format(sess['biggest_loss'].get('net', 0) or 0) }} chips</span>
                 {% if sess['biggest_loss'].get('hero_position') %}
                 <span class="notable-meta">{{ sess['biggest_loss']['hero_position'] }}</span>
                 {% endif %}
@@ -309,7 +309,7 @@
                 <div class="top-hands-title positive">Top Wins</div>
                 {% for h in sess['top_wins'] %}
                 <div class="top-hand-row win">
-                    <span class="top-hand-net positive">${{ '{:+,.2f}'.format(h.get('net', 0)) }}</span>
+                    <span class="top-hand-net positive">{{ '{:+,.0f}'.format(h.get('net', 0)) }} chips</span>
                     {% if h.get('hero_position') %}<span class="top-hand-pos">{{ h['hero_position'] }}</span>{% endif %}
                     {% if h.get('hero_cards') %}<span class="top-hand-cards">{{ h['hero_cards'] }}</span>{% endif %}
                 </div>
@@ -321,7 +321,7 @@
                 <div class="top-hands-title negative">Top Losses</div>
                 {% for h in sess['top_losses'] %}
                 <div class="top-hand-row loss">
-                    <span class="top-hand-net negative">${{ '{:+,.2f}'.format(h.get('net', 0)) }}</span>
+                    <span class="top-hand-net negative">{{ '{:+,.0f}'.format(h.get('net', 0)) }} chips</span>
                     {% if h.get('hero_position') %}<span class="top-hand-pos">{{ h['hero_position'] }}</span>{% endif %}
                     {% if h.get('hero_cards') %}<span class="top-hand-cards">{{ h['hero_cards'] }}</span>{% endif %}
                 </div>

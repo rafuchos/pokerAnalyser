@@ -341,6 +341,18 @@ def prepare_session_day(data, date):
         day_report[f'{s}_val'] = val
         day_report[f'{s}_badge'] = _classify_health(s, val)
 
+    # Normalize: tournament reports use 'tournaments' key instead of 'sessions'
+    if 'sessions' not in day_report and 'tournaments' in day_report:
+        tournaments = day_report['tournaments']
+        # Map tournament keys to session-compatible keys
+        for t in tournaments:
+            if isinstance(t, dict):
+                if 'profit' not in t and 'net' in t:
+                    t['profit'] = t['net']
+                if 'session_id' not in t and 'tournament_id' in t:
+                    t['session_id'] = t['tournament_id']
+        day_report['sessions'] = tournaments
+
     # Day-level extended stats
     total_hands = day_report.get('hands_count') or day_report.get('total_hands') or 0
     total_net = day_report.get('net', 0) or 0
@@ -887,6 +899,16 @@ def prepare_overview_data(data, period='year', from_date='', to_date=''):
     data['custom_from'] = from_date
     data['custom_to'] = to_date
 
+    # Compute derived fields for summary if missing (e.g. tournament ROI)
+    summary = data.get('summary')
+    if summary and 'roi' not in summary:
+        invested = summary.get('total_invested', 0) or 0
+        net = summary.get('total_net', 0) or 0
+        if invested > 0:
+            summary['roi'] = round(net / invested * 100, 1)
+        else:
+            summary['roi'] = 0
+
     if not filtered:
         data['monthly_stats'] = []
         data['weekly_stats'] = []
@@ -970,6 +992,7 @@ def prepare_overview_data(data, period='year', from_date='', to_date=''):
 
     ev = data.get('allin_ev', {})
     overall['ev_bb100'] = ev.get('bb100_ev')
+    overall['bb100_real'] = ev.get('bb100_real')
     data['overall_row'] = overall
 
     # ── Red/Blue Line Chart ─────────────────────────────────────
@@ -1012,16 +1035,26 @@ def prepare_overview_data(data, period='year', from_date='', to_date=''):
     cum_ev = 0.0
     mini_real_vals = []
     mini_ev_vals = []
+    has_any_ev = False
     for r in sorted_reports:
         cum_real += (r.get('net', 0) or 0)
         mini_real_vals.append(round(cum_real, 2))
         ev_net = r.get('ev_net')
+        # If daily report lacks ev_net, try computing from session-level ev_data
         if ev_net is None:
-            ev_net = r.get('net', 0) or 0
-        cum_ev += ev_net
+            for sess in (r.get('sessions') or []):
+                sev = sess.get('ev_data') or {}
+                if sev.get('ev_net') is not None:
+                    if ev_net is None:
+                        ev_net = 0.0
+                    ev_net += sev['ev_net']
+        if ev_net is not None:
+            has_any_ev = True
+            cum_ev += ev_net
+        # When no ev_net, carry forward previous cumulative EV (flat line)
         mini_ev_vals.append(round(cum_ev, 2))
     all_mini = mini_real_vals + mini_ev_vals
-    if all_mini and any(v != 0 for v in all_mini):
+    if all_mini and has_any_ev:
         data['overview_ev_chart'] = {
             'real_points': _build_chart_points(mini_real_vals),
             'ev_points': _build_chart_points(mini_ev_vals),
@@ -1038,6 +1071,11 @@ def prepare_overview_data(data, period='year', from_date='', to_date=''):
     from src.analyzers.leak_summary import build_leak_summary
     hs = data.get('health_score')
     leaks = data.get('leaks', [])
+    # Compute health_score from leaks if not set or zero
+    if (hs is None or hs == 0) and leaks:
+        total_cost = sum(abs(l.get('cost_bb100', 0) or 0) for l in leaks)
+        hs = max(0, min(100, int(100 - total_cost * 5)))
+        data['health_score'] = hs
     if hs is not None or leaks:
         data['leak_summary'] = build_leak_summary(hs or 0, leaks)
     else:
@@ -1148,15 +1186,25 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
 
     cum_ev = 0.0
     ev_vals = []
+    has_any_ev = False
     for r in sorted_reports:
         ev_net = r.get('ev_net')
+        # If daily report lacks ev_net, try computing from session-level ev_data
         if ev_net is None:
-            ev_net = r.get('net', 0) or 0
-        cum_ev += ev_net
+            for sess in (r.get('sessions') or []):
+                sev = sess.get('ev_data') or {}
+                if sev.get('ev_net') is not None:
+                    if ev_net is None:
+                        ev_net = 0.0
+                    ev_net += sev['ev_net']
+        if ev_net is not None:
+            has_any_ev = True
+            cum_ev += ev_net
+        # When no ev_net, carry forward previous cumulative EV (flat line)
         ev_vals.append(round(cum_ev, 2))
 
     all_vals = real_vals + ev_vals
-    if all_vals:
+    if all_vals and has_any_ev:
         data['ev_chart'] = {
             'real_points': _build_chart_points(real_vals),
             'ev_points': _build_chart_points(ev_vals),
@@ -1511,29 +1559,64 @@ def prepare_tilt_data(data, period='year', from_date='', to_date=''):
     tilt = data.get('tilt', {})
 
     session_tilt = tilt.get('session_tilt', {})
-    data['tilt_sessions'] = session_tilt
 
-    if isinstance(session_tilt, dict):
-        data['tilt_session_summary'] = session_tilt
-    elif isinstance(session_tilt, list):
+    # Normalize session_tilt list: map analyzer keys to template keys
+    if isinstance(session_tilt, list):
+        normalized = []
         total = len(session_tilt)
-        tilt_count = sum(1 for s in session_tilt if s.get('severity') in ('warning', 'danger'))
+        tilt_count = 0
+        total_cost = 0.0
+        for s in session_tilt:
+            row = dict(s)
+            # Map analyzer keys to template-expected keys
+            if 'date' not in row and 'session_date' in row:
+                row['date'] = row['session_date']
+            if 'cost_bb' not in row and 'tilt_cost_bb' in row:
+                row['cost_bb'] = row['tilt_cost_bb']
+            if 'trigger' not in row:
+                signals = row.get('tilt_signals', [])
+                if isinstance(signals, list) and signals:
+                    row['trigger'] = ', '.join(str(sig) for sig in signals)
+                elif row.get('reason'):
+                    row['trigger'] = row['reason']
+                else:
+                    row['trigger'] = ''
+            if 'session' not in row and 'session_id' not in row:
+                row['session'] = row.get('date', '')
+            if row.get('severity') in ('warning', 'danger'):
+                tilt_count += 1
+                total_cost += abs(row.get('cost_bb', 0) or 0)
+            normalized.append(row)
+        data['tilt_sessions'] = normalized
         data['tilt_session_summary'] = {
             'total_sessions': total,
             'tilt_sessions': tilt_count,
+            'tilt_pct': round(tilt_count / total * 100, 1) if total > 0 else 0,
+            'tilt_cost': round(total_cost, 2),
         }
+    elif isinstance(session_tilt, dict):
+        data['tilt_sessions'] = session_tilt
+        data['tilt_session_summary'] = session_tilt
     else:
+        data['tilt_sessions'] = []
         data['tilt_session_summary'] = {}
 
     # Hourly heatmap (24h)
     hourly = tilt.get('hourly', {})
+    # Handle both dict-of-hours and list-of-hours formats
     by_hour = hourly.get('by_hour', {})
+    hourly_list = hourly.get('hourly', [])
+    # If by_hour is empty, try building from list format
+    if not by_hour and isinstance(hourly_list, list):
+        for item in hourly_list:
+            if isinstance(item, dict) and 'hour' in item:
+                by_hour[str(item['hour'])] = item
     heatmap = []
     for h in range(24):
         hk = str(h)
         hd = by_hour.get(hk, by_hour.get(h, {}))
         if isinstance(hd, dict):
-            bb100 = hd.get('bb100', 0) or 0
+            bb100 = hd.get('bb100', hd.get('win_rate_bb100', 0)) or 0
             hands = hd.get('hands', 0) or 0
         else:
             bb100 = 0
@@ -1565,14 +1648,48 @@ def prepare_tilt_data(data, period='year', from_date='', to_date=''):
 
     data['tilt_heatmap'] = heatmap
 
-    # Duration analysis
-    data['tilt_duration'] = tilt.get('duration_analysis', {})
+    # Duration analysis — try both key names
+    duration = tilt.get('duration_analysis') or tilt.get('duration', {})
+    if isinstance(duration, dict):
+        # Normalize: ensure 'by_duration' key exists for the template
+        buckets = duration.get('by_duration') or duration.get('buckets', [])
+        if isinstance(buckets, list):
+            for b in buckets:
+                if isinstance(b, dict):
+                    # Normalize keys: 'win_rate_bb100' -> 'bb100', 'avg_profit'
+                    if 'bb100' not in b and 'win_rate_bb100' in b:
+                        b['bb100'] = b['win_rate_bb100']
+                    if 'avg_profit' not in b and 'net' in b and 'count' not in b:
+                        b['avg_profit'] = b['net']
+                    if 'count' not in b:
+                        b['count'] = b.get('sessions', 0)
+            duration['by_duration'] = buckets
+    data['tilt_duration'] = duration
 
-    # Post-bad-beat
-    data['tilt_post_bad_beat'] = tilt.get('post_bad_beat', {})
+    # Post-bad-beat — normalize keys
+    pbb = tilt.get('post_bad_beat', {})
+    if isinstance(pbb, dict):
+        if 'bad_beats' not in pbb and 'bad_beat_count' in pbb:
+            pbb['bad_beats'] = pbb['bad_beat_count']
+        if 'tilt_after_bb' not in pbb and 'post_bb_tilt_count' in pbb:
+            pbb['tilt_after_bb'] = pbb['post_bb_tilt_count']
+        if 'avg_loss_after' not in pbb and 'degradation_bb100' in pbb:
+            pbb['avg_loss_after'] = pbb['degradation_bb100']
+        if 'recovery_rate' not in pbb:
+            bb = pbb.get('bad_beats', 0) or 0
+            tilt_after = pbb.get('tilt_after_bb', 0) or 0
+            if bb > 0:
+                pbb['recovery_rate'] = round((1 - tilt_after / bb) * 100, 1)
+    data['tilt_post_bad_beat'] = pbb
 
-    # Recommendation
-    data['tilt_recommendation'] = tilt.get('recommendation', {})
+    # Recommendation — normalize keys
+    rec = tilt.get('recommendation', {})
+    if isinstance(rec, dict):
+        if 'ideal_duration' not in rec and 'best_bucket' in rec:
+            rec['ideal_duration'] = rec['best_bucket']
+        if 'message' not in rec and 'text' in rec:
+            rec['message'] = rec['text']
+    data['tilt_recommendation'] = rec
 
     return data
 
@@ -1600,15 +1717,44 @@ def prepare_sizing_data(data, period='year', from_date='', to_date=''):
                 row = dict(pt_data)
                 row['label'] = pt_name
                 row.setdefault('count', pt_data.get('hands', 0))
-                row.setdefault('pct', 0)
-                row.setdefault('avg_pot', 0)
-                row.setdefault('win_rate', pt_data.get('wsd', 0))
-                row.setdefault('net', pt_data.get('net', 0))
+                row.setdefault('avg_pot', pt_data.get('avg_pot_size', 0))
+                row.setdefault('win_rate', pt_data.get('wsd', pt_data.get('win_pct', 0)))
+                row.setdefault('net', pt_data.get('total_net', pt_data.get('net', 0)))
                 pot_list.append(row)
+        # Compute pct from total count across all pot types
+        total_count = sum(r.get('count', 0) or 0 for r in pot_list)
+        for r in pot_list:
+            cnt = r.get('count', 0) or 0
+            r['pct'] = round(cnt / total_count * 100, 1) if total_count > 0 else 0
         raw_pt = pot_list
     data['pot_types'] = raw_pt
-    data['sizing_preflop'] = bs.get('preflop_sizing', [])
-    data['sizing_postflop'] = bs.get('postflop_sizing', [])
-    data['sizing_by_street'] = bs.get('by_street', {})
+
+    # Preflop/postflop sizing — compute pct if missing
+    preflop_sizing = bs.get('preflop_sizing', [])
+    if isinstance(preflop_sizing, list) and preflop_sizing:
+        total = sum(b.get('count', 0) or 0 for b in preflop_sizing)
+        for b in preflop_sizing:
+            if not b.get('pct') and total > 0:
+                b['pct'] = round((b.get('count', 0) or 0) / total * 100, 1)
+    data['sizing_preflop'] = preflop_sizing
+
+    postflop_sizing = bs.get('postflop_sizing', [])
+    if isinstance(postflop_sizing, list) and postflop_sizing:
+        total = sum(b.get('count', 0) or 0 for b in postflop_sizing)
+        for b in postflop_sizing:
+            if not b.get('pct') and total > 0:
+                b['pct'] = round((b.get('count', 0) or 0) / total * 100, 1)
+    data['sizing_postflop'] = postflop_sizing
+
+    # By street sizing — also compute pct per street if missing
+    by_street = bs.get('by_street', {})
+    if isinstance(by_street, dict):
+        for street, street_data in by_street.items():
+            if isinstance(street_data, list):
+                total = sum(b.get('count', 0) or 0 for b in street_data)
+                for b in street_data:
+                    if not b.get('pct') and total > 0:
+                        b['pct'] = round((b.get('count', 0) or 0) / total * 100, 1)
+    data['sizing_by_street'] = by_street
 
     return data

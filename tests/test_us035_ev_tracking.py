@@ -75,7 +75,15 @@ def _make_daily_report(date='2026-01-15', net=50.25, sessions=None):
             _make_session('s2', profit=15.25, hands=80, duration=45, ev_data=None),
         ]
     total_hands = sum(s.get('hands_count', 0) for s in sessions)
-    return {
+    # Compute ev_net from sessions with EV data
+    ev_net = None
+    for s in sessions:
+        sev = s.get('ev_data') or {}
+        if sev.get('ev_net') is not None:
+            if ev_net is None:
+                ev_net = 0.0
+            ev_net += sev['ev_net']
+    report = {
         'date': date,
         'net': net,
         'hands_count': total_hands,
@@ -88,6 +96,9 @@ def _make_daily_report(date='2026-01-15', net=50.25, sessions=None):
         },
         'sessions': sessions,
     }
+    if ev_net is not None:
+        report['ev_net'] = ev_net
+    return report
 
 
 def _make_analytics_data(daily_reports=None, allin_ev=None):

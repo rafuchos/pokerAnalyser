@@ -46,10 +46,11 @@
             ${{ '{:+,.2f}'.format(s.get('total_net', 0) or 0) }}
         </div>
     </div>
-    {% if data.get('allin_ev', {}).get('bb100_real') is not none %}
+    {% set _ev = data.get('allin_ev') or {} %}
+    {% if _ev.get('bb100_real') is not none or _ev.get('bb100_ev') is not none %}
     <div class="stat-card">
         <div class="stat-label">bb/100</div>
-        {% set bb100 = data['allin_ev']['bb100_real'] or 0 %}
+        {% set bb100 = _ev.get('bb100_real') or _ev.get('bb100_ev') or 0 %}
         <div class="stat-value {{ 'positive' if bb100 >= 0 else 'negative' }}">
             {{ '{:+.2f}'.format(bb100) }}
         </div>
@@ -232,7 +233,7 @@
 {% endif %}
 
 {# ── EV vs Real Mini Chart ──────────────────────────────────── #}
-{% if data.get('overview_ev_chart', {}).get('real_points') %}
+{% if (data.get('overview_ev_chart') or {}).get('real_points') %}
 <div class="card" style="margin-top: 1.25rem;">
     <div class="card-title">EV Line vs Real Line</div>
     <div class="chart-container">

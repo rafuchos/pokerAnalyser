@@ -145,10 +145,10 @@
                 <td>{{ sd.get('decision', '') }}</td>
                 <td class="num">{{ (sd.get('count', 0) or 0)|int }}</td>
                 <td class="num {{ 'positive' if (sd.get('total_net', 0) or 0) >= 0 else 'negative' }}">
-                    ${{ '{:+,.2f}'.format(sd.get('total_net', 0) or 0) }}
+                    {{ '{:+,.0f}'.format(sd.get('total_net', 0) or 0) }}
                 </td>
                 <td class="num {{ 'positive' if (sd.get('avg_net', 0) or 0) >= 0 else 'negative' }}">
-                    ${{ '{:+,.2f}'.format(sd.get('avg_net', 0) or 0) }}
+                    {{ '{:+,.0f}'.format(sd.get('avg_net', 0) or 0) }}
                 </td>
             </tr>
             {% endfor %}
@@ -168,8 +168,8 @@
             <div class="leak-name">#{{ loop.index }} — {{ leak.get('description', '') }}</div>
             <div class="leak-detail">
                 Count: {{ leak.get('count', 0) }} |
-                Total: <span class="leak-cost">${{ '{:+,.2f}'.format(leak.get('total_net', 0) or 0) }}</span> |
-                Avg: ${{ '{:+,.2f}'.format(leak.get('avg_net', 0) or 0) }}
+                Total: <span class="leak-cost">{{ '{:+,.0f}'.format(leak.get('total_net', 0) or 0) }}</span> |
+                Avg: {{ '{:+,.0f}'.format(leak.get('avg_net', 0) or 0) }}
             </div>
         </div>
         {% endfor %}
