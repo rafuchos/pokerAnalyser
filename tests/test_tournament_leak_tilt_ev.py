@@ -75,6 +75,15 @@ def _setup_db():
     return conn, Repository(conn)
 
 
+def _ensure_tournament_row(repo, tournament_id, date='2026-01-15'):
+    """Ensure a tournament row exists for the given tournament_id."""
+    repo.insert_tournament({
+        'tournament_id': tournament_id, 'platform': 'test', 'name': 'Test Tourney',
+        'date': date[:10], 'buy_in': 10, 'rake': 1, 'bounty': 0, 'total_buy_in': 11,
+        'position': None, 'prize': 0, 'bounty_won': 0, 'total_players': 100,
+        'entries': 1, 'is_bounty': False, 'is_satellite': False,
+    })
+
 def _insert_hand_with_actions(repo, hand_id, tournament_id='T100',
                                date='2026-01-15T20:00:00',
                                hero_position='CO', hero_cards='Ah Kd',
@@ -82,6 +91,7 @@ def _insert_hand_with_actions(repo, hand_id, tournament_id='T100',
                                blinds_bb=200, blinds_sb=100,
                                preflop_actions=None, postflop_actions=None):
     """Insert a tournament hand with optional preflop and postflop actions."""
+    _ensure_tournament_row(repo, tournament_id, date)
     hand = _make_tournament_hand(
         hand_id, tournament_id=tournament_id, date=date,
         hero_position=hero_position, hero_cards=hero_cards,
@@ -145,6 +155,13 @@ def _insert_many_hands(repo, count, tournament_id='T100',
                         base_date='2026-01-15', hero_position='CO',
                         vpip_pct=50, pfr_pct=30, net_base=-200):
     """Insert many tournament hands with controllable VPIP/PFR rates."""
+    # Ensure tournament row exists (needed for exclude_satellites JOIN)
+    repo.insert_tournament({
+        'tournament_id': tournament_id, 'platform': 'test', 'name': 'Test Tourney',
+        'date': base_date, 'buy_in': 10, 'rake': 1, 'bounty': 0, 'total_buy_in': 11,
+        'position': None, 'prize': 0, 'bounty_won': 0, 'total_players': 100,
+        'entries': 1, 'is_bounty': False, 'is_satellite': False,
+    })
     for i in range(count):
         hid = f'{tournament_id}_H{i:04d}'
         hour = 20 + (i % 4)

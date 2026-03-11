@@ -125,6 +125,13 @@ def _create_tournament_allin_hand(repo, hand_id, tournament_id='T100',
                                    pot_total=2000, invested=1000, net=1000,
                                    blinds_bb=200, allin_street='preflop'):
     """Create a tournament hand that went all-in with showdown."""
+    # Ensure tournament row exists (needed for exclude_satellites JOIN)
+    repo.insert_tournament({
+        'tournament_id': tournament_id, 'platform': 'test', 'name': 'Test Tourney',
+        'date': date[:10], 'buy_in': 10, 'rake': 1, 'bounty': 0, 'total_buy_in': 11,
+        'position': None, 'prize': 0, 'bounty_won': 0, 'total_players': 100,
+        'entries': 1, 'is_bounty': False, 'is_satellite': False,
+    })
     hand = _make_hand(hand_id, date=date, hero_cards=hero_cards,
                       game_type='tournament', tournament_id=tournament_id,
                       blinds_sb=blinds_bb // 2, blinds_bb=blinds_bb,

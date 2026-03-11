@@ -103,6 +103,13 @@ def _insert_hand_with_actions(repo, hand_id, tournament_id='T100',
                                net=-200, hero_stack=5000.0,
                                preflop_actions=None, postflop_actions=None):
     """Insert a tournament hand with optional preflop and postflop actions."""
+    # Ensure tournament row exists (needed for exclude_satellites JOIN)
+    repo.insert_tournament({
+        'tournament_id': tournament_id, 'platform': 'test', 'name': 'Test Tourney',
+        'date': date[:10], 'buy_in': 10, 'rake': 1, 'bounty': 0, 'total_buy_in': 11,
+        'position': None, 'prize': 0, 'bounty_won': 0, 'total_players': 100,
+        'entries': 1, 'is_bounty': False, 'is_satellite': False,
+    })
     hand = _make_tournament_hand(
         hand_id, tournament_id=tournament_id, date=date,
         hero_position=hero_position, hero_cards=hero_cards,

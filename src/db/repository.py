@@ -489,22 +489,31 @@ class Repository:
     # ── Tournament Hand Queries ─────────────────────────────────────
 
     def get_tournament_hands(self, year: Optional[str] = None,
-                             tournament_id: Optional[str] = None) -> list[dict]:
+                             tournament_id: Optional[str] = None,
+                             exclude_satellites: bool = False) -> list[dict]:
         """Get tournament hands, optionally filtered by year and/or tournament_id."""
-        query = "SELECT * FROM hands WHERE game_type = 'tournament'"
+        if exclude_satellites:
+            query = ("SELECT h.* FROM hands h "
+                     "JOIN tournaments t ON h.tournament_id = t.tournament_id "
+                     "WHERE h.game_type = 'tournament' AND t.is_satellite = 0")
+        else:
+            query = "SELECT * FROM hands WHERE game_type = 'tournament'"
         params = []
+        date_col = "h.date" if exclude_satellites else "date"
+        tid_col = "h.tournament_id" if exclude_satellites else "tournament_id"
         if year:
-            query += " AND date LIKE ?"
+            query += f" AND {date_col} LIKE ?"
             params.append(f"{year}%")
         if tournament_id:
-            query += " AND tournament_id = ?"
+            query += f" AND {tid_col} = ?"
             params.append(tournament_id)
-        query += " ORDER BY date"
+        query += f" ORDER BY {date_col}"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
     def get_tournament_preflop_actions(self, year: Optional[str] = None,
-                                       tournament_id: Optional[str] = None) -> list[dict]:
+                                       tournament_id: Optional[str] = None,
+                                       exclude_satellites: bool = False) -> list[dict]:
         """Get preflop actions for tournament hands."""
         query = """
             SELECT ha.hand_id, ha.player, ha.action_type, ha.amount,
@@ -513,8 +522,12 @@ class Repository:
                    h.tournament_id
             FROM hand_actions ha
             JOIN hands h ON ha.hand_id = h.hand_id
-            WHERE ha.street = 'preflop' AND h.game_type = 'tournament'
         """
+        if exclude_satellites:
+            query += "    JOIN tournaments t ON h.tournament_id = t.tournament_id\n"
+        query += "    WHERE ha.street = 'preflop' AND h.game_type = 'tournament'"
+        if exclude_satellites:
+            query += " AND t.is_satellite = 0"
         params = []
         if year:
             query += " AND h.date LIKE ?"
@@ -527,7 +540,8 @@ class Repository:
         return [dict(r) for r in rows]
 
     def get_tournament_all_actions(self, year: Optional[str] = None,
-                                    tournament_id: Optional[str] = None) -> list[dict]:
+                                    tournament_id: Optional[str] = None,
+                                    exclude_satellites: bool = False) -> list[dict]:
         """Get all actions across all streets for tournament hands."""
         query = """
             SELECT ha.hand_id, ha.street, ha.player, ha.action_type, ha.amount,
@@ -536,8 +550,12 @@ class Repository:
                    h.tournament_id, h.blinds_bb
             FROM hand_actions ha
             JOIN hands h ON ha.hand_id = h.hand_id
-            WHERE h.game_type = 'tournament'
         """
+        if exclude_satellites:
+            query += "    JOIN tournaments t ON h.tournament_id = t.tournament_id\n"
+        query += "    WHERE h.game_type = 'tournament'"
+        if exclude_satellites:
+            query += " AND t.is_satellite = 0"
         params = []
         if year:
             query += " AND h.date LIKE ?"
@@ -553,9 +571,21 @@ class Repository:
         return [dict(r) for r in rows]
 
     def get_tournament_allin_hands(self, year: Optional[str] = None,
-                                    tournament_id: Optional[str] = None) -> list[dict]:
+                                    tournament_id: Optional[str] = None,
+                                    exclude_satellites: bool = False) -> list[dict]:
         """Get tournament all-in hands with showdown."""
-        query = """
+        if exclude_satellites:
+            query = """
+            SELECT h.* FROM hands h
+            JOIN tournaments t ON h.tournament_id = t.tournament_id
+            WHERE h.game_type = 'tournament'
+              AND h.has_allin = 1
+              AND h.opponent_cards IS NOT NULL
+              AND h.hero_cards IS NOT NULL
+              AND t.is_satellite = 0
+        """
+        else:
+            query = """
             SELECT * FROM hands
             WHERE game_type = 'tournament'
               AND has_allin = 1
@@ -563,78 +593,126 @@ class Repository:
               AND hero_cards IS NOT NULL
         """
         params = []
+        date_col = "h.date" if exclude_satellites else "date"
+        tid_col = "h.tournament_id" if exclude_satellites else "tournament_id"
         if year:
-            query += " AND date LIKE ?"
+            query += f" AND {date_col} LIKE ?"
             params.append(f"{year}%")
         if tournament_id:
-            query += " AND tournament_id = ?"
+            query += f" AND {tid_col} = ?"
             params.append(tournament_id)
-        query += " ORDER BY date"
+        query += f" ORDER BY {date_col}"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
-    def get_tournament_hand_count(self, year: Optional[str] = None) -> int:
+    def get_tournament_hand_count(self, year: Optional[str] = None,
+                                   exclude_satellites: bool = False) -> int:
         """Get count of tournament hands."""
-        query = "SELECT COUNT(*) as cnt FROM hands WHERE game_type = 'tournament'"
+        if exclude_satellites:
+            query = ("SELECT COUNT(*) as cnt FROM hands h "
+                     "JOIN tournaments t ON h.tournament_id = t.tournament_id "
+                     "WHERE h.game_type = 'tournament' AND t.is_satellite = 0")
+        else:
+            query = "SELECT COUNT(*) as cnt FROM hands WHERE game_type = 'tournament'"
         params = []
+        date_col = "h.date" if exclude_satellites else "date"
         if year:
-            query += " AND date LIKE ?"
+            query += f" AND {date_col} LIKE ?"
             params.append(f"{year}%")
         row = self.conn.execute(query, params).fetchone()
         return row['cnt']
 
     def get_tournament_hands_with_position(self, year: Optional[str] = None,
-                                            tournament_id: Optional[str] = None) -> list[dict]:
+                                            tournament_id: Optional[str] = None,
+                                            exclude_satellites: bool = False) -> list[dict]:
         """Get tournament hands with position and financial data.
 
         Returns hand_id, hero_position, net, blinds_bb, hero_stack for each
         tournament hand. Used for positional win rate and stack tier analysis.
         """
-        query = """
+        if exclude_satellites:
+            query = """
+            SELECT h.hand_id, h.hero_position, h.net, h.blinds_bb, h.blinds_sb, h.hero_stack
+            FROM hands h
+            JOIN tournaments t ON h.tournament_id = t.tournament_id
+            WHERE h.game_type = 'tournament' AND t.is_satellite = 0
+        """
+        else:
+            query = """
             SELECT hand_id, hero_position, net, blinds_bb, blinds_sb, hero_stack
             FROM hands
             WHERE game_type = 'tournament'
         """
         params = []
+        date_col = "h.date" if exclude_satellites else "date"
+        tid_col = "h.tournament_id" if exclude_satellites else "tournament_id"
         if year:
-            query += " AND date LIKE ?"
+            query += f" AND {date_col} LIKE ?"
             params.append(f"{year}%")
         if tournament_id:
-            query += " AND tournament_id = ?"
+            query += f" AND {tid_col} = ?"
             params.append(tournament_id)
-        query += " ORDER BY date"
+        query += f" ORDER BY {date_col}"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
     def get_tournament_hands_with_cards(self, year: Optional[str] = None,
-                                        tournament_id: Optional[str] = None) -> list[dict]:
+                                        tournament_id: Optional[str] = None,
+                                        exclude_satellites: bool = False) -> list[dict]:
         """Get tournament hands with hero cards, position, and financial data.
 
         Returns hand_id, hero_cards, hero_position, net, blinds_bb for each
         tournament hand where hero_cards is known.
         """
-        query = """
+        if exclude_satellites:
+            query = """
+            SELECT h.hand_id, h.hero_cards, h.hero_position, h.net, h.blinds_bb
+            FROM hands h
+            JOIN tournaments t ON h.tournament_id = t.tournament_id
+            WHERE h.game_type = 'tournament' AND h.hero_cards IS NOT NULL
+              AND t.is_satellite = 0
+        """
+        else:
+            query = """
             SELECT hand_id, hero_cards, hero_position, net, blinds_bb
             FROM hands
             WHERE game_type = 'tournament' AND hero_cards IS NOT NULL
         """
         params = []
+        date_col = "h.date" if exclude_satellites else "date"
+        tid_col = "h.tournament_id" if exclude_satellites else "tournament_id"
         if year:
-            query += " AND date LIKE ?"
+            query += f" AND {date_col} LIKE ?"
             params.append(f"{year}%")
         if tournament_id:
-            query += " AND tournament_id = ?"
+            query += f" AND {tid_col} = ?"
             params.append(tournament_id)
-        query += " ORDER BY date"
+        query += f" ORDER BY {date_col}"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
-    def get_tournament_daily_stats(self, year: Optional[str] = None) -> list[dict]:
+    def get_tournament_daily_stats(self, year: Optional[str] = None,
+                                    exclude_satellites: bool = False) -> list[dict]:
         """Get aggregated daily tournament stats.
 
         Used by LeakFinder for period comparison on tournament hands.
         """
-        query = """
+        if exclude_satellites:
+            query = """
+            SELECT
+                substr(h.date, 1, 10) as day,
+                COUNT(*) as hands,
+                SUM(CASE WHEN h.net > 0 THEN h.net ELSE 0 END) as total_won,
+                SUM(CASE WHEN h.net < 0 THEN ABS(h.net) ELSE 0 END) as total_lost,
+                SUM(h.net) as net,
+                MAX(h.net) as biggest_win_net,
+                MIN(h.net) as biggest_loss_net
+            FROM hands h
+            JOIN tournaments t ON h.tournament_id = t.tournament_id
+            WHERE h.game_type = 'tournament' AND t.is_satellite = 0
+        """
+        else:
+            query = """
             SELECT
                 substr(date, 1, 10) as day,
                 COUNT(*) as hands,
@@ -647,8 +725,9 @@ class Repository:
             WHERE game_type = 'tournament'
         """
         params = []
+        date_col = "h.date" if exclude_satellites else "date"
         if year:
-            query += " AND date LIKE ?"
+            query += f" AND {date_col} LIKE ?"
             params.append(f"{year}%")
         query += " GROUP BY day ORDER BY day DESC"
         rows = self.conn.execute(query, params).fetchall()

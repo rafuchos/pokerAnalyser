@@ -580,7 +580,8 @@ class LeakFinder:
         try:
             # Try to get actual latest date from hands
             if is_tournament:
-                daily_stats = self.repo.get_tournament_daily_stats(self.year)
+                daily_stats = self.repo.get_tournament_daily_stats(
+                    self.year, exclude_satellites=getattr(self.analyzer, 'exclude_satellites', False))
             else:
                 daily_stats = self.repo.get_cash_daily_stats(self.year)
             if daily_stats:

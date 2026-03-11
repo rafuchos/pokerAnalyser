@@ -53,10 +53,12 @@ class TournamentAnalyzer:
     STACK_3BET_HEALTHY = CashAnalyzer.STACK_3BET_HEALTHY
     STACK_3BET_WARNING = CashAnalyzer.STACK_3BET_WARNING
 
-    def __init__(self, repo: Repository, year: str = '2026', skip_ev: bool = False):
+    def __init__(self, repo: Repository, year: str = '2026', skip_ev: bool = False,
+                 exclude_satellites: bool = True):
         self.repo = repo
         self.year = year
         self.skip_ev = skip_ev
+        self.exclude_satellites = exclude_satellites
         self._healthy_ranges = type(self).HEALTHY_RANGES
         self._warning_ranges = type(self).WARNING_RANGES
         self._postflop_healthy_ranges = type(self).POSTFLOP_HEALTHY_RANGES
@@ -81,7 +83,7 @@ class TournamentAnalyzer:
         Each stat includes value, counts, and health classification.
         Reuses CashAnalyzer._analyze_preflop_hand() for per-hand analysis.
         """
-        sequences = self.repo.get_tournament_preflop_actions(self.year)
+        sequences = self.repo.get_tournament_preflop_actions(self.year, exclude_satellites=self.exclude_satellites)
 
         # Group by hand_id
         hands_actions = defaultdict(list)
@@ -252,7 +254,7 @@ class TournamentAnalyzer:
         Returns dict with overall stats, by_street breakdown, and by_week trends.
         Reuses CashAnalyzer._analyze_postflop_hand() for per-hand analysis.
         """
-        sequences = self.repo.get_tournament_all_actions(self.year)
+        sequences = self.repo.get_tournament_all_actions(self.year, exclude_satellites=self.exclude_satellites)
 
         # Group by hand_id
         hands_actions = defaultdict(list)
@@ -713,8 +715,8 @@ class TournamentAnalyzer:
                 'chart_data': [],
             }
 
-        all_hands = self.repo.get_tournament_hands(self.year)
-        allin_hands = self.repo.get_tournament_allin_hands(self.year)
+        all_hands = self.repo.get_tournament_hands(self.year, exclude_satellites=self.exclude_satellites)
+        allin_hands = self.repo.get_tournament_allin_hands(self.year, exclude_satellites=self.exclude_satellites)
 
         # Filter to the specific day
         day_hands = [h for h in all_hands if (h.get('date') or '')[:10] == day]
@@ -832,8 +834,8 @@ class TournamentAnalyzer:
             all_seqs = self.repo.get_tournament_all_actions(
                 self.year, tournament_id)
         else:
-            preflop_seqs = self.repo.get_tournament_preflop_actions(self.year)
-            all_seqs = self.repo.get_tournament_all_actions(self.year)
+            preflop_seqs = self.repo.get_tournament_preflop_actions(self.year, exclude_satellites=self.exclude_satellites)
+            all_seqs = self.repo.get_tournament_all_actions(self.year, exclude_satellites=self.exclude_satellites)
 
         if not preflop_seqs and not all_seqs:
             return {}
@@ -997,8 +999,8 @@ class TournamentAnalyzer:
         Adapted from EVAnalyzer for variable tournament blinds.
         bb/100 uses per-hand BB value (escalating blinds).
         """
-        all_hands = self.repo.get_tournament_hands(self.year)
-        allin_hands = self.repo.get_tournament_allin_hands(self.year)
+        all_hands = self.repo.get_tournament_hands(self.year, exclude_satellites=self.exclude_satellites)
+        allin_hands = self.repo.get_tournament_allin_hands(self.year, exclude_satellites=self.exclude_satellites)
 
         if self.skip_ev or not all_hands:
             return {
@@ -1201,7 +1203,7 @@ class TournamentAnalyzer:
         )
 
         # Total tournament hands
-        total_hands = self.repo.get_tournament_hand_count(self.year)
+        total_hands = self.repo.get_tournament_hand_count(self.year, exclude_satellites=self.exclude_satellites)
 
         return {
             'total_tournaments': total_tournaments,
@@ -1258,8 +1260,8 @@ class TournamentAnalyzer:
         Returns dict with chart_data, summary totals, diagnostics,
         and per-day breakdown (each day = one tournament session).
         """
-        hands = self.repo.get_tournament_hands(self.year)
-        actions = self.repo.get_tournament_all_actions(self.year)
+        hands = self.repo.get_tournament_hands(self.year, exclude_satellites=self.exclude_satellites)
+        actions = self.repo.get_tournament_all_actions(self.year, exclude_satellites=self.exclude_satellites)
 
         # Group actions by hand_id
         hand_acts = defaultdict(list)
@@ -1357,8 +1359,8 @@ class TournamentAnalyzer:
         Returns dict with by_position, blinds_defense, ats_by_pos, comparison, radar,
         three_bet_matrix.
         """
-        sequences = self.repo.get_tournament_all_actions(self.year)
-        hands_financial = self.repo.get_tournament_hands_with_position(self.year)
+        sequences = self.repo.get_tournament_all_actions(self.year, exclude_satellites=self.exclude_satellites)
+        hands_financial = self.repo.get_tournament_hands_with_position(self.year, exclude_satellites=self.exclude_satellites)
 
         # Build hand-level financial lookup
         hand_bb = {}
@@ -1615,8 +1617,8 @@ class TournamentAnalyzer:
         Returns dict with by_tier, by_position_tier, tier_order, tier_labels,
         hands_with_stack, hands_total.
         """
-        sequences = self.repo.get_tournament_all_actions(self.year)
-        hands_financial = self.repo.get_tournament_hands_with_position(self.year)
+        sequences = self.repo.get_tournament_all_actions(self.year, exclude_satellites=self.exclude_satellites)
+        hands_financial = self.repo.get_tournament_hands_with_position(self.year, exclude_satellites=self.exclude_satellites)
 
         # Build per-hand lookups
         hand_info = {}
@@ -1858,8 +1860,8 @@ class TournamentAnalyzer:
 
         Returns dict with overall, by_position, top_profitable, top_deficit, total_hands.
         """
-        hands = self.repo.get_tournament_hands_with_cards(self.year)
-        preflop_seqs = self.repo.get_tournament_preflop_actions(self.year)
+        hands = self.repo.get_tournament_hands_with_cards(self.year, exclude_satellites=self.exclude_satellites)
+        preflop_seqs = self.repo.get_tournament_preflop_actions(self.year, exclude_satellites=self.exclude_satellites)
 
         # Group preflop actions by hand_id
         hand_preflop = defaultdict(list)
@@ -1976,8 +1978,8 @@ class TournamentAnalyzer:
 
         Returns dict with pot_types, sizing, hu_vs_multiway, diagnostics.
         """
-        hands = self.repo.get_tournament_hands(self.year)
-        actions_list = self.repo.get_tournament_all_actions(self.year)
+        hands = self.repo.get_tournament_hands(self.year, exclude_satellites=self.exclude_satellites)
+        actions_list = self.repo.get_tournament_all_actions(self.year, exclude_satellites=self.exclude_satellites)
 
         # Build per-hand lookup
         hand_meta = {h['hand_id']: h for h in hands}
@@ -2110,7 +2112,7 @@ class TournamentAnalyzer:
         )
         from collections import defaultdict
 
-        all_hands = self.repo.get_tournament_hands(self.year)
+        all_hands = self.repo.get_tournament_hands(self.year, exclude_satellites=self.exclude_satellites)
         if not all_hands:
             return {}
 
@@ -2120,7 +2122,7 @@ class TournamentAnalyzer:
             tid = h.get('tournament_id') or 'unknown'
             tournaments_map[tid].append(h)
 
-        all_actions = self.repo.get_tournament_all_actions(self.year)
+        all_actions = self.repo.get_tournament_all_actions(self.year, exclude_satellites=self.exclude_satellites)
         actions_by_tid = defaultdict(list)
         for a in all_actions:
             tid = a.get('tournament_id') or 'unknown'
