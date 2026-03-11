@@ -413,3 +413,18 @@ US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sess
 
 === US-034 completed at 2026-03-11T04:37:39.219Z ===
 - All quality gates passed
+
+
+=== US-035 completed at 2026-03-11 ===
+- EV Tracking Completo: Luck factor per session, per day, and in overview
+- 76 new tests (2189 total passing, 0 failures)
+- Fixed pre-existing bug: decision_ev by_street handling both list and dict formats (2 tests that were failing since US-020)
+- Pattern: Luck calculation = real_net - ev_net, with status classification (hot/cold/neutral)
+- Pattern: Daily luck aggregation sums across all sessions with EV data on that day
+- Pattern: Running luck uses global allin_ev data for overview-level aggregation
+- Pattern: Mini EV chart in overview uses cumulative daily values with SVG polyline
+- Pattern: EV sessions table groups by date with per-day luck calculation
+- Pattern: Luck trend chart shows cumulative luck over time
+- All templates (cash + tournament x 4 pages) updated in parallel
+- CSS: luck-factor-card, luck-factor-badge, luck-badge-hot/cold/neutral classes added
+
