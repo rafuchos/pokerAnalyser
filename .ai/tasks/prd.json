@@ -306,7 +306,8 @@
         "src/web/static/css/style.css",
         "src/web/static/js/app.js",
         "src/web/data.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-034",

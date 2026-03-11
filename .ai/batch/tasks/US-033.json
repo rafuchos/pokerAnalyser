@@ -1,0 +1,31 @@
+{
+  "id": "US-033",
+  "title": "Hand Range Matrix: Melhorias Visuais e UX",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Enhance prepare_range_data() in src/web/data.py to compute heatmap gradient intensity, pass action_breakdown, and calculate min/max net values for color scaling",
+    "Add Overall position aggregate tab by combining all position data in the data layer",
+    "Update src/web/templates/cash/range.html with: heatmap gradient inline styles, toggle buttons (Dealt/Played/Net$/bb100), filter checkbox, rich tooltip markup, click-to-zoom data attributes, enhanced top hands table with Freq% and Action columns, Overall tab",
+    "Mirror template changes to src/web/templates/tournament/range.html",
+    "Add heatmap gradient CSS classes (green-to-red intensity), modal/popup styles for cell zoom, improved legend with visual gradient, responsive layout with horizontal scroll and fixed headers in src/web/static/css/style.css",
+    "Implement JavaScript interactivity in src/web/static/js/app.js: toggle filter switching, show/hide played-only filter, cell click modal popup with detailed stats, adaptive font sizing, ESC to close modal",
+    "Update tests in tests/test_hand_matrix.py and tests/test_web.py for new gradient calculations, toggle buttons, and template rendering"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/web/data.py",
+    "src/web/templates/cash/range.html",
+    "src/web/templates/tournament/range.html",
+    "src/web/static/css/style.css",
+    "src/web/static/js/app.js",
+    "tests/test_hand_matrix.py",
+    "tests/test_web.py"
+  ],
+  "created_at": "2026-03-11T04:09:40.848Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-033"
+}
