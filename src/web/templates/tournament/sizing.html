@@ -36,20 +36,27 @@
             <tr>
                 <th>Pot Type</th>
                 <th class="num">Count</th>
-                <th class="num">Percentage</th>
-                <th class="num">Avg Pot</th>
-                <th class="num">Win Rate</th>
+                <th class="num">%</th>
+                <th class="num">W$SD</th>
+                <th class="num">AF</th>
+                <th class="num">CBet</th>
+                <th class="num">bb/100</th>
                 <th class="num">Net</th>
             </tr>
         </thead>
         <tbody>
             {% for pt in data['pot_types'] %}
+            {% set bb100 = pt.get('bb100', 0) or 0 %}
             <tr>
-                <td>{{ pt.get('label', pt.get('type', '')) }}</td>
-                <td class="num">{{ (pt.get('count', 0) or 0)|int }}</td>
+                <td>{{ pt.get('label', '') }}</td>
+                <td class="num">{{ '{:,}'.format((pt.get('count', 0) or 0)|int) }}</td>
                 <td class="num">{{ '{:.1f}'.format(pt.get('pct', 0) or 0) }}%</td>
-                <td class="num">{{ '{:,.0f}'.format(pt.get('avg_pot', 0) or 0) }}</td>
                 <td class="num">{{ '{:.1f}'.format(pt.get('win_rate', 0) or 0) }}%</td>
+                <td class="num">{{ '{:.2f}'.format(pt.get('af', 0) or 0) }}</td>
+                <td class="num">{{ '{:.1f}'.format(pt.get('cbet', 0) or 0) }}%</td>
+                <td class="num {{ 'positive' if bb100 >= 0 else 'negative' }}">
+                    {{ '{:+.1f}'.format(bb100) }}
+                </td>
                 <td class="num {{ 'positive' if (pt.get('net', 0) or 0) >= 0 else 'negative' }}">
                     {{ '{:+,.0f}'.format(pt.get('net', 0) or 0) }}
                 </td>

@@ -44,8 +44,12 @@
     <div class="stat-card">
         <div class="stat-label">Luck Factor</div>
         <div class="stat-value {{ 'positive' if (ev.get('luck_factor', 0) or 0) >= 0 else 'negative' }}">
-            ${{ '{:+,.2f}'.format(ev.get('luck_factor', 0) or 0) }}
+            {{ '{:+,.0f}'.format(ev.get('luck_factor', 0) or 0) }} chips
         </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Hands</div>
+        <div class="stat-value neutral">{{ '{:,}'.format((ev.get('total_hands', 0) or 0)|int) }}</div>
     </div>
     <div class="stat-card">
         <div class="stat-label">All-In Hands</div>
@@ -198,8 +202,8 @@
                       stroke="{{ 'var(--accent-green)' if ltc.final >= 0 else 'var(--accent-red)' }}"
                       stroke-width="2"/>
 
-            <text x="36" y="44" text-anchor="end" fill="var(--text-secondary)" font-size="10">${{ '{:,.0f}'.format(ltc.y_max) }}</text>
-            <text x="36" y="164" text-anchor="end" fill="var(--text-secondary)" font-size="10">${{ '{:,.0f}'.format(ltc.y_min) }}</text>
+            <text x="36" y="44" text-anchor="end" fill="var(--text-secondary)" font-size="10">{{ '{:,.0f}'.format(ltc.y_max) }}</text>
+            <text x="36" y="164" text-anchor="end" fill="var(--text-secondary)" font-size="10">{{ '{:,.0f}'.format(ltc.y_min) }}</text>
 
             {% if ltc.dates|length > 0 %}
             <text x="40" y="180" text-anchor="start" fill="var(--text-muted)" font-size="9">{{ ltc.dates[0] }}</text>
@@ -207,7 +211,7 @@
             {% endif %}
 
             <text x="660" y="17" text-anchor="end" fill="{{ 'var(--accent-green)' if ltc.final >= 0 else 'var(--accent-red)' }}" font-size="11">
-                Luck: ${{ '{:+,.2f}'.format(ltc.final) }}
+                Luck: {{ '{:+,.0f}'.format(ltc.final) }}
             </text>
         </svg>
     </div>
@@ -237,14 +241,14 @@
                 <td class="num">{{ row['hands']|int }}</td>
                 <td class="num">{{ row['allins']|int }}</td>
                 <td class="num {{ 'positive' if row['real_net'] >= 0 else 'negative' }}">
-                    ${{ '{:+,.2f}'.format(row['real_net']) }}
+                    {{ '{:+,.0f}'.format(row['real_net']) }}
                 </td>
                 <td class="num {{ 'positive' if row['ev_net'] >= 0 else 'negative' }}">
-                    ${{ '{:+,.2f}'.format(row['ev_net']) }}
+                    {{ '{:+,.0f}'.format(row['ev_net']) }}
                 </td>
                 <td class="num {{ 'positive' if row['luck'] >= 0 else 'negative' }}">
                     {% if row['luck'] >= 0 %}&#9650;{% else %}&#9660;{% endif %}
-                    ${{ '{:+,.2f}'.format(row['luck']) }}
+                    {{ '{:+,.0f}'.format(row['luck']) }}
                 </td>
             </tr>
             {% endfor %}
@@ -264,24 +268,27 @@
             <tr>
                 <th>Stakes</th>
                 <th class="num">Hands</th>
-                <th class="num">Real Net</th>
-                <th class="num">EV Net</th>
+                <th class="num">All-Ins</th>
+                <th class="num">Real bb/100</th>
+                <th class="num">EV bb/100</th>
                 <th class="num">Luck</th>
             </tr>
         </thead>
         <tbody>
             {% for stake, sd in ev['by_stakes'].items() %}
+            {% set luck = sd.get('luck_factor', 0) or 0 %}
             <tr>
                 <td>{{ stake }}</td>
-                <td class="num">{{ (sd.get('count', 0) or 0)|int }}</td>
-                <td class="num {{ 'positive' if (sd.get('real_net', 0) or 0) >= 0 else 'negative' }}">
-                    ${{ '{:+,.2f}'.format(sd.get('real_net', 0) or 0) }}
+                <td class="num">{{ '{:,}'.format((sd.get('total_hands', sd.get('count', 0)) or 0)|int) }}</td>
+                <td class="num">{{ (sd.get('allin_hands', 0) or 0)|int }}</td>
+                <td class="num {{ 'positive' if (sd.get('bb100_real', 0) or 0) >= 0 else 'negative' }}">
+                    {{ '{:+.2f}'.format(sd.get('bb100_real', 0) or 0) }}
                 </td>
-                <td class="num {{ 'positive' if (sd.get('ev_net', 0) or 0) >= 0 else 'negative' }}">
-                    ${{ '{:+,.2f}'.format(sd.get('ev_net', 0) or 0) }}
+                <td class="num {{ 'positive' if (sd.get('bb100_ev', 0) or 0) >= 0 else 'negative' }}">
+                    {{ '{:+.2f}'.format(sd.get('bb100_ev', 0) or 0) }}
                 </td>
-                <td class="num {{ 'positive' if (sd.get('luck', 0) or 0) >= 0 else 'negative' }}">
-                    ${{ '{:+,.2f}'.format(sd.get('luck', 0) or 0) }}
+                <td class="num {{ 'positive' if luck >= 0 else 'negative' }}">
+                    {{ '{:+,.0f}'.format(luck) }}
                 </td>
             </tr>
             {% endfor %}

@@ -60,15 +60,20 @@
 {% endif %}
 
 {# ── Tilt Sessions Detected ───────────────────────────────── #}
-{% set tilt_sess = data.get('tilt_sessions') %}
-{% if tilt_sess is iterable and tilt_sess is not mapping and tilt_sess|length > 0 %}
+{% set tilt_sess_raw = data.get('tilt_sessions', []) %}
+{% set tilt_sess = [] %}
+{% if tilt_sess_raw is iterable and tilt_sess_raw is not mapping %}
+    {% for s in tilt_sess_raw if s.get('severity', 'good') != 'good' %}
+        {% if tilt_sess.append(s) %}{% endif %}
+    {% endfor %}
+{% endif %}
+{% if tilt_sess|length > 0 %}
 <div class="card" style="margin-top: 1.25rem;">
     <div class="card-title">Tilt Sessions Detected</div>
     <div class="table-responsive">
     <table class="data-table">
         <thead>
             <tr>
-                <th>Session</th>
                 <th>Date</th>
                 <th>Severity</th>
                 <th class="num">Cost (BB)</th>
@@ -78,15 +83,16 @@
         <tbody>
             {% for sess in tilt_sess %}
             <tr>
-                <td>{{ sess.get('session', sess.get('session_id', 'N/A')) }}</td>
                 <td>{{ sess.get('date', '') }}</td>
                 <td>
-                    <span class="badge badge-{{ sess.get('severity', 'good') }}">
-                        {{ sess.get('severity', 'good') }}
+                    <span class="badge badge-{{ sess.get('severity', 'warning') }}">
+                        {{ sess.get('severity', 'warning') }}
                     </span>
                 </td>
-                <td class="num">{{ '{:.1f}'.format(sess.get('cost_bb', 0) or 0) }}</td>
-                <td style="font-size: 0.85rem; color: var(--text-secondary);">{{ sess.get('trigger', '') }}</td>
+                <td class="num negative">{{ '{:.1f}'.format(sess.get('cost_bb', 0) or 0) }}</td>
+                <td style="font-size: 0.85rem; color: var(--text-secondary);">
+                    {{ sess.get('trigger', '')|replace('_', ' ')|title }}
+                </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -134,16 +140,16 @@
         <thead>
             <tr>
                 <th>Duration</th>
-                <th class="num">Sessions</th>
-                <th class="num">Avg bb/100</th>
-                <th class="num">Avg Profit</th>
+                <th class="num">Hands</th>
+                <th class="num">bb/100</th>
+                <th class="num">Net</th>
             </tr>
         </thead>
         <tbody>
             {% for d in dur['by_duration'] %}
             <tr>
                 <td>{{ d.get('label', d.get('bucket', '')) }}</td>
-                <td class="num">{{ (d.get('count', 0) or 0)|int }}</td>
+                <td class="num">{{ '{:,}'.format((d.get('count', 0) or 0)|int) }}</td>
                 <td class="num {{ 'positive' if (d.get('bb100', 0) or 0) >= 0 else 'negative' }}">
                     {{ '{:+.1f}'.format(d.get('bb100', 0) or 0) }}
                 </td>

@@ -395,10 +395,11 @@ class Repository:
     # ── EV / All-in Queries ──────────────────────────────────────────
 
     def get_allin_hands(self, year: Optional[str] = None) -> list[dict]:
-        """Get all-in hands with showdown (opponent cards visible).
+        """Get all-in hands with showdown where hero participated.
 
         Returns hands where has_allin=1 AND opponent_cards IS NOT NULL,
-        ordered by date. Used for EV analysis.
+        AND hero did NOT fold (actually participated in the all-in).
+        Ordered by date. Used for EV analysis.
         """
         query = """
             SELECT * FROM hands
@@ -406,6 +407,12 @@ class Repository:
               AND has_allin = 1
               AND opponent_cards IS NOT NULL
               AND hero_cards IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM hand_actions
+                  WHERE hand_actions.hand_id = hands.hand_id
+                    AND hand_actions.is_hero = 1
+                    AND hand_actions.action_type = 'fold'
+              )
         """
         params = []
         if year:
@@ -573,7 +580,7 @@ class Repository:
     def get_tournament_allin_hands(self, year: Optional[str] = None,
                                     tournament_id: Optional[str] = None,
                                     exclude_satellites: bool = False) -> list[dict]:
-        """Get tournament all-in hands with showdown."""
+        """Get tournament all-in hands where hero participated (did not fold)."""
         if exclude_satellites:
             query = """
             SELECT h.* FROM hands h
@@ -583,6 +590,12 @@ class Repository:
               AND h.opponent_cards IS NOT NULL
               AND h.hero_cards IS NOT NULL
               AND t.is_satellite = 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM hand_actions
+                  WHERE hand_actions.hand_id = h.hand_id
+                    AND hand_actions.is_hero = 1
+                    AND hand_actions.action_type = 'fold'
+              )
         """
         else:
             query = """
@@ -591,6 +604,12 @@ class Repository:
               AND has_allin = 1
               AND opponent_cards IS NOT NULL
               AND hero_cards IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM hand_actions
+                  WHERE hand_actions.hand_id = hands.hand_id
+                    AND hand_actions.is_hero = 1
+                    AND hand_actions.action_type = 'fold'
+              )
         """
         params = []
         date_col = "h.date" if exclude_satellites else "date"

@@ -1682,7 +1682,7 @@ def prepare_tilt_data(data, period='year', from_date='', to_date=''):
                     if 'avg_profit' not in b and 'net' in b and 'count' not in b:
                         b['avg_profit'] = b['net']
                     if 'count' not in b:
-                        b['count'] = b.get('sessions', 0)
+                        b['count'] = b.get('sessions', b.get('hands', 0))
             duration['by_duration'] = buckets
     data['tilt_duration'] = duration
 
@@ -1729,19 +1729,26 @@ def prepare_sizing_data(data, period='year', from_date='', to_date=''):
     bs = data.get('bet_sizing') or {}
 
     # pot_types may be a dict keyed by type name — flatten into list for template
+    _POT_TYPE_LABELS = {
+        'limped': 'Limped', 'srp': 'Single Raised',
+        '3bet': '3-Bet', '4bet_plus': '4-Bet+',
+    }
     raw_pt = bs.get('pot_types', [])
     if isinstance(raw_pt, dict):
         pot_list = []
         for pt_name, pt_data in raw_pt.items():
             if isinstance(pt_data, dict):
-                row = dict(pt_data)
-                row['label'] = pt_name
-                row.setdefault('count', pt_data.get('hands', 0))
-                row.setdefault('avg_pot', pt_data.get('avg_pot_size', 0))
-                row.setdefault('win_rate', pt_data.get('wsd', pt_data.get('win_pct', 0)))
-                row.setdefault('net', pt_data.get('total_net', pt_data.get('net', 0)))
+                row = {
+                    'label': _POT_TYPE_LABELS.get(pt_name, pt_name),
+                    'count': pt_data.get('hands', 0) or 0,
+                    'win_rate': pt_data.get('wsd', pt_data.get('win_pct', 0)) or 0,
+                    'net': pt_data.get('net', pt_data.get('total_net', 0)) or 0,
+                    'bb100': pt_data.get('win_rate_bb100', 0) or 0,
+                    'af': pt_data.get('af', 0) or 0,
+                    'cbet': pt_data.get('cbet', 0) or 0,
+                    'health': pt_data.get('health', ''),
+                }
                 pot_list.append(row)
-        # Compute pct from total count across all pot types
         total_count = sum(r.get('count', 0) or 0 for r in pot_list)
         for r in pot_list:
             cnt = r.get('count', 0) or 0

@@ -197,6 +197,11 @@ body {
     letter-spacing: 0.05em;
     margin-bottom: 0.25rem;
 }
+.stat-label[title], th[title] {
+    cursor: help;
+    border-bottom: 1px dotted var(--text-muted);
+    display: inline-block;
+}
 
 .stat-value {
     font-size: 1.75rem;
@@ -798,19 +803,27 @@ body {
     -webkit-overflow-scrolling: touch;
 }
 
-.hud-table th,
-.hud-table td {
-    padding: 0.4rem 0.5rem;
-    font-size: 0.8rem;
+.data-table.hud-table {
+    width: auto;
+}
+
+.data-table.hud-table th,
+.data-table.hud-table td {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.78rem;
     white-space: nowrap;
+    text-align: center;
 }
 
-.hud-table th {
+.data-table.hud-table th:first-child,
+.data-table.hud-table td:first-child {
+    text-align: left;
+}
+
+.data-table.hud-table th {
     font-size: 0.7rem;
-}
-
-.hud-table th.num {
-    text-align: right;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
 }
 
 .hud-val {

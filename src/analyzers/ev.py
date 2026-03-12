@@ -432,6 +432,12 @@ class EVAnalyzer:
         if not hero_str or not opp_str:
             return None
 
+        # Safety net: skip hands with zero investment
+        invested = hand.get('invested', 0) or 0
+        pot = hand.get('pot_total', 0) or 0
+        if invested == 0:
+            return None
+
         try:
             hero_cards = parse_cards(hero_str)
             if len(hero_cards) != 2:
@@ -453,8 +459,6 @@ class EVAnalyzer:
 
             equity = calculate_equity(hero_cards, opponents, board)
 
-            pot = hand.get('pot_total', 0) or 0
-            invested = hand.get('invested', 0) or 0
             actual_net = hand.get('net', 0) or 0
 
             ev_net = equity * pot - invested

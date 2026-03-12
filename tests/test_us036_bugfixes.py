@@ -221,18 +221,21 @@ class TestSizingData(unittest.TestCase):
         sr = next(p for p in pt if p['label'] == 'Single Raised')
         self.assertAlmostEqual(sr['pct'], 60.0, places=1)
 
-    def test_pot_types_dict_gets_avg_pot(self):
-        """avg_pot should be mapped from avg_pot_size."""
+    def test_pot_types_dict_gets_fields(self):
+        """Pot type dict should map hands->count, wsd->win_rate, bb100, label."""
         data = {
             'bet_sizing': {
                 'pot_types': {
-                    'Single Raised': {'hands': 60, 'avg_pot_size': 12.5},
+                    'srp': {'hands': 60, 'wsd': 52.0, 'win_rate_bb100': 5.5, 'net': 100},
                 },
             },
         }
         prepare_sizing_data(data)
         pt = data['pot_types'][0]
-        self.assertEqual(pt['avg_pot'], 12.5)
+        self.assertEqual(pt['count'], 60)
+        self.assertEqual(pt['win_rate'], 52.0)
+        self.assertEqual(pt['bb100'], 5.5)
+        self.assertEqual(pt['label'], 'Single Raised')
 
     def test_preflop_sizing_pct_computed(self):
         """Preflop sizing should compute pct when missing."""

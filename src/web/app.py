@@ -19,6 +19,7 @@ def create_app(analytics_db_path: str = 'analytics.db',
         static_folder=os.path.join(os.path.dirname(__file__), 'static'),
     )
     app.config['DEBUG'] = debug
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
     app.config['ANALYTICS_DB_PATH'] = analytics_db_path
 
     from src.web.routes.main import main_bp
