@@ -381,7 +381,7 @@ class CashAnalyzer:
         rbw = False
 
         for action in actions:
-            is_raise = action['action_type'] in ('raise', 'bet')
+            is_raise = action['action_type'] in ('raise', 'bet', 'all-in')
 
             if action['is_hero']:
                 if not hero_first_acted:
@@ -390,14 +390,12 @@ class CashAnalyzer:
                         hero_vpip = True
                     if is_raise:
                         hero_pfr = True
+                        hero_vpip = True
                         if raises_before_hero == 0:
                             hero_open_raised = True
                     # Open shove: hero goes all-in with no prior raises
                     if action['action_type'] == 'all-in' and raises_before_hero == 0:
                         hero_open_shove = True
-                        hero_vpip = True
-                        hero_pfr = True
-                        hero_open_raised = True
                 else:
                     # Hero's subsequent action (facing a re-raise)
                     if action['action_type'] == 'fold' and hero_got_3bet:
@@ -421,7 +419,7 @@ class CashAnalyzer:
                 hero_pos = a.get('position')
                 break
 
-        three_bet_opp = raises_before_hero >= 1 and hero_first_acted
+        three_bet_opp = raises_before_hero == 1 and hero_first_acted
         three_bet = three_bet_opp and hero_pfr
 
         ats_opp = (hero_pos in ('CO', 'BTN', 'SB')

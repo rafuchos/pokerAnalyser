@@ -46,11 +46,13 @@ def extract_zip_files(folder_path: str) -> int:
 class Importer:
     """Incremental import pipeline."""
 
-    def __init__(self, db_path: str = 'poker.db'):
+    def __init__(self, db_path: str = 'poker.db', data_dir: str = 'data',
+                 hero_name: str = None):
         self.conn = get_connection(db_path)
         self.repo = Repository(self.conn)
         self.gg_parser = GGPokerParser()
-        self.ps_parser = PokerStarsParser()
+        self.ps_parser = PokerStarsParser(hero_name=hero_name) if hero_name else PokerStarsParser()
+        self.data_dir = data_dir
 
     def import_all(self, force: bool = False, source: str = 'all'):
         """Run the full import pipeline.
@@ -80,7 +82,8 @@ class Importer:
 
     def _extract_zips(self):
         """Extract ZIP files from all data folders."""
-        folders = ['data/cash', 'data/tournament', 'data/tournament-summary', 'data/pokerstars']
+        base = self.data_dir
+        folders = [f'{base}/cash', f'{base}/tournament', f'{base}/tournament-summary', f'{base}/pokerstars']
         total = 0
         for folder in folders:
             n = extract_zip_files(folder)
@@ -92,9 +95,9 @@ class Importer:
 
     def _import_cash_hands(self, force: bool):
         """Import cash hand history files."""
-        cash_path = Path('data/cash')
+        cash_path = Path(self.data_dir) / 'cash'
         if not cash_path.exists():
-            print("data/cash/ not found, skipping cash import.")
+            print(f"{cash_path}/ not found, skipping cash import.")
             return
 
         files = list(cash_path.glob('*.txt'))
@@ -173,9 +176,9 @@ class Importer:
 
     def _import_tournament_summaries(self, force: bool):
         """Import tournament summary files."""
-        summary_path = Path('data/tournament-summary')
+        summary_path = Path(self.data_dir) / 'tournament-summary'
         if not summary_path.exists():
-            print("data/tournament-summary/ not found, skipping summaries.")
+            print(f"{summary_path}/ not found, skipping summaries.")
             return
 
         files = list(summary_path.glob('*.txt'))
@@ -208,7 +211,7 @@ class Importer:
     def _import_tournament_hands(self, force: bool):
         """Import tournament hand history files, build tournament records, and store hand data."""
         # GGPoker tournaments
-        tournament_path = Path('data/tournament')
+        tournament_path = Path(self.data_dir) / 'tournament'
         gg_hands = []
         gg_hand_texts = []  # (hand_text, tournament_id) for HandData parsing
         if tournament_path.exists():
@@ -242,7 +245,7 @@ class Importer:
                     print(f"  {skipped} file(s) already imported (skipped)")
 
         # PokerStars tournaments
-        ps_path = Path('data/pokerstars')
+        ps_path = Path(self.data_dir) / 'pokerstars'
         ps_summaries = {}
         ps_hands = []
         ps_hand_texts = []  # (hand_text, tournament_id, tournament_name) for HandData parsing
@@ -261,16 +264,21 @@ class Importer:
                     with open(fpath_str, 'r', encoding='utf-8') as f:
                         content = f.read()
 
-                    hands, summary = self.ps_parser.parse_tournament_file(fpath_str)
+                    hands, summaries = self.ps_parser.parse_tournament_file(fpath_str)
                     ps_hands.extend(hands)
-                    if summary:
+                    for summary in (summaries or []):
                         ps_summaries[summary['tournament_id']] = summary
-                        # Collect hand texts for HandData parsing
-                        for hand_text in content.split('\n\n\n'):
-                            if hand_text.strip():
-                                ps_hand_texts.append(
-                                    (hand_text, summary['tournament_id'],
-                                     summary.get('tournament_name', '')))
+                    # Collect hand texts for HandData parsing
+                    for hand_text in content.split('\n\n\n'):
+                        ht = hand_text.strip()
+                        if ht:
+                            # Extract tournament_id from hand header
+                            import re as _re
+                            tid_m = _re.search(r'Tournament #(\d+)', ht)
+                            tid = 'PS' + tid_m.group(1) if tid_m else None
+                            tname = ps_summaries.get(tid, {}).get('tournament_name', '') if tid else ''
+                            if tid:
+                                ps_hand_texts.append((hand_text, tid, tname))
 
                     self.repo.mark_file_imported(fpath_str, fhash, len(hands))
                 if skipped:

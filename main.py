@@ -26,7 +26,9 @@ def cmd_import(args):
     print("=" * 60)
     print()
 
-    importer = Importer(db_path=args.db)
+    data_dir = getattr(args, 'data_dir', None) or 'data'
+    hero_name = getattr(args, 'hero_name', None)
+    importer = Importer(db_path=args.db, data_dir=data_dir, hero_name=hero_name)
     importer.import_all(force=args.force, source=args.source)
 
     print()
@@ -315,6 +317,10 @@ def main():
                                help='Re-import files even if already imported')
     import_parser.add_argument('--source', choices=['cash', 'tournament', 'all'],
                                default='all', help='Type of data to import (default: all)')
+    import_parser.add_argument('--dir', dest='data_dir', default='data',
+                               help='Base data directory containing cash/, tournament/ subfolders (default: data)')
+    import_parser.add_argument('--hero', dest='hero_name', default=None,
+                               help='Hero player name for PokerStars files (default: auto-detect from GGPoker)')
 
     # report subcommand
     report_parser = subparsers.add_parser('report', help='Generate HTML reports')

@@ -35,23 +35,105 @@ class TournamentAnalyzer:
 
     game_type = 'tournament'
 
-    # Reuse health ranges from CashAnalyzer
-    HEALTHY_RANGES = CashAnalyzer.HEALTHY_RANGES
-    WARNING_RANGES = CashAnalyzer.WARNING_RANGES
-    POSTFLOP_HEALTHY_RANGES = CashAnalyzer.POSTFLOP_HEALTHY_RANGES
-    POSTFLOP_WARNING_RANGES = CashAnalyzer.POSTFLOP_WARNING_RANGES
+    # Tournament-specific healthy ranges (wider than cash due to antes, ICM, stack dynamics)
+    HEALTHY_RANGES = {
+        'vpip': (20, 30),
+        'pfr': (16, 24),
+        'three_bet': (7, 13),
+        'fold_to_3bet': (38, 55),
+        'ats': (28, 48),
+        'open_shove': (0, 10),
+        'rbw': (45, 80),
+    }
+    WARNING_RANGES = {
+        'vpip': (16, 36),
+        'pfr': (12, 30),
+        'three_bet': (4, 17),
+        'fold_to_3bet': (28, 65),
+        'ats': (18, 58),
+        'open_shove': (0, 18),
+        'rbw': (30, 90),
+    }
 
-    # Reuse positional/stack depth ranges from CashAnalyzer
-    POSITION_VPIP_HEALTHY = CashAnalyzer.POSITION_VPIP_HEALTHY
-    POSITION_VPIP_WARNING = CashAnalyzer.POSITION_VPIP_WARNING
-    POSITION_PFR_HEALTHY = CashAnalyzer.POSITION_PFR_HEALTHY
-    POSITION_PFR_WARNING = CashAnalyzer.POSITION_PFR_WARNING
-    STACK_VPIP_HEALTHY = CashAnalyzer.STACK_VPIP_HEALTHY
-    STACK_VPIP_WARNING = CashAnalyzer.STACK_VPIP_WARNING
-    STACK_PFR_HEALTHY = CashAnalyzer.STACK_PFR_HEALTHY
-    STACK_PFR_WARNING = CashAnalyzer.STACK_PFR_WARNING
-    STACK_3BET_HEALTHY = CashAnalyzer.STACK_3BET_HEALTHY
-    STACK_3BET_WARNING = CashAnalyzer.STACK_3BET_WARNING
+    POSTFLOP_HEALTHY_RANGES = {
+        'af': (2.0, 4.0),
+        'wtsd': (23, 35),
+        'wsd': (45, 58),
+        'cbet': (55, 78),
+        'fold_to_cbet': (30, 50),
+        'check_raise': (5, 14),
+        'won_saw_flop': (42, 58),
+        'bet_river': (28, 55),
+        'call_river': (22, 42),
+        'probe': (28, 55),
+        'fold_to_probe': (30, 55),
+        'bet_vs_missed_cbet': (28, 55),
+        'xf_oop': (18, 38),
+    }
+    POSTFLOP_WARNING_RANGES = {
+        'af': (1.3, 5.0),
+        'wtsd': (18, 42),
+        'wsd': (38, 65),
+        'cbet': (40, 88),
+        'fold_to_cbet': (20, 62),
+        'check_raise': (2, 20),
+        'won_saw_flop': (35, 65),
+        'bet_river': (18, 65),
+        'call_river': (12, 58),
+        'probe': (18, 65),
+        'fold_to_probe': (20, 68),
+        'bet_vs_missed_cbet': (18, 65),
+        'xf_oop': (8, 48),
+    }
+
+    # Tournament positional ranges (wider than cash, especially blinds)
+    POSITION_VPIP_HEALTHY = {
+        'UTG': (14, 22), 'UTG+1': (15, 23), 'MP': (16, 25), 'MP+1': (17, 26),
+        'HJ': (18, 28), 'CO': (20, 32), 'BTN': (24, 38),
+        'SB': (22, 36), 'BB': (40, 58),
+    }
+    POSITION_VPIP_WARNING = {
+        'UTG': (10, 28), 'UTG+1': (11, 29), 'MP': (12, 32), 'MP+1': (13, 33),
+        'HJ': (14, 35), 'CO': (16, 40), 'BTN': (18, 48),
+        'SB': (16, 44), 'BB': (32, 68),
+    }
+
+    POSITION_PFR_HEALTHY = {
+        'UTG': (12, 22), 'UTG+1': (13, 22), 'MP': (14, 23), 'MP+1': (14, 23),
+        'HJ': (15, 24), 'CO': (17, 28), 'BTN': (20, 35),
+        'SB': (14, 26), 'BB': (8, 18),
+    }
+    POSITION_PFR_WARNING = {
+        'UTG': (8, 26), 'UTG+1': (9, 27), 'MP': (10, 28), 'MP+1': (10, 29),
+        'HJ': (11, 30), 'CO': (13, 35), 'BTN': (15, 45),
+        'SB': (10, 34), 'BB': (5, 24),
+    }
+
+    # Tournament stack depth ranges (more volatile, wider shove zone)
+    STACK_VPIP_HEALTHY = {
+        'deep': (20, 30), 'medium': (18, 28),
+        'shallow': (16, 30), 'shove': (22, 60),
+    }
+    STACK_VPIP_WARNING = {
+        'deep': (16, 36), 'medium': (14, 34),
+        'shallow': (12, 38), 'shove': (16, 75),
+    }
+    STACK_PFR_HEALTHY = {
+        'deep': (16, 24), 'medium': (14, 23),
+        'shallow': (12, 25), 'shove': (20, 55),
+    }
+    STACK_PFR_WARNING = {
+        'deep': (12, 30), 'medium': (10, 28),
+        'shallow': (8, 32), 'shove': (15, 70),
+    }
+    STACK_3BET_HEALTHY = {
+        'deep': (7, 14), 'medium': (6, 13),
+        'shallow': (4, 12), 'shove': (0, 8),
+    }
+    STACK_3BET_WARNING = {
+        'deep': (4, 18), 'medium': (3, 17),
+        'shallow': (2, 16), 'shove': (0, 14),
+    }
 
     def __init__(self, repo: Repository, year: str = '2026', skip_ev: bool = False,
                  exclude_satellites: bool = True):

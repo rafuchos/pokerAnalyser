@@ -15,8 +15,13 @@ class PokerStarsParser(BaseParser):
 
     platform = 'PokerStars'
 
-    def __init__(self, hero_name: str = 'gangsta221'):
-        self.hero_name = hero_name
+    def __init__(self, hero_name: str = None):
+        self.hero_name = hero_name or ''
+
+    def _detect_hero(self, content: str) -> str:
+        """Auto-detect hero name from 'Dealt to X [' pattern."""
+        m = re.search(r'Dealt to (.+?) \[', content)
+        return m.group(1) if m else self.hero_name
 
     def parse_hand_file(self, filepath: str) -> list[HandData]:
         """Parse a PokerStars cash hand history file (not yet implemented)."""
@@ -26,33 +31,99 @@ class PokerStarsParser(BaseParser):
         """Parse a PokerStars tournament (embedded in hand history file)."""
         return None
 
-    def parse_tournament_file(self, filepath: str) -> tuple[list[dict], Optional[dict]]:
+    def parse_tournament_file(self, filepath: str) -> tuple[list[dict], list[dict]]:
         """Parse a PokerStars tournament hand history file.
 
+        Supports files with multiple tournaments (merged hand histories).
+
         Returns:
-            Tuple of (parsed_hands, summary_dict) where summary_dict
-            contains tournament-level info (buy-in, prize, position, etc.)
+            Tuple of (parsed_hands, summaries_list) where summaries_list
+            contains one summary dict per distinct tournament found.
         """
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
+        # Parse all hands first, extracting real tournament_id from each
+        hands_raw = content.split('\n\n\n')
+        parsed = []
+        # Group hand texts by tournament_id for summary extraction
+        tournament_hand_texts: dict[str, list[str]] = {}
+
+        for hand_text in hands_raw:
+            if not hand_text.strip():
+                continue
+            hand = self._parse_single_hand_auto(hand_text)
+            if hand:
+                parsed.append(hand)
+                tid = hand['tournament_id']
+                tournament_hand_texts.setdefault(tid, []).append(hand_text)
+
+        if not parsed:
+            return [], []
+
+        # Build one summary per tournament
+        summaries = []
+        for tid, htexts in tournament_hand_texts.items():
+            block = '\n\n\n'.join(htexts)
+            summary = self._extract_tournament_summary(tid, block)
+            if summary:
+                summaries.append(summary)
+
+        return parsed, summaries
+
+    def _parse_single_hand_auto(self, hand_text: str) -> Optional[dict]:
+        """Parse a single hand, extracting tournament_id from the hand header."""
+        lines = hand_text.strip().split('\n')
+        if not lines:
+            return None
+
         header_match = re.search(
-            r"Tournament #(\d+),\s*\$([\d.]+)\+\$([\d.]+)(?:\+\$([\d.]+))?\s*USD",
+            r"Tournament #(\d+),", lines[0]
+        )
+        if not header_match:
+            return None
+
+        tid = 'PS' + header_match.group(1)
+
+        # Extract buy-in info for tournament name
+        buyin_match = re.search(
+            r"Tournament #\d+,\s*\$([\d.]+)\+\$([\d.]+)(?:\+\$([\d.]+))?\s*USD",
+            lines[0]
+        )
+        if buyin_match:
+            buy_in_part = float(buyin_match.group(1))
+            if buyin_match.group(3):
+                bounty_part = float(buyin_match.group(2))
+                rake_part = float(buyin_match.group(3))
+            else:
+                bounty_part = 0.0
+                rake_part = float(buyin_match.group(2))
+            total = buy_in_part + bounty_part + rake_part
+            is_bounty = bounty_part > 0
+            tname = f"[PS] Bounty ${total:.2f}" if is_bounty else f"[PS] MTT ${total:.2f}"
+        else:
+            tname = f"[PS] Tournament {tid}"
+
+        return self._parse_single_hand(hand_text, tid, tname)
+
+    def _extract_tournament_summary(self, tournament_id: str, content: str) -> Optional[dict]:
+        """Extract tournament summary info from a block of hands for one tournament."""
+        header_match = re.search(
+            r"Tournament #\d+,\s*\$([\d.]+)\+\$([\d.]+)(?:\+\$([\d.]+))?\s*USD",
             content
         )
         if not header_match:
-            return [], None
+            return None
 
-        tournament_id = 'PS' + header_match.group(1)
-        buy_in_part = float(header_match.group(2))
+        buy_in_part = float(header_match.group(1))
         rake_part = 0.0
         bounty_part = 0.0
 
-        if header_match.group(4):
-            bounty_part = float(header_match.group(3))
-            rake_part = float(header_match.group(4))
-        else:
+        if header_match.group(3):
+            bounty_part = float(header_match.group(2))
             rake_part = float(header_match.group(3))
+        else:
+            rake_part = float(header_match.group(2))
 
         is_bounty = bounty_part > 0
         total_buy_in_unit = buy_in_part + bounty_part + rake_part
@@ -62,16 +133,18 @@ class PokerStarsParser(BaseParser):
         else:
             tournament_name = f"[PS] MTT ${total_buy_in_unit:.2f}"
 
+        hero_esc = re.escape(self.hero_name)
+
         # Count re-entries
         reentries = len(re.findall(
-            rf'{re.escape(self.hero_name)} finished the tournament\s*\n', content
+            rf'{hero_esc} finished the tournament\s*\n', content
         ))
 
         # Final position and prize
         position = None
         position_prize = 0.0
         finish_match = re.search(
-            rf'{re.escape(self.hero_name)} finished the tournament in (\d+)(?:st|nd|rd|th) place'
+            rf'{hero_esc} finished the tournament in (\d+)(?:st|nd|rd|th) place'
             rf'(?:\s+and received \$([\d,.]+)\.)?',
             content
         )
@@ -82,15 +155,22 @@ class PokerStarsParser(BaseParser):
 
         # Bounty wins
         bounty_wins = re.findall(
-            rf'{re.escape(self.hero_name)} wins \$([\d,.]+) for eliminating', content
+            rf'{hero_esc} wins \$([\d,.]+) for eliminating', content
         )
         total_bounties = sum(float(b.replace(',', '')) for b in bounty_wins)
 
         prize = position_prize + total_bounties
 
-        summary = {
+        # Extract date from first hand
+        date_match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})', content)
+        date_str = None
+        if date_match:
+            date_str = date_match.group(1).replace('/', '-').replace(' ', 'T')
+
+        return {
             'tournament_id': tournament_id,
             'tournament_name': tournament_name,
+            'date': date_str,
             'buy_in': buy_in_part,
             'rake': rake_part,
             'bounty': bounty_part,
@@ -102,19 +182,6 @@ class PokerStarsParser(BaseParser):
             'reentries': reentries,
             'is_bounty': is_bounty,
         }
-
-        # Parse individual hands
-        hands_raw = content.split('\n\n\n')
-        parsed = []
-
-        for hand_text in hands_raw:
-            if not hand_text.strip():
-                continue
-            hand = self._parse_single_hand(hand_text, tournament_id, tournament_name)
-            if hand:
-                parsed.append(hand)
-
-        return parsed, summary
 
     def _parse_single_hand(self, hand_text: str, tournament_id: str,
                            tournament_name: str) -> Optional[dict]:
@@ -246,11 +313,11 @@ class PokerStarsParser(BaseParser):
             if f'{self.hero_name} collected' in line:
                 collected_match = re.search(rf'{hero_pattern} collected ([\d,]+)', line)
                 if collected_match:
-                    hero_collected = int(collected_match.group(1).replace(',', ''))
-                    break
+                    hero_collected += int(collected_match.group(1).replace(',', ''))
 
         # Track investment
         hero_total_invested = 0
+        hero_ante = 0
         current_street_total = 0
 
         for line in lines:
@@ -272,7 +339,7 @@ class PokerStarsParser(BaseParser):
                 elif 'posts the ante' in action_str:
                     ante_match = re.search(r'posts the ante ([\d,]+)', action_str)
                     if ante_match:
-                        current_street_total += int(ante_match.group(1).replace(',', ''))
+                        hero_ante = int(ante_match.group(1).replace(',', ''))
                 elif 'raises' in action_str:
                     raise_match = re.search(r'raises ([\d,]+) to ([\d,]+)', action_str)
                     if raise_match:
@@ -287,7 +354,7 @@ class PokerStarsParser(BaseParser):
                         current_street_total += int(call_match.group(1).replace(',', ''))
 
         hero_total_invested += current_street_total
-        hero_invested = hero_total_invested - returned_to_hero
+        hero_invested = hero_total_invested + hero_ante - returned_to_hero
         net_result = hero_collected - hero_invested
 
         return HandData(
