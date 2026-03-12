@@ -1168,7 +1168,11 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
     data['custom_from'] = from_date
     data['custom_to'] = to_date
 
-    ev = data.get('allin_ev') or {}
+    raw_ev = data.get('allin_ev') or {}
+    # Flatten 'overall' sub-dict to top level for template access
+    ev = dict(raw_ev.get('overall', {}))
+    ev['by_stakes'] = raw_ev.get('by_stakes', {})
+    ev['allin_count'] = ev.get('allin_hands', 0)
     data['ev_summary'] = ev
 
     # Build cumulative EV vs Real line chart from daily reports
@@ -1215,7 +1219,23 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
             'final_ev': ev_vals[-1] if ev_vals else 0,
         }
     else:
-        data['ev_chart'] = {}
+        # Fallback: use pre-computed chart_data from allin_ev analyzer
+        chart_data = raw_ev.get('chart_data', [])
+        if chart_data:
+            r_vals = [pt.get('real', 0) for pt in chart_data]
+            e_vals = [pt.get('ev', 0) for pt in chart_data]
+            all_v = r_vals + e_vals
+            data['ev_chart'] = {
+                'real_points': _build_chart_points(r_vals),
+                'ev_points': _build_chart_points(e_vals),
+                'dates': [str(pt.get('hand', '')) for pt in chart_data],
+                'y_min': min(all_v) if all_v else 0,
+                'y_max': max(all_v) if all_v else 0,
+                'final_real': r_vals[-1] if r_vals else 0,
+                'final_ev': e_vals[-1] if e_vals else 0,
+            }
+        else:
+            data['ev_chart'] = {}
 
     # Decision EV by street — flatten nested dict into list for template
     raw_dev = data.get('decision_ev') or {}
