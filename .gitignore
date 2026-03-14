@@ -1,10 +1,7 @@
-# Dados de mãos - ignorar conteúdo mas manter estrutura
-data/cash/*
-data/tournament/*
-data/tournament-summary/*
-data/pokerstars/*
+# Dados de mãos - ignorar tudo dentro de data/
+data/
 
-# Manter estrutura de pastas
+# Manter estrutura de pastas padrão
 !data/cash/.gitkeep
 !data/tournament/.gitkeep
 !data/tournament-summary/.gitkeep
