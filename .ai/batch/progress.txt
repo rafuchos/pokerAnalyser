@@ -449,3 +449,13 @@ US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sess
 
 === US-041 completed at 2026-03-15T05:22:00.292Z ===
 - All quality gates passed
+
+=== US-042 completed at 2026-03-15 ===
+- All 164 tests passing (60 new for BB preflop evaluation)
+- Pattern: _BB_TIER1 through _BB_TIER4 sets for BB defense ranges by strength tier
+- Pattern: _BB_POS_DEFEND_TIER maps opener position → max defense tier (UTG=1, MP/HJ=2, CO=3, BTN/SB=4)
+- Pattern: _bb_hand_tier(notation) → 1-5, same structure as _rfi_hand_tier()
+- Pattern: _eval_bb_preflop() uses tier comparison: hand_tier <= pos_tier → defend, hand_tier == pos_tier+1 → marginal, else fold
+- Pattern: Limped pot (no open_raiser_pos) → checking is always correct (return 1)
+- Pattern: Marginal hands capped at tier <= 4 (tier 5 vs any opener is always trash, never marginal)
+- Lesson: Previous attempt timed out; implementation was already complete, just needed test verification and commit
