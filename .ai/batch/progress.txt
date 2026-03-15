@@ -465,3 +465,13 @@ US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sess
 
 === US-043 completed at 2026-03-15T05:50:59.311Z ===
 - All quality gates passed
+
+=== US-044 completed at 2026-03-15 ===
+- All 283 lesson classifier tests passing (72 new)
+- Pattern: _FLAT_TIER1/2/3 sets for position-based flat-call ranges
+- Pattern: _3BET_TIER1/2/3/4 sets for position-based 3-bet ranges
+- Pattern: _VS3BET_CONTINUE / _VS3BET_4BET / _VS3BET_MARGINAL for reaction vs 3-bet classification
+- Pattern: _SQUEEZE_TIER1/2 sets with _SQUEEZE_POS_MAX_TIER for squeeze range validation
+- Pattern: _flat_hand_tier(), _3bet_hand_tier(), _squeeze_hand_tier() helper methods follow same tier pattern as _rfi_hand_tier()
+- Bugfix: _analyze_preflop() hero_faces_3bet was not set when hero folded (fold hit continue before line 802)
+- Lesson: Fold actions in _analyze_preflop() must set detection flags before the `continue` statement
