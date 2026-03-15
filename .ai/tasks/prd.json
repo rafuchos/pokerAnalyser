@@ -861,7 +861,8 @@
       "files_affected": [
         "src/analyzers/lesson_classifier.py",
         "src/db/seed_lessons.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-043",
