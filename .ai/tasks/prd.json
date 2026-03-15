@@ -1242,7 +1242,8 @@
         "src/db/repository.py",
         "src/web/static/css/style.css",
         "src/web/static/js/app.js"
-      ]
+      ],
+      "passes": true
     }
   ]
 }
