@@ -135,6 +135,74 @@ class LessonClassifier:
     }
     # All other hands (offsuit with no pair, no suit, poor connectivity) → fold
 
+    # ── BB Pre-Flop Defense Data (from RegLife 'Jogando no Big Blind - Pre-Flop') ──
+    # Hands the BB should defend (call or 3-bet) vs a single raise.
+    # Tiered by hand strength: tier 1 = defend vs any opener; tier 4 = defend vs BTN/SB only.
+
+    # Tier 1: Always defend vs any opener, including UTG
+    _BB_TIER1 = {
+        # Pairs 77+ (strong equity and pair value)
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77',
+        # All suited aces (nut flush draws are always valuable)
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        # Top suited broadways and kings
+        'KQs', 'KJs', 'KTs', 'K9s',
+        'QJs', 'QTs', 'Q9s',
+        'JTs', 'J9s',
+        # Strong suited connectors
+        'T9s', '98s', '87s', '76s', '65s', '54s',
+        # Strong offsuit broadways
+        'AKo', 'AQo', 'AJo',
+        'KQo',
+    }
+    # Tier 2: Defend vs MP/HJ or later (~28-30% from BB)
+    _BB_TIER2 = {
+        # Small pairs (set mining, pair equity)
+        '66', '55', '44', '33', '22',
+        # Medium suited kings and queens
+        'K8s', 'K7s', 'K6s',
+        'Q8s', 'J8s', 'T8s',
+        # Suited 1-gappers and weaker connectors
+        '97s', '86s', '75s', '64s', '53s', '43s', '42s', '32s',
+        # Medium offsuit broadways
+        'ATo',
+        'KJo', 'KTo',
+    }
+    # Tier 3: Defend vs CO or later (~38-42% from BB)
+    _BB_TIER3 = {
+        # Weak suited kings
+        'K5s', 'K4s', 'K3s', 'K2s',
+        # Medium suited queens and weaker
+        'Q7s', 'Q6s',
+        'J7s', 'T7s', '96s', '85s', '74s', '63s', '52s',
+        # Medium offsuit
+        'A9o', 'A8o',
+        'QJo', 'QTo', 'JTo',
+    }
+    # Tier 4: Defend vs BTN/SB only (widest defense range, ~50%)
+    _BB_TIER4 = {
+        # Weak suited queens, jacks, tens
+        'Q5s', 'Q4s', 'Q3s', 'Q2s',
+        'J6s', 'J5s', 'J4s', 'J3s', 'J2s',
+        'T6s', 'T5s', 'T4s', 'T3s', 'T2s',
+        # Very weak suited hands
+        '95s', '94s', '93s', '92s', '84s', '83s', '82s', '73s', '72s', '62s',
+        # Medium offsuit aces and kings
+        'A7o', 'A6o', 'A5o', 'A4o', 'A3o', 'A2o',
+        'K9o', 'K8o', 'K7o',
+        # Connected medium offsuit
+        'Q9o', 'Q8o',
+        'J9o',
+        'T9o', '98o', '87o', '76o', '65o', '54o',
+    }
+    # Position of single opener → max tier the BB should defend
+    _BB_POS_DEFEND_TIER = {
+        'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+        'LJ': 2, 'MP': 2, 'HJ': 2,
+        'CO': 3,
+        'BTN': 4, 'SB': 4,
+    }
+
     def __init__(self, repo: Repository):
         self.repo = repo
         self._lessons = {}  # lesson_id -> lesson dict
@@ -655,6 +723,22 @@ class LessonClassifier:
             return 4
         return 5
 
+    def _bb_hand_tier(self, notation: str) -> int:
+        """Return BB defense tier (1-5) for a hand notation.
+
+        Tier 1 = strongest (defend vs any opener including UTG).
+        Tier 5 = trash (fold vs any raise).
+        """
+        if notation in self._BB_TIER1:
+            return 1
+        if notation in self._BB_TIER2:
+            return 2
+        if notation in self._BB_TIER3:
+            return 3
+        if notation in self._BB_TIER4:
+            return 4
+        return 5
+
     def _eval_rfi(self, hand: dict, pf: dict) -> Optional[int]:
         """Evaluate RFI execution based on position, hand strength, and sizing.
 
@@ -714,10 +798,45 @@ class LessonClassifier:
         return 1  # continued action
 
     def _eval_bb_preflop(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate BB play preflop."""
-        if pf.get('hero_folds_preflop'):
+        """Evaluate BB preflop play vs a single raise.
+
+        Based on RegLife 'Jogando no Big Blind - Pré-Flop':
+        - Correct (1): Defended strong hand for opener position, folded trash,
+          or checked a free flop in a limped pot.
+        - Partial (None): Marginal hand (one tier wider than opener's max tier);
+          correct action depends on sizing and tendencies.
+        - Incorrect (0): Folded a strong BB hand, or called/raised with trash.
+        """
+        hero_cards = hand.get('hero_cards')
+        hero_folded = pf.get('hero_folds_preflop', False)
+        open_raiser_pos = (pf.get('open_raiser_pos') or '').upper()
+
+        # Limped pot (no open raise) or BB raised themselves (iso-raise):
+        # checking/raising is standard play → mark as correct.
+        if not open_raiser_pos or open_raiser_pos == 'BB':
+            return 1 if not hero_folded else None
+
+        # Cannot evaluate hand quality without hero cards.
+        if not hero_cards:
             return None
-        return 1
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return None
+
+        hand_tier = self._bb_hand_tier(notation)
+        pos_tier = self._BB_POS_DEFEND_TIER.get(open_raiser_pos, 2)
+
+        if hand_tier <= pos_tier:
+            # Hand is in range for this opener: should defend.
+            return 0 if hero_folded else 1
+        elif hand_tier == pos_tier + 1 and hand_tier <= 4:
+            # Marginal hand (one tier above opener's max, but not trash):
+            # action is context-dependent.
+            return None
+        else:
+            # Hand is too weak to defend vs this opener: should fold.
+            return 1 if hero_folded else 0
 
     def _eval_sb_vs_bb(self, hand: dict, pf: dict) -> Optional[int]:
         """Evaluate SB steal attempt."""

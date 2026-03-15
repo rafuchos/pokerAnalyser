@@ -1691,5 +1691,419 @@ class TestMultiwayBBEvaluation(unittest.TestCase):
         self.assertEqual(mwbb.executed_correctly, 0, 'Folding AA multiway = incorrect')
 
 
+# ── BB Pre-Flop Evaluation Tests (US-042) ────────────────────────────
+
+
+class TestBBPreflopEvaluation(unittest.TestCase):
+    """Test BB preflop evaluation with hand-based classification.
+
+    Based on RegLife 'Jogando no Big Blind - Pré-Flop':
+    - Strong hands: always defend (call or 3-bet) from BB
+    - Trash hands: fold vs any raise
+    - Marginal hands: context-dependent (opener position)
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _bb_result(self, hand_id):
+        """Get executed_correctly for lesson 6 (BB Pre-Flop)."""
+        matches = self._classify(hand_id)
+        bb = next((m for m in matches if m.lesson_id == 6), None)
+        return bb.executed_correctly if bb else None
+
+    def _insert_bb_vs_raise(self, hand_id, hero_cards='Ah Kd', hero_action='call',
+                             hero_amount=1.5, opener_pos='BTN', opener_amount=1.5):
+        """Insert a BB hand facing a single raise from another player."""
+        _insert_hand(self.repo, hand_id, position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Villain', 'raise',
+                       opener_amount, 0, 1, opener_pos)
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', hero_action,
+                       hero_amount, 1, 2, 'BB')
+
+    def _insert_bb_limped(self, hand_id, hero_cards='Ah Kd', hero_action='check',
+                          num_limpers=2):
+        """Insert a BB hand in a limped pot (no raise, BB gets free flop)."""
+        _insert_hand(self.repo, hand_id, position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        for i in range(num_limpers):
+            _insert_action(self.repo, hand_id, 'preflop', f'P{i+1}', 'call',
+                           0.5, 0, i + 1, f'P{i+1}')
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', hero_action,
+                       0, 1, num_limpers + 1, 'BB')
+
+    # -- Hand tier set membership tests --
+
+    def test_bb_tier1_has_premium_pairs(self):
+        """Tier 1 should include 77+ (always defend vs any opener)."""
+        for pair in ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77']:
+            self.assertIn(pair, self.classifier._BB_TIER1,
+                          f'{pair} should be in BB_TIER1')
+
+    def test_bb_tier1_has_all_suited_aces(self):
+        """All suited aces should be in tier 1 (nut flush draws are always valuable)."""
+        for hand in ['AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s',
+                     'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s']:
+            self.assertIn(hand, self.classifier._BB_TIER1,
+                          f'{hand} should be in BB_TIER1')
+
+    def test_bb_tier1_has_strong_suited_connectors(self):
+        """Key suited connectors should be in tier 1."""
+        for hand in ['T9s', '98s', '87s', '76s', '65s', '54s']:
+            self.assertIn(hand, self.classifier._BB_TIER1,
+                          f'{hand} should be in BB_TIER1')
+
+    def test_bb_tier1_has_strong_offsuit(self):
+        """AKo, AQo, AJo, KQo are always defend vs any opener."""
+        for hand in ['AKo', 'AQo', 'AJo', 'KQo']:
+            self.assertIn(hand, self.classifier._BB_TIER1,
+                          f'{hand} should be in BB_TIER1')
+
+    def test_bb_tier2_has_small_pairs(self):
+        """Small pairs (66-22) should be tier 2 (defend vs MP+)."""
+        for pair in ['66', '55', '44', '33', '22']:
+            self.assertIn(pair, self.classifier._BB_TIER2,
+                          f'{pair} should be in BB_TIER2')
+
+    def test_bb_tier2_has_medium_offsuit_broadways(self):
+        """ATo, KJo, KTo are tier 2 (defend vs MP+)."""
+        for hand in ['ATo', 'KJo', 'KTo']:
+            self.assertIn(hand, self.classifier._BB_TIER2,
+                          f'{hand} should be in BB_TIER2')
+
+    def test_bb_tier3_has_weak_suited_kings(self):
+        """K5s-K2s should be tier 3 (defend vs CO+)."""
+        for hand in ['K5s', 'K4s', 'K3s', 'K2s']:
+            self.assertIn(hand, self.classifier._BB_TIER3,
+                          f'{hand} should be in BB_TIER3')
+
+    def test_bb_tier4_has_medium_offsuit_connected(self):
+        """T9o, 98o, 87o should be tier 4 (defend vs BTN/SB only)."""
+        for hand in ['T9o', '98o', '87o']:
+            self.assertIn(hand, self.classifier._BB_TIER4,
+                          f'{hand} should be in BB_TIER4')
+
+    def test_bb_trash_not_in_any_tier(self):
+        """Disconnected trash hands should not be in any tier."""
+        trash_hands = ['72o', '83o', '94o', 'K2o', 'Q2o', 'J2o', 'T2o']
+        for hand in trash_hands:
+            self.assertNotIn(hand, self.classifier._BB_TIER1,
+                             f'{hand} should NOT be in BB_TIER1')
+            self.assertNotIn(hand, self.classifier._BB_TIER2,
+                             f'{hand} should NOT be in BB_TIER2')
+            self.assertNotIn(hand, self.classifier._BB_TIER3,
+                             f'{hand} should NOT be in BB_TIER3')
+            self.assertNotIn(hand, self.classifier._BB_TIER4,
+                             f'{hand} should NOT be in BB_TIER4')
+
+    def test_bb_pos_defend_tier_utg_is_1(self):
+        """UTG opener → BB uses tier 1 (tightest defense)."""
+        self.assertEqual(self.classifier._BB_POS_DEFEND_TIER.get('UTG'), 1)
+
+    def test_bb_pos_defend_tier_mp_is_2(self):
+        """MP/HJ opener → BB uses tier 2 defense."""
+        self.assertEqual(self.classifier._BB_POS_DEFEND_TIER.get('MP'), 2)
+        self.assertEqual(self.classifier._BB_POS_DEFEND_TIER.get('HJ'), 2)
+
+    def test_bb_pos_defend_tier_co_is_3(self):
+        """CO opener → BB uses tier 3 defense."""
+        self.assertEqual(self.classifier._BB_POS_DEFEND_TIER.get('CO'), 3)
+
+    def test_bb_pos_defend_tier_btn_is_4(self):
+        """BTN opener → BB uses tier 4 (widest defense)."""
+        self.assertEqual(self.classifier._BB_POS_DEFEND_TIER.get('BTN'), 4)
+
+    # -- _bb_hand_tier() helper tests --
+
+    def test_bb_hand_tier_pair_77(self):
+        """77 is tier 1."""
+        self.assertEqual(self.classifier._bb_hand_tier('77'), 1)
+
+    def test_bb_hand_tier_small_pair(self):
+        """22 is tier 2."""
+        self.assertEqual(self.classifier._bb_hand_tier('22'), 2)
+
+    def test_bb_hand_tier_suited_ace(self):
+        """A5s is tier 1."""
+        self.assertEqual(self.classifier._bb_hand_tier('A5s'), 1)
+
+    def test_bb_hand_tier_trash(self):
+        """72o is tier 5 (trash)."""
+        self.assertEqual(self.classifier._bb_hand_tier('72o'), 5)
+
+    def test_bb_hand_tier_weak_king_suited(self):
+        """K2s is tier 3."""
+        self.assertEqual(self.classifier._bb_hand_tier('K2s'), 3)
+
+    # -- Correct defense: strong hands defended --
+
+    def test_bb_correct_defend_premium_vs_btn(self):
+        """Calling with AKo vs BTN raise = correct."""
+        self._insert_bb_vs_raise('BBPF01', hero_cards='Ah Kd',
+                                  hero_action='call', opener_pos='BTN')
+        self.assertEqual(self._bb_result('BBPF01'), 1)
+
+    def test_bb_correct_defend_pair_vs_utg(self):
+        """Calling with 99 vs UTG raise = correct (tier 1 pair)."""
+        self._insert_bb_vs_raise('BBPF02', hero_cards='9h 9d',
+                                  hero_action='call', opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF02'), 1)
+
+    def test_bb_correct_defend_suited_ace_vs_utg(self):
+        """Calling with A5s vs UTG raise = correct (tier 1 hand)."""
+        self._insert_bb_vs_raise('BBPF03', hero_cards='Ah 5h',
+                                  hero_action='call', opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF03'), 1)
+
+    def test_bb_correct_defend_suited_connector_vs_btn(self):
+        """Calling with 76s vs BTN raise = correct (tier 1)."""
+        self._insert_bb_vs_raise('BBPF04', hero_cards='7h 6h',
+                                  hero_action='call', opener_pos='BTN')
+        self.assertEqual(self._bb_result('BBPF04'), 1)
+
+    def test_bb_correct_defend_small_pair_vs_mp(self):
+        """Calling with 33 vs MP raise = correct (tier 2 vs tier 2 opener)."""
+        self._insert_bb_vs_raise('BBPF05', hero_cards='3h 3d',
+                                  hero_action='call', opener_pos='MP')
+        self.assertEqual(self._bb_result('BBPF05'), 1)
+
+    def test_bb_correct_defend_tier2_hand_vs_hj(self):
+        """Calling with 22 vs HJ raise = correct (tier 2 vs tier 2)."""
+        self._insert_bb_vs_raise('BBPF06', hero_cards='2h 2d',
+                                  hero_action='call', opener_pos='HJ')
+        self.assertEqual(self._bb_result('BBPF06'), 1)
+
+    def test_bb_correct_defend_tier3_hand_vs_co(self):
+        """Calling with K2s vs CO raise = correct (tier 3 vs tier 3)."""
+        self._insert_bb_vs_raise('BBPF07', hero_cards='Kh 2h',
+                                  hero_action='call', opener_pos='CO')
+        self.assertEqual(self._bb_result('BBPF07'), 1)
+
+    def test_bb_correct_defend_tier4_hand_vs_btn(self):
+        """Calling with A7o vs BTN raise = correct (tier 4 vs tier 4)."""
+        self._insert_bb_vs_raise('BBPF08', hero_cards='Ah 7d',
+                                  hero_action='call', opener_pos='BTN')
+        self.assertEqual(self._bb_result('BBPF08'), 1)
+
+    def test_bb_correct_defend_3bet_with_strong_hand(self):
+        """3-betting with AA vs BTN raise = correct."""
+        self._insert_bb_vs_raise('BBPF09', hero_cards='Ah Ad',
+                                  hero_action='raise', opener_pos='BTN')
+        self.assertEqual(self._bb_result('BBPF09'), 1)
+
+    # -- Correct fold: trash hands vs raises --
+
+    def test_bb_correct_fold_trash_vs_utg(self):
+        """Folding 72o vs UTG raise = correct (trash hand)."""
+        self._insert_bb_vs_raise('BBPF10', hero_cards='7h 2d',
+                                  hero_action='fold', hero_amount=0, opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF10'), 1)
+
+    def test_bb_correct_fold_trash_vs_btn(self):
+        """Folding 83o vs BTN raise = correct (trash even vs wide opener)."""
+        self._insert_bb_vs_raise('BBPF11', hero_cards='8h 3d',
+                                  hero_action='fold', hero_amount=0, opener_pos='BTN')
+        self.assertEqual(self._bb_result('BBPF11'), 1)
+
+    def test_bb_correct_fold_tier5_vs_mp(self):
+        """Folding K2o vs MP raise = correct (tier 5 trash)."""
+        self._insert_bb_vs_raise('BBPF12', hero_cards='Kh 2d',
+                                  hero_action='fold', hero_amount=0, opener_pos='MP')
+        self.assertEqual(self._bb_result('BBPF12'), 1)
+
+    def test_bb_correct_fold_tier4_hand_vs_utg(self):
+        """Folding T9o vs UTG raise = correct (tier 4 vs tier 1 opener)."""
+        self._insert_bb_vs_raise('BBPF13', hero_cards='Th 9d',
+                                  hero_action='fold', hero_amount=0, opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF13'), 1)
+
+    # -- Incorrect fold: strong hands folded --
+
+    def test_bb_incorrect_fold_premium_vs_btn(self):
+        """Folding AQo from BB vs BTN raise = incorrect."""
+        self._insert_bb_vs_raise('BBPF20', hero_cards='Ah Qd',
+                                  hero_action='fold', hero_amount=0, opener_pos='BTN')
+        self.assertEqual(self._bb_result('BBPF20'), 0)
+
+    def test_bb_incorrect_fold_pair_vs_mp(self):
+        """Folding 55 from BB vs MP raise = incorrect (tier 2 vs tier 2 opener)."""
+        self._insert_bb_vs_raise('BBPF21', hero_cards='5h 5d',
+                                  hero_action='fold', hero_amount=0, opener_pos='MP')
+        self.assertEqual(self._bb_result('BBPF21'), 0)
+
+    def test_bb_incorrect_fold_suited_ace_vs_utg(self):
+        """Folding A7s from BB vs UTG raise = incorrect (tier 1 hand)."""
+        self._insert_bb_vs_raise('BBPF22', hero_cards='Ah 7h',
+                                  hero_action='fold', hero_amount=0, opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF22'), 0)
+
+    def test_bb_incorrect_fold_suited_connector_vs_btn(self):
+        """Folding T9s from BB vs BTN raise = incorrect."""
+        self._insert_bb_vs_raise('BBPF23', hero_cards='Th 9h',
+                                  hero_action='fold', hero_amount=0, opener_pos='BTN')
+        self.assertEqual(self._bb_result('BBPF23'), 0)
+
+    def test_bb_incorrect_fold_premium_vs_utg(self):
+        """Folding KQs from BB vs UTG raise = incorrect (tier 1)."""
+        self._insert_bb_vs_raise('BBPF24', hero_cards='Kh Qh',
+                                  hero_action='fold', hero_amount=0, opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF24'), 0)
+
+    # -- Incorrect defense: trash hands defended --
+
+    def test_bb_incorrect_defend_trash_vs_utg(self):
+        """Calling with 83o vs UTG raise = incorrect."""
+        self._insert_bb_vs_raise('BBPF30', hero_cards='8h 3d',
+                                  hero_action='call', opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF30'), 0)
+
+    def test_bb_incorrect_defend_trash_vs_mp(self):
+        """Calling with 72o vs MP raise = incorrect."""
+        self._insert_bb_vs_raise('BBPF31', hero_cards='7h 2d',
+                                  hero_action='call', opener_pos='MP')
+        self.assertEqual(self._bb_result('BBPF31'), 0)
+
+    def test_bb_incorrect_defend_tier4_vs_utg(self):
+        """Calling with T9o vs UTG raise = incorrect (tier 4 vs tier 1 opener)."""
+        self._insert_bb_vs_raise('BBPF32', hero_cards='Th 9d',
+                                  hero_action='call', opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF32'), 0)
+
+    def test_bb_incorrect_defend_tier3_vs_utg(self):
+        """Calling with JTo vs UTG raise = incorrect (tier 3 vs tier 1 opener)."""
+        self._insert_bb_vs_raise('BBPF33', hero_cards='Jh Td',
+                                  hero_action='call', opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF33'), 0)
+
+    # -- Marginal hands: one tier above opener max --
+
+    def test_bb_marginal_tier2_hand_vs_utg(self):
+        """66 is tier 2; vs UTG (tier 1 opener) = marginal."""
+        self._insert_bb_vs_raise('BBPF40', hero_cards='6h 6d',
+                                  hero_action='call', opener_pos='UTG')
+        self.assertIsNone(self._bb_result('BBPF40'))
+
+    def test_bb_marginal_tier3_hand_vs_mp(self):
+        """K2s is tier 3; vs MP (tier 2 opener) = marginal."""
+        self._insert_bb_vs_raise('BBPF41', hero_cards='Kh 2h',
+                                  hero_action='call', opener_pos='MP')
+        self.assertIsNone(self._bb_result('BBPF41'))
+
+    def test_bb_marginal_tier4_hand_vs_co(self):
+        """Q5s is tier 4; vs CO (tier 3 opener) = marginal."""
+        self._insert_bb_vs_raise('BBPF42', hero_cards='Qh 5h',
+                                  hero_action='call', opener_pos='CO')
+        self.assertIsNone(self._bb_result('BBPF42'))
+
+    def test_bb_marginal_fold_tier2_vs_utg(self):
+        """Folding 22 vs UTG = marginal (tier 2 vs tier 1 opener)."""
+        self._insert_bb_vs_raise('BBPF43', hero_cards='2h 2d',
+                                  hero_action='fold', hero_amount=0, opener_pos='UTG')
+        self.assertIsNone(self._bb_result('BBPF43'))
+
+    def test_bb_marginal_tier2_vs_ep(self):
+        """ATo is tier 2; vs EP (tier 1 opener) = marginal."""
+        self._insert_bb_vs_raise('BBPF44', hero_cards='Ah Td',
+                                  hero_action='call', opener_pos='EP')
+        self.assertIsNone(self._bb_result('BBPF44'))
+
+    # -- Limped pot: BB gets free flop --
+
+    def test_bb_limped_pot_check_is_correct(self):
+        """BB checking in limped pot = correct (free flop)."""
+        self._insert_bb_limped('BBPF50', hero_cards='7h 2d', hero_action='check')
+        self.assertEqual(self._bb_result('BBPF50'), 1)
+
+    def test_bb_limped_pot_premium_check_correct(self):
+        """BB checking with AA in limped pot = correct."""
+        self._insert_bb_limped('BBPF51', hero_cards='Ah Ad', hero_action='check')
+        self.assertEqual(self._bb_result('BBPF51'), 1)
+
+    def test_bb_limped_pot_trash_check_correct(self):
+        """BB checking with 72o in limped pot = correct (no raise to fold to)."""
+        self._insert_bb_limped('BBPF52', hero_cards='7h 2d', hero_action='check')
+        self.assertEqual(self._bb_result('BBPF52'), 1)
+
+    # -- No hero cards: evaluation not possible --
+
+    def test_bb_no_cards_returns_none(self):
+        """Without hero cards, evaluation is unknown (None)."""
+        _insert_hand(self.repo, 'BBPF60', position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id='BBPF60'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'BBPF60', 'preflop', 'P1', 'raise', 1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, 'BBPF60', 'preflop', 'Hero', 'call', 1.5, 1, 2, 'BB')
+        self.assertIsNone(self._bb_result('BBPF60'))
+
+    # -- Detection: lesson 6 trigger conditions --
+
+    def test_bb_lesson_fires_for_bb_vs_raise(self):
+        """Lesson 6 triggers for any BB hand with preflop actions."""
+        _insert_hand(self.repo, 'BBPF80', position='BB')
+        _insert_action(self.repo, 'BBPF80', 'preflop', 'P1', 'raise', 1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, 'BBPF80', 'preflop', 'Hero', 'call', 1.5, 1, 2, 'BB')
+        matches = self._classify('BBPF80')
+        bb_match = next((m for m in matches if m.lesson_id == 6), None)
+        self.assertIsNotNone(bb_match, 'Lesson 6 should fire for BB hands')
+
+    def test_bb_lesson_does_not_fire_for_non_bb(self):
+        """Lesson 6 should not fire when hero is not in BB."""
+        _insert_hand(self.repo, 'BBPF81', position='BTN')
+        _insert_action(self.repo, 'BBPF81', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
+        matches = self._classify('BBPF81')
+        bb_match = next((m for m in matches if m.lesson_id == 6), None)
+        self.assertIsNone(bb_match, 'Lesson 6 should not fire for non-BB position')
+
+    def test_bb_lesson_fires_even_on_fold(self):
+        """Lesson 6 fires even when hero folds from BB (to detect incorrect folds)."""
+        self._insert_bb_vs_raise('BBPF82', hero_cards='Ah Ad',
+                                  hero_action='fold', hero_amount=0, opener_pos='BTN')
+        matches = self._classify('BBPF82')
+        bb_match = next((m for m in matches if m.lesson_id == 6), None)
+        self.assertIsNotNone(bb_match, 'Lesson 6 should fire even on fold')
+        self.assertEqual(bb_match.executed_correctly, 0, 'Folding AA from BB = incorrect')
+
+    # -- Position coverage: all opener positions --
+
+    def test_bb_each_position_strong_hand_defends(self):
+        """With AA (tier 1), defending vs any opener is always correct."""
+        positions = ['UTG', 'EP', 'LJ', 'MP', 'HJ', 'CO', 'BTN', 'SB']
+        for i, pos in enumerate(positions):
+            hid = f'BBPOS_{i}'
+            self._insert_bb_vs_raise(hid, hero_cards='Ah Ad',
+                                      hero_action='call', opener_pos=pos)
+            result = self._bb_result(hid)
+            self.assertEqual(result, 1, f'Defending AA vs {pos} should be correct')
+
+    def test_bb_tier4_hand_only_correct_vs_btn_sb(self):
+        """T9o (tier 4) is correct to defend vs BTN/SB, incorrect vs UTG."""
+        # vs BTN: tier 4 hand vs tier 4 opener → correct
+        self._insert_bb_vs_raise('BBPF90', hero_cards='Th 9d',
+                                  hero_action='call', opener_pos='BTN')
+        self.assertEqual(self._bb_result('BBPF90'), 1)
+        # vs UTG: tier 4 vs tier 1 → too weak, incorrect
+        self._insert_bb_vs_raise('BBPF91', hero_cards='Th 9d',
+                                  hero_action='call', opener_pos='UTG')
+        self.assertEqual(self._bb_result('BBPF91'), 0)
+
+
 if __name__ == '__main__':
     unittest.main()
