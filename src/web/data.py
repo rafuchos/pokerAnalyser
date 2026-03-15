@@ -1919,3 +1919,135 @@ def prepare_lessons_data(data, period='year', from_date='', to_date=''):
         data['mastery_pct'] = 0
 
     return data
+
+
+# ── Session Lesson Tab helpers ────────────────────────────────────
+
+
+def prepare_session_day_lessons(data, date, game_type, poker_db_path):
+    """Load per-day lesson performance from the main poker DB.
+
+    Queries hands JOIN hand_lessons JOIN lessons filtered by date and
+    game_type, then aggregates per-lesson stats with urgency ranking.
+
+    Adds: data['session_day_lessons'] = {
+        'summary': {total_hands, correct, incorrect, accuracy},
+        'lessons': [{lesson_id, title, category, total_hands, correct,
+                     incorrect, accuracy, mastery, global_accuracy,
+                     vs_global, urgency, hands: [...]}, ...]
+    } or None if no data available.
+    """
+    if not poker_db_path or not os.path.exists(poker_db_path):
+        data['session_day_lessons'] = None
+        return data
+
+    try:
+        conn = sqlite3.connect(poker_db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT
+                l.lesson_id, l.title, l.category,
+                h.hand_id, h.hero_cards, h.hero_position, h.net, h.date,
+                hl.executed_correctly, hl.street
+            FROM hands h
+            JOIN hand_lessons hl ON h.hand_id = hl.hand_id
+            JOIN lessons l ON hl.lesson_id = l.lesson_id
+            WHERE h.game_type = ?
+              AND substr(h.date, 1, 10) = ?
+            ORDER BY l.lesson_id
+        """, (game_type, date)).fetchall()
+        conn.close()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        data['session_day_lessons'] = None
+        return data
+
+    if not rows:
+        data['session_day_lessons'] = None
+        return data
+
+    # Aggregate per lesson
+    lesson_map = {}
+    for row in rows:
+        lid = row['lesson_id']
+        if lid not in lesson_map:
+            lesson_map[lid] = {
+                'lesson_id': lid,
+                'title': row['title'],
+                'category': row['category'],
+                'correct': 0,
+                'incorrect': 0,
+                'unknown': 0,
+                'total_hands': 0,
+                'hands': [],
+            }
+        ec = row['executed_correctly']
+        lesson_map[lid]['total_hands'] += 1
+        if ec == 1:
+            lesson_map[lid]['correct'] += 1
+        elif ec == 0:
+            lesson_map[lid]['incorrect'] += 1
+        else:
+            lesson_map[lid]['unknown'] += 1
+        lesson_map[lid]['hands'].append({
+            'hand_id': row['hand_id'],
+            'hero_cards': row['hero_cards'] or '',
+            'hero_position': row['hero_position'] or '',
+            'net': row['net'] or 0.0,
+            'executed_correctly': ec,
+            'street': row['street'] or '',
+            'date': row['date'] or '',
+        })
+
+    # Global lesson stats for comparison
+    global_lesson_stats = data.get('lesson_stats', {})
+
+    # Build enriched lesson list
+    lesson_list = []
+    for lesson in lesson_map.values():
+        correct = lesson['correct']
+        incorrect = lesson['incorrect']
+        known = correct + incorrect
+        accuracy = round(correct / known * 100, 1) if known > 0 else None
+
+        global_stat = global_lesson_stats.get(lesson['lesson_id'])
+        global_accuracy = global_stat.get('accuracy') if global_stat else None
+        mastery = global_stat.get('mastery', 'no_data') if global_stat else 'no_data'
+
+        if accuracy is not None and global_accuracy is not None:
+            diff = accuracy - global_accuracy
+            vs_global = 'same' if abs(diff) < 5.0 else ('better' if diff > 0 else 'worse')
+        else:
+            vs_global = ''
+
+        # Urgency: incorrect hands weighted by error rate (worst accuracy + most errors)
+        urgency = incorrect * (1.0 - accuracy / 100.0) if accuracy is not None else float(incorrect)
+
+        lesson_list.append({
+            **lesson,
+            'accuracy': accuracy,
+            'mastery': mastery,
+            'global_accuracy': global_accuracy,
+            'vs_global': vs_global,
+            'urgency': urgency,
+        })
+
+    # Sort by urgency descending, then total_hands descending
+    lesson_list.sort(key=lambda l: (-l['urgency'], -l['total_hands']))
+
+    # Day-level summary
+    total_hands = sum(l['total_hands'] for l in lesson_list)
+    total_correct = sum(l['correct'] for l in lesson_list)
+    total_incorrect = sum(l['incorrect'] for l in lesson_list)
+    known = total_correct + total_incorrect
+    summary_accuracy = round(total_correct / known * 100, 1) if known > 0 else None
+
+    data['session_day_lessons'] = {
+        'summary': {
+            'total_hands': total_hands,
+            'correct': total_correct,
+            'incorrect': total_incorrect,
+            'accuracy': summary_accuracy,
+        },
+        'lessons': lesson_list,
+    }
+    return data

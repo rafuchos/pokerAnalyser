@@ -6,11 +6,13 @@ from flask import Flask
 
 
 def create_app(analytics_db_path: str = 'analytics.db',
+               poker_db_path: str = None,
                debug: bool = False) -> Flask:
     """Create and configure the Flask application.
 
     Args:
         analytics_db_path: Path to analytics.db (read-only).
+        poker_db_path: Path to poker.db (source DB for lesson drill-down).
         debug: Enable Flask debug mode for hot reload.
     """
     app = Flask(
@@ -21,6 +23,7 @@ def create_app(analytics_db_path: str = 'analytics.db',
     app.config['DEBUG'] = debug
     app.config['TEMPLATES_AUTO_RELOAD'] = True
     app.config['ANALYTICS_DB_PATH'] = analytics_db_path
+    app.config['POKER_DB_PATH'] = poker_db_path or ''
 
     from src.web.routes.main import main_bp
     from src.web.routes.cash import cash_bp

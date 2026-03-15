@@ -44,6 +44,15 @@
     {% endif %}
 </div>
 
+{# ── Page View Tabs ───────────────────────────────────────── #}
+<div class="session-page-tabs" style="margin-top: 1rem; display: flex; gap: 0.25rem;">
+    <button class="filter-btn active" id="tab-session-stats" onclick="switchSessionTab('session-stats')">Session Stats</button>
+    <button class="filter-btn" id="tab-hand-analyzer" onclick="switchSessionTab('hand-analyzer')">Hand Analyzer</button>
+</div>
+
+{# ── Session Stats View ───────────────────────────────────── #}
+<div id="view-session-stats">
+
 {# ── Day Aggregate Stats with Global Comparison ───────────── #}
 <div class="card" style="margin-top: 1.25rem;">
     <div class="card-title">Day Stats</div>
@@ -405,6 +414,126 @@
 </div>
 {% endif %}
 
+</div>{# end view-session-stats #}
+
+{# ── Hand Analyzer View ───────────────────────────────────── #}
+<div id="view-hand-analyzer" style="display:none;">
+{% set sdl = data.get('session_day_lessons') %}
+{% if sdl and sdl.get('lessons') %}
+
+{# ── Summary Card ──────────────────────────────────────────── #}
+{% set s = sdl['summary'] %}
+<div class="stats-grid" style="margin-top: 1.25rem;">
+    <div class="stat-card">
+        <div class="stat-label">Maos Analisadas</div>
+        <div class="stat-value neutral">{{ s.get('total_hands', 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Corretas</div>
+        <div class="stat-value positive">{{ s.get('correct', 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Incorretas</div>
+        <div class="stat-value {{ 'negative' if s.get('incorrect', 0) > 0 else 'neutral' }}">{{ s.get('incorrect', 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Acerto Global</div>
+        {% set acc = s.get('accuracy') %}
+        <div class="stat-value {% if acc is not none %}{{ 'positive' if acc >= 70 else ('negative' if acc < 50 else 'neutral') }}{% else %}neutral{% endif %}">
+            {% if acc is not none %}{{ '{:.1f}'.format(acc) }}%{% else %}-{% endif %}
+        </div>
+    </div>
+</div>
+
+{# ── Lesson Cards (sorted by urgency) ─────────────────────── #}
+<div style="margin-top: 1.25rem;">
+{% for lesson in sdl['lessons'] %}
+{% set acc = lesson.get('accuracy') %}
+{% set acc_badge = 'good' if acc is not none and acc >= 70 else ('warning' if acc is not none and acc >= 50 else 'danger') %}
+<div class="lac-card">
+    <div class="lac-header">
+        <div class="lac-title-group">
+            <span class="badge badge-info">{{ lesson.get('category', '') }}</span>
+            <span class="lac-title">{{ lesson.get('title', '') }}</span>
+        </div>
+        <div class="lac-meta">
+            <span class="lac-stat">{{ lesson.get('total_hands', 0) }} mãos</span>
+            <span class="lac-stat positive">{{ lesson.get('correct', 0) }} ✓</span>
+            <span class="lac-stat {{ 'negative' if lesson.get('incorrect', 0) > 0 else '' }}">{{ lesson.get('incorrect', 0) }} ✗</span>
+            {% if acc is not none %}
+            <span class="badge badge-{{ acc_badge }}">{{ '{:.1f}'.format(acc) }}%</span>
+            {% endif %}
+        </div>
+        <div class="lac-actions">
+            {% if lesson.get('global_accuracy') is not none %}
+            <span class="lac-global-cmp">
+                Global: {{ '{:.1f}'.format(lesson['global_accuracy']) }}%
+                {% if lesson.get('vs_global') == 'better' %}<span class="vs-global-arrow up" title="Above global avg">&#9650;</span>
+                {% elif lesson.get('vs_global') == 'worse' %}<span class="vs-global-arrow down" title="Below global avg">&#9660;</span>
+                {% endif %}
+            </span>
+            {% endif %}
+            {% if lesson.get('mastery') == 'mastered' %}
+            <span class="badge badge-good">Dominada</span>
+            {% elif lesson.get('mastery') == 'learning' %}
+            <span class="badge badge-warning">Aprendendo</span>
+            {% elif lesson.get('mastery') == 'needs_work' %}
+            <span class="badge badge-danger">Precisa Trabalho</span>
+            {% endif %}
+            {% if lesson.get('hands') %}
+            <button class="filter-btn" data-toggle="accordion" data-target="lac-hands-{{ lesson['lesson_id'] }}">Ver mãos ({{ lesson['hands']|length }})</button>
+            {% endif %}
+        </div>
+    </div>
+    {% if lesson.get('hands') %}
+    <div id="lac-hands-{{ lesson['lesson_id'] }}" class="sdc-leaks collapsed">
+        <div class="table-responsive">
+        <table class="data-table lac-hands-table">
+            <thead>
+                <tr>
+                    <th>Cartas</th>
+                    <th>Pos</th>
+                    <th>Street</th>
+                    <th>Resultado</th>
+                    <th class="num">Net</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for h in lesson['hands'] %}
+                <tr class="{{ 'lac-incorrect' if h.get('executed_correctly') == 0 else ('lac-correct' if h.get('executed_correctly') == 1 else '') }}">
+                    <td>{{ h.get('hero_cards') or '-' }}</td>
+                    <td>{{ h.get('hero_position') or '-' }}</td>
+                    <td>{{ h.get('street') or '-' }}</td>
+                    <td>
+                        {% if h.get('executed_correctly') == 1 %}
+                        <span class="positive">✓ Correto</span>
+                        {% elif h.get('executed_correctly') == 0 %}
+                        <span class="negative">✗ Incorreto</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="num {{ 'positive' if (h.get('net') or 0) >= 0 else 'negative' }}">${{ '{:+.2f}'.format(h.get('net') or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+</div>
+
+{% else %}
+<div class="empty-state" style="margin-top: 1.25rem;">
+    <div class="empty-state-icon">&#128218;</div>
+    <div class="empty-state-text">Nenhuma aula classificada para {{ day_date }}</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to classify hands</div>
+</div>
+{% endif %}
+</div>{# end view-hand-analyzer #}
+
 {% else %}
 <div class="empty-state">
     <div class="empty-state-icon">&#128197;</div>
@@ -414,4 +543,19 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchSessionTab(tab) {
+    var statsView = document.getElementById('view-session-stats');
+    var analyzerView = document.getElementById('view-hand-analyzer');
+    var statsBtn = document.getElementById('tab-session-stats');
+    var analyzerBtn = document.getElementById('tab-hand-analyzer');
+    if (statsView) statsView.style.display = (tab === 'session-stats') ? '' : 'none';
+    if (analyzerView) analyzerView.style.display = (tab === 'hand-analyzer') ? '' : 'none';
+    if (statsBtn) statsBtn.classList.toggle('active', tab === 'session-stats');
+    if (analyzerBtn) analyzerBtn.classList.toggle('active', tab === 'hand-analyzer');
+}
+</script>
 {% endblock %}

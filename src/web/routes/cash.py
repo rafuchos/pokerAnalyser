@@ -7,6 +7,7 @@ from src.web.data import (
     prepare_overview_data,
     prepare_sessions_list,
     prepare_session_day,
+    prepare_session_day_lessons,
     prepare_stats_data,
     prepare_leaks_data,
     prepare_ev_data,
@@ -83,8 +84,10 @@ def sub_tab(tab):
 def session_day(date):
     """Render drill-down for a specific session day."""
     db_path = current_app.config['ANALYTICS_DB_PATH']
+    poker_db_path = current_app.config.get('POKER_DB_PATH', '')
     data = load_analytics_data(db_path, 'cash')
     prepare_session_day(data, date)
+    prepare_session_day_lessons(data, date, 'cash', poker_db_path)
 
     return render_template(
         'cash/session_day.html',

@@ -222,7 +222,8 @@ def cmd_serve(args):
     print(f"Debug:        {debug}")
     print()
 
-    app = create_app(analytics_db_path=analytics_db, debug=debug)
+    poker_db = getattr(args, 'db', None) or 'poker.db'
+    app = create_app(analytics_db_path=analytics_db, poker_db_path=poker_db, debug=debug)
 
     url = f"http://127.0.0.1:{port}"
     if not args.no_browser:

@@ -114,6 +114,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-049: Lesson: CBet River (2026-03-15)
 - [x] US-050: Lesson: Multi-Street (MDA, Pós-Flop Avançado, Probe, Bet vs Missed CBet) (2026-03-15)
 - [x] US-051: Lesson Tracker Web: Dashboard de Aulas + Performance por Aula (2026-03-15)
+- [x] US-052: Session Lesson Tab: Aba Hand Analyzer por Sessão com Cards de Aulas (2026-03-15)
 
 ---
 
