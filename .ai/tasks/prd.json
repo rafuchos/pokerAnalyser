@@ -766,7 +766,8 @@
         "src/analytics_pipeline.py",
         "main.py",
         "tests/test_lesson_classifier.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-040",
