@@ -696,14 +696,15 @@ class LessonClassifier:
             # 19: Enfrentando Check-Raise
             if flop_a['hero_faces_checkraise'] or turn_a.get('hero_faces_checkraise'):
                 street = 'flop' if flop_a['hero_faces_checkraise'] else 'turn'
+                active_a = flop_a if flop_a['hero_faces_checkraise'] else turn_a
                 m = self._match(hand_id, 19, street)
-                m.executed_correctly = None  # complex evaluation
+                m.executed_correctly = self._eval_facing_checkraise(hand, active_a)
                 matches.append(m)
 
             # 20: Pós-Flop IP enfrentando C-Bet BTN
             if hero_ip and flop_a['villain_bets_first']:
                 m = self._match(hand_id, 20, 'flop')
-                m.executed_correctly = self._eval_facing_cbet(flop_a)
+                m.executed_correctly = self._eval_ip_vs_cbet(hand, flop_a)
                 matches.append(m)
 
             # 21: Bet vs Missed Bet
@@ -723,7 +724,7 @@ class LessonClassifier:
             # 23: 3-Betted Pots Pós-Flop
             if pf['is_3bet_pot']:
                 m = self._match(hand_id, 23, 'flop')
-                m.executed_correctly = 1 if hand.get('net', 0) >= 0 else 0
+                m.executed_correctly = self._eval_3bet_pot_postflop(hand, flop_a, pf)
                 matches.append(m)
 
         # --- Torneios Lessons ---
@@ -1708,6 +1709,152 @@ class LessonClassifier:
 
         # strength == 'weak' (air)
         return 1 if hero_folds else 0
+
+    def _eval_ip_vs_cbet(self, hand: dict, flop_a: dict) -> Optional[int]:
+        """Evaluate IP response to villain's flop c-bet.
+
+        Based on RegLife 'Pós-Flop IP - Enfrentando C-Bet':
+        - IP should defend wide vs c-bets (position is an asset).
+        - Folding made hands (strong/medium) IP is a clear mistake.
+        - Draws are profitable to defend (call or raise as semi-bluff).
+        - With air: folding is fine; floating or bluff-raising can be correct.
+        - Correct (1): defend with made hand or draw; fold or raise with air.
+        - Marginal (None): float (call) with air; fold a draw (sizing-dep).
+        - Incorrect (0): fold made hand or medium hand IP.
+        """
+        board_flop = hand.get('board_flop')
+        hero_cards = hand.get('hero_cards')
+
+        hero_folds = flop_a.get('hero_folds', False)
+        hero_raises = flop_a.get('hero_raises', False)
+
+        if not hero_cards or not board_flop:
+            if hero_folds:
+                return None  # cannot evaluate, fold may be correct
+            return 1  # defending is generally right IP
+
+        strength = self._hand_connects_board(hero_cards, board_flop)
+
+        if strength is None:
+            return None if hero_folds else 1
+
+        if strength in ('strong', 'medium'):
+            return 0 if hero_folds else 1  # never fold made hands IP
+
+        if strength == 'draw':
+            if hero_folds:
+                return None  # sizing-dependent
+            return 1  # defending draws IP (call or semi-bluff raise)
+
+        # strength == 'weak' (air)
+        if hero_folds:
+            return 1  # correct to give up with nothing
+        if hero_raises:
+            return 1  # bluff-raise IP is a sound play
+        return None  # floating (calling) with air IP is marginal
+
+    def _eval_facing_checkraise(self, hand: dict,
+                                street_a: dict) -> Optional[int]:
+        """Evaluate hero's response when facing a check-raise.
+
+        Based on RegLife 'Enfrentando o Check-Raise':
+        - Check-raises represent strength: weak hands should fold.
+        - Strong made hands should continue (call or 3-bet).
+        - Medium hands: calling is usually correct, folding is marginal.
+        - Draws: defending is correct (equity); folding is sizing-dependent.
+        - Correct (1): fold air; defend made hands or draws.
+        - Marginal (None): fold medium/draw (sizing/stack dep); call air.
+        - Incorrect (0): fold strong hand; call/raise with air.
+        """
+        board_flop = hand.get('board_flop')
+        hero_cards = hand.get('hero_cards')
+
+        hero_folds = street_a.get('hero_folds', False)
+        hero_raises = street_a.get('hero_raises', False)
+
+        if not hero_cards or not board_flop:
+            if hero_folds:
+                return None  # cannot evaluate
+            return 1  # defending is generally fine
+
+        strength = self._hand_connects_board(hero_cards, board_flop)
+
+        if strength is None:
+            return None
+
+        if strength == 'strong':
+            return 0 if hero_folds else 1  # must not fold premium hands
+
+        if strength == 'medium':
+            if hero_folds:
+                return None  # folding medium vs c/r can be correct
+            if hero_raises:
+                return None  # 3-betting a medium hand is marginal
+            return 1  # calling with medium hand: correct
+
+        if strength == 'draw':
+            if hero_folds:
+                return None  # depends on sizing and pot odds
+            return 1  # defending draws vs check-raise: correct
+
+        # strength == 'weak' (air)
+        return 1 if hero_folds else 0  # fold air vs c/r; defending is wrong
+
+    def _eval_3bet_pot_postflop(self, hand: dict, flop_a: dict,
+                                pf: dict) -> Optional[int]:
+        """Evaluate postflop play in a 3-bet pot.
+
+        Based on RegLife '3-Betted Pots Pós-Flop':
+        - SPR is low (~2-3): made hands should not fold to a single bet.
+        - PFA should c-bet their range (value and bluffs).
+        - Caller: defend made hands and draws; fold air vs c-bet.
+        - Correct (1): defend made hands/draws; PFA c-bets or folds air.
+        - Marginal (None): fold draw (SPR/sizing dep); check back as PFA.
+        - Incorrect (0): fold made hand; caller raises air; check-fold PFA.
+        """
+        board_flop = hand.get('board_flop')
+        hero_cards = hand.get('hero_cards')
+        # hero_3bets/hero_squeezes = hero made the last preflop raise (PFA into flop)
+        # hero_is_preflop_aggressor stays True even if hero opened then called a 3-bet
+        pf_agg = pf.get('hero_3bets', False) or pf.get('hero_squeezes', False)
+
+        hero_folds = flop_a.get('hero_folds', False)
+        hero_bets = flop_a.get('hero_bets', False)
+        hero_raises = flop_a.get('hero_raises', False)
+
+        if not hero_cards or not board_flop:
+            if hero_folds:
+                return None  # cannot evaluate
+            return 1
+
+        strength = self._hand_connects_board(hero_cards, board_flop)
+
+        if strength is None:
+            return None
+
+        if strength in ('strong', 'medium'):
+            return 0 if hero_folds else 1  # never fold made hands 3-bet pot
+
+        if strength == 'draw':
+            if hero_folds:
+                return None  # depends on SPR and bet sizing
+            return 1  # playing draws aggressively: correct
+
+        # strength == 'weak' (air)
+        if pf_agg:
+            # PFA should c-bet with air (protection + fold equity)
+            if hero_bets:
+                return 1  # c-bet air in 3-bet pot: correct
+            if hero_folds:
+                return None  # check-fold air as PFA: marginal
+            return None  # checking air back as PFA: marginal
+        else:
+            # Caller with air: fold vs c-bet
+            if hero_folds:
+                return 1  # correct to fold air as caller
+            if hero_raises:
+                return 0  # raising with air as caller: incorrect
+            return None  # floating with air as caller: marginal
 
     # ── Advanced Detection ───────────────────────────────────────────
 
