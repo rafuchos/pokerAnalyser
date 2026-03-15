@@ -1,7 +1,7 @@
 {
   "id": "US-045",
   "title": "Lesson: Open Shove cEV 10BB + Bounty Ranges",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -24,7 +24,7 @@
     ".ai/tasks/active.md"
   ],
   "created_at": "2026-03-15T06:03:21.921Z",
-  "completed_at": null,
+  "completed_at": "2026-03-15T06:16:21.329Z",
   "failure_reason": null,
   "branch": "feat/US-045",
   "replanned_at": "2026-03-15T06:13:52.489Z",
