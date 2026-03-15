@@ -122,6 +122,14 @@ CREATE TABLE IF NOT EXISTS redline_blueline (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS lesson_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_type TEXT NOT NULL,
+    lesson_id INTEGER NOT NULL,
+    stat_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_global_stats_game ON global_stats(game_type);
 CREATE INDEX IF NOT EXISTS idx_session_stats_game ON session_stats(game_type);
 CREATE INDEX IF NOT EXISTS idx_daily_stats_game ON daily_stats(game_type);
@@ -133,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_ev_analysis_game ON ev_analysis(game_type);
 CREATE INDEX IF NOT EXISTS idx_bet_sizing_game ON bet_sizing_stats(game_type);
 CREATE INDEX IF NOT EXISTS idx_hand_matrix_game ON hand_matrix(game_type);
 CREATE INDEX IF NOT EXISTS idx_redline_game ON redline_blueline(game_type);
+CREATE INDEX IF NOT EXISTS idx_lesson_stats_game ON lesson_stats(game_type);
 """
 
 

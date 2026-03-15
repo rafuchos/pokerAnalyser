@@ -36,7 +36,7 @@ class AnalyticsRepository:
             'global_stats', 'session_stats', 'daily_stats',
             'positional_stats', 'stack_depth_stats', 'leak_analysis',
             'tilt_analysis', 'ev_analysis', 'bet_sizing_stats',
-            'hand_matrix', 'redline_blueline',
+            'hand_matrix', 'redline_blueline', 'lesson_stats',
         ]
         for table in tables:
             self.conn.execute(
@@ -331,6 +331,28 @@ class AnalyticsRepository:
         ).fetchall()
         return [
             {'data_key': r['data_key'],
+             'data': json.loads(r['stat_json'])}
+            for r in rows
+        ]
+
+    # ── Lesson Stats ─────────────────────────────────────────────
+
+    def insert_lesson_stat(self, game_type: str, lesson_id: int,
+                           data: dict):
+        now = datetime.now().isoformat()
+        self.conn.execute(
+            "INSERT INTO lesson_stats (game_type, lesson_id, stat_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (game_type, lesson_id, json.dumps(data), now),
+        )
+
+    def get_lesson_stats(self, game_type: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT lesson_id, stat_json FROM lesson_stats WHERE game_type = ?",
+            (game_type,),
+        ).fetchall()
+        return [
+            {'lesson_id': r['lesson_id'],
              'data': json.loads(r['stat_json'])}
             for r in rows
         ]

@@ -406,6 +406,154 @@ def _persist_tournament_analysis(analytics: AnalyticsRepository,
     return True
 
 
+def _persist_lesson_stats(analytics: AnalyticsRepository,
+                          repo: Repository):
+    """Aggregate hand_lessons data per lesson per game_type and persist."""
+    # Clear existing lesson stats for both game types
+    try:
+        analytics.conn.execute("DELETE FROM lesson_stats")
+    except Exception:
+        pass
+
+    lessons = repo.get_lessons()
+    if not lessons:
+        return
+
+    # Query all hand_lessons joined with hands for game_type
+    rows = repo.conn.execute("""
+        SELECT hl.lesson_id, hl.street, hl.executed_correctly,
+               hl.confidence, h.game_type, h.date, h.net, h.blinds_bb
+        FROM hand_lessons hl
+        JOIN hands h ON hl.hand_id = h.hand_id
+        ORDER BY hl.lesson_id
+    """).fetchall()
+
+    # Build per-lesson, per-game_type stats
+    # key: (lesson_id, game_type)
+    stats = {}
+    for r in rows:
+        lid = r['lesson_id']
+        gt = r['game_type'] or 'cash'
+        key = (lid, gt)
+        if key not in stats:
+            stats[key] = {
+                'total': 0, 'correct': 0, 'incorrect': 0, 'unknown': 0,
+                'by_street': {}, 'dates': [],
+            }
+        s = stats[key]
+        s['total'] += 1
+        ec = r['executed_correctly']
+        if ec == 1:
+            s['correct'] += 1
+        elif ec == 0:
+            s['incorrect'] += 1
+        else:
+            s['unknown'] += 1
+
+        street = r['street'] or 'unknown'
+        if street not in s['by_street']:
+            s['by_street'][street] = {'total': 0, 'correct': 0, 'incorrect': 0}
+        bs = s['by_street'][street]
+        bs['total'] += 1
+        if ec == 1:
+            bs['correct'] += 1
+        elif ec == 0:
+            bs['incorrect'] += 1
+
+        if r['date']:
+            s['dates'].append(str(r['date'])[:10])
+
+    # Build lesson catalog lookup
+    lesson_map = {l['lesson_id']: l for l in lessons}
+
+    for (lid, gt), s in stats.items():
+        lesson = lesson_map.get(lid, {})
+        total_evaluated = s['correct'] + s['incorrect']
+        accuracy = round(s['correct'] / total_evaluated * 100, 1) if total_evaluated > 0 else None
+        error_rate = round(s['incorrect'] / total_evaluated * 100, 1) if total_evaluated > 0 else None
+
+        stat_data = {
+            'lesson_id': lid,
+            'title': lesson.get('title', ''),
+            'category': lesson.get('category', ''),
+            'subcategory': lesson.get('subcategory', ''),
+            'description': lesson.get('description', ''),
+            'total_hands': s['total'],
+            'correct': s['correct'],
+            'incorrect': s['incorrect'],
+            'unknown': s['unknown'],
+            'accuracy': accuracy,
+            'error_rate': error_rate,
+            'by_street': s['by_street'],
+        }
+
+        # Mastery classification
+        if total_evaluated >= 20 and accuracy is not None and accuracy >= 80:
+            stat_data['mastery'] = 'mastered'
+        elif total_evaluated >= 10 and accuracy is not None and accuracy >= 60:
+            stat_data['mastery'] = 'learning'
+        elif total_evaluated > 0:
+            stat_data['mastery'] = 'needs_work'
+        else:
+            stat_data['mastery'] = 'no_data'
+
+        analytics.insert_lesson_stat(gt, lid, stat_data)
+
+    # Also persist global lesson summary per game_type
+    for gt in ('cash', 'tournament'):
+        gt_stats = {k: v for k, v in stats.items() if k[1] == gt}
+        if not gt_stats:
+            continue
+        total_hands = sum(v['total'] for v in gt_stats.values())
+        total_correct = sum(v['correct'] for v in gt_stats.values())
+        total_incorrect = sum(v['incorrect'] for v in gt_stats.values())
+        total_evaluated = total_correct + total_incorrect
+        global_accuracy = round(total_correct / total_evaluated * 100, 1) if total_evaluated > 0 else None
+
+        mastered = 0
+        learning = 0
+        needs_work = 0
+        for (lid, _), s in gt_stats.items():
+            te = s['correct'] + s['incorrect']
+            acc = round(s['correct'] / te * 100, 1) if te > 0 else None
+            if te >= 20 and acc is not None and acc >= 80:
+                mastered += 1
+            elif te >= 10 and acc is not None and acc >= 60:
+                learning += 1
+            elif te > 0:
+                needs_work += 1
+
+        # Category breakdown
+        by_category = {}
+        for (lid, _), s in gt_stats.items():
+            lesson = lesson_map.get(lid, {})
+            cat = lesson.get('category', 'Other')
+            if cat not in by_category:
+                by_category[cat] = {'total': 0, 'correct': 0, 'incorrect': 0}
+            by_category[cat]['total'] += s['total']
+            by_category[cat]['correct'] += s['correct']
+            by_category[cat]['incorrect'] += s['incorrect']
+        for cat_data in by_category.values():
+            te = cat_data['correct'] + cat_data['incorrect']
+            cat_data['accuracy'] = round(cat_data['correct'] / te * 100, 1) if te > 0 else None
+
+        summary = {
+            'total_lessons_with_data': len(gt_stats),
+            'total_lessons': len(lessons),
+            'total_hands': total_hands,
+            'total_correct': total_correct,
+            'total_incorrect': total_incorrect,
+            'global_accuracy': global_accuracy,
+            'mastered': mastered,
+            'learning': learning,
+            'needs_work': needs_work,
+            'by_category': by_category,
+        }
+        analytics.insert_global_stat(gt, 'lesson_summary', stat_json=summary)
+
+    analytics.commit()
+
+
 def run_analysis(poker_db_path: str = 'poker.db',
                  analytics_db_path: str = 'analytics.db',
                  force: bool = False,
@@ -467,13 +615,16 @@ def run_analysis(poker_db_path: str = 'poker.db',
         result['tournament_processed'] = _persist_tournament_analysis(
             analytics, repo, year) or False
 
-    # Lesson Classification
+    # Lesson Classification + Lesson Stats
     try:
         from src.analyzers.lesson_classifier import LessonClassifier
         classifier = LessonClassifier(repo)
         classify_result = classifier.classify_all()
         result['classify_links'] = classify_result.get('total_links', 0)
         result['classify_lessons'] = classify_result.get('lessons_matched', 0)
+
+        # Persist lesson performance stats
+        _persist_lesson_stats(analytics, repo)
     except Exception:
         pass
 

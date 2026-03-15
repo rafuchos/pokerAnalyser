@@ -170,6 +170,19 @@ def load_analytics_data(db_path: str, game_type: str) -> dict:
             }
         data['hand_matrix'] = hand_matrix
 
+        # Lesson stats
+        try:
+            ls_rows = conn.execute(
+                "SELECT lesson_id, stat_json FROM lesson_stats WHERE game_type = ?",
+                (game_type,),
+            ).fetchall()
+            lesson_stats = {}
+            for r in ls_rows:
+                lesson_stats[r['lesson_id']] = json.loads(r['stat_json'])
+            data['lesson_stats'] = lesson_stats
+        except sqlite3.OperationalError:
+            data['lesson_stats'] = {}
+
     except sqlite3.OperationalError:
         pass
     finally:
@@ -1825,5 +1838,84 @@ def prepare_satellites_data(data, period='year', from_date='', to_date=''):
     else:
         data['sat_chart'] = {}
         data['sat_timeline'] = []
+
+    return data
+
+
+# ── Lessons helpers ──────────────────────────────────────────────
+
+
+def prepare_lessons_data(data, period='year', from_date='', to_date=''):
+    """Enrich analytics data for the lessons dashboard page.
+
+    Adds: lesson_summary, lessons_list, lessons_by_category,
+    lessons_errors_only, lessons_study_suggestions.
+    """
+    data['active_period'] = period
+    data['custom_from'] = from_date
+    data['custom_to'] = to_date
+
+    lesson_stats = data.get('lesson_stats', {})
+    lesson_summary = data.get('lesson_summary') or {}
+
+    # Overview cards
+    data['lesson_total'] = lesson_summary.get('total_lessons', 25)
+    data['lesson_classified_hands'] = lesson_summary.get('total_hands', 0)
+    data['lesson_global_accuracy'] = lesson_summary.get('global_accuracy')
+    data['lesson_mastered'] = lesson_summary.get('mastered', 0)
+    data['lesson_learning'] = lesson_summary.get('learning', 0)
+    data['lesson_needs_work'] = lesson_summary.get('needs_work', 0)
+    data['lesson_with_data'] = lesson_summary.get('total_lessons_with_data', 0)
+
+    # Per-lesson list sorted by accuracy (worst first for study prioritization)
+    lessons_list = sorted(
+        lesson_stats.values(),
+        key=lambda l: (
+            0 if l.get('accuracy') is None else 1,
+            l.get('accuracy', 100),
+        ),
+    )
+    data['lessons_list'] = lessons_list
+
+    # Group by category
+    by_category = lesson_summary.get('by_category', {})
+    cat_list = []
+    for cat_name in ('Preflop', 'Postflop', 'Torneios'):
+        cat_data = by_category.get(cat_name)
+        if cat_data:
+            cat_list.append({
+                'name': cat_name,
+                'total': cat_data.get('total', 0),
+                'correct': cat_data.get('correct', 0),
+                'incorrect': cat_data.get('incorrect', 0),
+                'accuracy': cat_data.get('accuracy'),
+            })
+    data['lessons_by_category'] = cat_list
+
+    # Category accuracy chart data (bar chart)
+    cat_chart = []
+    for c in cat_list:
+        acc = c.get('accuracy')
+        if acc is not None:
+            cat_chart.append({'name': c['name'], 'accuracy': acc})
+    data['lessons_cat_chart'] = cat_chart
+
+    # Errors-only filter: lessons with error_rate > 0
+    errors_only = [l for l in lessons_list
+                   if l.get('incorrect', 0) > 0]
+    data['lessons_errors_only'] = errors_only
+
+    # Study suggestions: lessons with worst accuracy (needs_work + learning)
+    study = [l for l in lessons_list
+             if l.get('mastery') in ('needs_work', 'learning')
+             and l.get('accuracy') is not None]
+    data['lessons_study_suggestions'] = study[:5]
+
+    # Mastery distribution for progress bar
+    total_with_data = data['lesson_with_data']
+    if total_with_data > 0:
+        data['mastery_pct'] = round(data['lesson_mastered'] / total_with_data * 100, 1)
+    else:
+        data['mastery_pct'] = 0
 
     return data
