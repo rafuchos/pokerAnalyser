@@ -638,24 +638,27 @@ class LessonClassifier:
             m.confidence = 0.7
             matches.append(m)
 
+            # Postflop action analysis (needed for lessons 11, 12 and later)
+            flop_a = self._analyze_street_actions(flop_actions)
+            turn_a = self._analyze_street_actions(turn_actions)
+            river_a = self._analyze_street_actions(river_actions)
+
+            hero_ip = self._is_hero_ip(hero_pos, preflop)
+
             # 11: Introdução ao MDA
             if has_turn or has_river:
                 m = self._match(hand_id, 11, 'flop')
                 m.confidence = 0.6
+                m.executed_correctly = self._eval_mda(hand, flop_a, turn_a)
                 matches.append(m)
 
             # 12: Pós-Flop Avançado
             if has_turn and has_river:
                 m = self._match(hand_id, 12, 'flop')
                 m.confidence = 0.5
+                m.executed_correctly = self._eval_postflop_advanced(
+                    hand, flop_a, turn_a, river_a)
                 matches.append(m)
-
-            # Postflop action analysis
-            flop_a = self._analyze_street_actions(flop_actions)
-            turn_a = self._analyze_street_actions(turn_actions)
-            river_a = self._analyze_street_actions(river_actions)
-
-            hero_ip = self._is_hero_ip(hero_pos, preflop)
 
             # 13: C-Bet Flop IP
             if pf_agg and flop_a['hero_bets'] and hero_ip:
@@ -712,14 +715,16 @@ class LessonClassifier:
             if self._detect_bet_vs_missed(flop_a, turn_a, pf_agg):
                 street = 'turn' if turn_a.get('hero_bets') else 'flop'
                 m = self._match(hand_id, 21, street)
-                m.executed_correctly = 1  # exploited missed bet
+                m.executed_correctly = self._eval_bet_vs_missed_bet(
+                    hand, flop_a, turn_a)
                 matches.append(m)
 
             # 22: Probe do BB
             if hero_pos == 'BB' and not pf_agg and has_turn:
                 if flop_a.get('villain_checks_back', False) and turn_a['hero_bets']:
                     m = self._match(hand_id, 22, 'turn')
-                    m.executed_correctly = 1
+                    m.executed_correctly = self._eval_probe(
+                        hand, flop_a, turn_a)
                     matches.append(m)
 
             # 23: 3-Betted Pots Pós-Flop
@@ -2118,6 +2123,186 @@ class LessonClassifier:
         if turn_change in ('blank', 'neutral'):
             return 1   # villain weakness + acceptable turn: correct delayed bluff
         return None  # dangerous turn: delayed bluff becomes marginal
+
+    def _eval_mda(self, hand: dict, flop_a: dict,
+                 turn_a: dict) -> Optional[int]:
+        """Evaluate multi-street decision-making (MDA).
+
+        Based on RegLife 'Introdução ao MDA':
+        - Made hands should not fold to single bets on the turn.
+        - Air should fold to villain aggression on the turn.
+        - Correct (1): made hand continues, or air folds/checks.
+        - Marginal (None): air calls villain bet (pot-odds dependent).
+        - Incorrect (0): made hand folds to a single turn bet.
+        """
+        board_flop = hand.get('board_flop')
+        board_turn = hand.get('board_turn')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            return None  # cannot evaluate without cards
+
+        full_board = board_flop
+        if board_turn:
+            full_board += f" {board_turn}"
+
+        strength = self._hand_connects_board(hero_cards, full_board)
+        if strength is None:
+            return None
+
+        # Made hands: folding to a single turn bet is the key MDA mistake
+        if strength in ('strong', 'medium'):
+            if turn_a.get('hero_folds') and turn_a.get('villain_bets_first'):
+                return 0  # folding made hand to turn bet: incorrect
+            return 1
+
+        if strength == 'draw':
+            return 1  # semi-bluffing or chasing on later streets: correct
+
+        # Air: fold to villain aggression on turn is correct
+        if turn_a.get('hero_folds') and turn_a.get('villain_bets_first'):
+            return 1  # correctly folding air to turn bet
+        if turn_a.get('hero_calls') and turn_a.get('villain_bets_first'):
+            return None  # calling turn with air: depends on pot odds
+        return 1  # checking/betting air on turn handled by other lessons
+
+    def _eval_postflop_advanced(self, hand: dict, flop_a: dict,
+                                turn_a: dict,
+                                river_a: dict) -> Optional[int]:
+        """Evaluate advanced postflop play across all 3 streets.
+
+        Based on RegLife 'Pós-Flop Avançado':
+        - Strong hands must not fold to river bets.
+        - Missed draws should fold to river bets.
+        - Air folding to river bets is correct.
+        - Correct (1): strong hand continues; missed draw/air folds.
+        - Marginal (None): medium hand facing river bet; draw calls river.
+        - Incorrect (0): strong hand folds to river bet.
+        """
+        board_flop = hand.get('board_flop')
+        board_turn = hand.get('board_turn')
+        board_river = hand.get('board_river')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            return None
+
+        full_board = board_flop
+        if board_turn:
+            full_board += f" {board_turn}"
+        if board_river:
+            full_board += f" {board_river}"
+
+        strength = self._hand_connects_board(hero_cards, full_board)
+        if strength is None:
+            return None
+
+        # Strong hands: never fold to river bet
+        if strength == 'strong':
+            if river_a.get('hero_folds') and river_a.get('villain_bets_first'):
+                return 0  # folding strong hand to river bet: incorrect
+            return 1
+
+        # Medium hands: marginal in big river spots
+        if strength == 'medium':
+            if river_a.get('hero_folds') and river_a.get('villain_bets_first'):
+                return None  # depends on bet sizing and reads
+            return 1
+
+        # Draws (missed on river): fold to bet is correct
+        if strength == 'draw':
+            if river_a.get('hero_folds') and river_a.get('villain_bets_first'):
+                return 1  # folding missed draw to river bet: correct
+            return None  # calling with missed draw: depends on bluff-catcher value
+
+        # Air: fold to river bet is correct
+        if river_a.get('hero_folds') and river_a.get('villain_bets_first'):
+            return 1  # correctly folding air to river bet
+        return None  # other air scenarios: marginal
+
+    def _eval_bet_vs_missed_bet(self, hand: dict, flop_a: dict,
+                                turn_a: dict) -> Optional[int]:
+        """Evaluate bet vs missed bet / missed c-bet exploitation.
+
+        Based on RegLife 'Bet vs Missed Bet':
+        - Villain showed weakness (missed c-bet or checked back); hero bets.
+        - Strong/medium/draw: always correct (value + exploit).
+        - Air: correct when turn is blank/neutral (villain showed weakness).
+        - Air: marginal when turn is dangerous (villain may have connected).
+        - Correct (1): value, semi-bluff, or air with acceptable turn.
+        - Marginal (None): air when turn is dangerous.
+        - Incorrect (0): not applicable (execution of the bet is the trigger).
+        """
+        board_flop = hand.get('board_flop')
+        board_turn = hand.get('board_turn')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            return 1  # villain showed weakness; betting is correct by default
+
+        full_board = board_flop
+        if board_turn:
+            full_board += f" {board_turn}"
+
+        strength = self._hand_connects_board(hero_cards, full_board)
+        if strength is None:
+            return 1
+
+        # Made hands and draws: bet for value or semi-bluff is always correct
+        if strength in ('strong', 'medium', 'draw'):
+            return 1
+
+        # Air: exploitation depends on turn texture
+        if board_turn:
+            turn_change = self._turn_changes_texture(board_flop, board_turn)
+            if turn_change in ('blank', 'neutral'):
+                return 1   # villain weakness + acceptable turn: correct
+            return None  # dangerous turn: villain may have connected
+
+        return 1  # no turn info: assume correct
+
+    def _eval_probe(self, hand: dict, flop_a: dict,  # noqa: ARG002
+                    turn_a: dict) -> Optional[int]:   # noqa: ARG002
+        """Evaluate BB probe bet on turn after PFA checked flop back.
+
+        Based on RegLife 'Probe do BB':
+        - BB probes the turn to take the lead when PFA showed weakness.
+        - Strong/medium/draw: probe for value or semi-bluff: correct.
+        - Air: probe correct on blank turns (exploit PFA weakness).
+        - Air: marginal on neutral turns; incorrect on dangerous turns.
+        - Correct (1): value/semi-bluff, or air on blank turn.
+        - Marginal (None): air on neutral turn.
+        - Incorrect (0): air probe when turn is dangerous.
+        """
+        board_flop = hand.get('board_flop')
+        board_turn = hand.get('board_turn')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            return 1  # PFA checked; probing is sound by default
+
+        full_board = board_flop
+        if board_turn:
+            full_board += f" {board_turn}"
+
+        strength = self._hand_connects_board(hero_cards, full_board)
+        if strength is None:
+            return 1
+
+        # Value/semi-bluff: probe is always correct
+        if strength in ('strong', 'medium', 'draw'):
+            return 1
+
+        # Air probe: depends on turn texture
+        if board_turn:
+            turn_change = self._turn_changes_texture(board_flop, board_turn)
+            if turn_change == 'blank':
+                return 1   # blank turn: probing air exploits PFA weakness
+            if turn_change == 'neutral':
+                return None  # neutral turn: marginal probe with air
+            return 0  # dangerous turn: probing with air is incorrect
+
+        return 1  # no turn info; probing is correct by default
 
     # ── Advanced Detection ───────────────────────────────────────────
 

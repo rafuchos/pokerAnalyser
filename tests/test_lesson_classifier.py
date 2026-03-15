@@ -5930,5 +5930,959 @@ class TestCBetRiverEvaluation(unittest.TestCase):
         self.assertNotEqual(result, 'dangerous')
 
 
+# ── Lesson 11: MDA Evaluation Tests ─────────────────────────────────
+
+
+class TestMDAEvaluation(unittest.TestCase):
+    """Test _eval_mda evaluation for Lesson 11 (Introdução ao MDA)."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _mda_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 11), None)
+        return m.executed_correctly if m else None
+
+    def _setup_multistreet(self, hand_id, hero_cards='Ah Kd',
+                           board_flop='Ts 7d 2c', board_turn='3s',
+                           hero_pos='BB', preflop_hero_raises=False,
+                           flop_villain_bets=False,
+                           turn_hero_action='check'):
+        """Set up a multi-street hand."""
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     board_flop=board_flop, board_turn=board_turn)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        # Preflop
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        if preflop_hero_raises:
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                           4.5, 1, seq, hero_pos); seq += 1
+            _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                           4.5, 0, seq, 'BTN'); seq += 1
+        else:
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
+                           1.5, 1, seq, hero_pos); seq += 1
+        # Flop
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'check',
+                       0, 1, seq, hero_pos); seq += 1
+        if flop_villain_bets:
+            _insert_action(self.repo, hand_id, 'flop', 'P1', 'bet',
+                           2.0, 0, seq, 'BTN'); seq += 1
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'call',
+                           2.0, 1, seq, hero_pos); seq += 1
+        else:
+            _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                           0, 0, seq, 'BTN'); seq += 1
+        # Turn
+        if flop_villain_bets:
+            _insert_action(self.repo, hand_id, 'turn', 'P1', 'bet',
+                           4.0, 0, seq, 'BTN'); seq += 1
+        if turn_hero_action == 'fold':
+            _insert_action(self.repo, hand_id, 'turn', 'Hero', 'fold',
+                           0, 1, seq, hero_pos)
+        elif turn_hero_action == 'call':
+            _insert_action(self.repo, hand_id, 'turn', 'Hero', 'call',
+                           4.0, 1, seq, hero_pos)
+        else:
+            _insert_action(self.repo, hand_id, 'turn', 'Hero', 'check',
+                           0, 1, seq, hero_pos)
+
+    # -- Detection tests --
+
+    def test_detected_on_turn(self):
+        """Lesson 11 detected when hand has a turn card."""
+        self._setup_multistreet('MDA01')
+        matches = self._classify('MDA01')
+        self.assertIn(11, [m.lesson_id for m in matches])
+
+    def test_detected_on_river(self):
+        """Lesson 11 detected when hand has river card."""
+        _insert_hand(self.repo, 'MDA02', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s',
+                     board_river='5h')
+        seq = 1
+        _insert_action(self.repo, 'MDA02', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'MDA02', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'MDA02', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'MDA02', 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'MDA02', 'river', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'MDA02', 'river', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        matches = self._classify('MDA02')
+        self.assertIn(11, [m.lesson_id for m in matches])
+
+    def test_not_detected_flop_only(self):
+        """Lesson 11 NOT detected when hand only has flop (no turn/river)."""
+        _insert_hand(self.repo, 'MDA03', position='BTN',
+                     board_flop='Ts 7d 2c')
+        seq = 1
+        _insert_action(self.repo, 'MDA03', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'MDA03', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'MDA03', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'MDA03', 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN')
+        matches = self._classify('MDA03')
+        self.assertNotIn(11, [m.lesson_id for m in matches])
+
+    def test_street_is_flop(self):
+        """Lesson 11 match has street='flop'."""
+        self._setup_multistreet('MDA04')
+        matches = self._classify('MDA04')
+        m = next((m for m in matches if m.lesson_id == 11), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.street, 'flop')
+
+    def test_confidence_is_low(self):
+        """Lesson 11 has reduced confidence (0.6)."""
+        self._setup_multistreet('MDA05')
+        matches = self._classify('MDA05')
+        m = next((m for m in matches if m.lesson_id == 11), None)
+        self.assertIsNotNone(m)
+        self.assertAlmostEqual(m.confidence, 0.6)
+
+    # -- Correct execution (1) --
+
+    def test_strong_hand_continues_correct(self):
+        """Strong hand continues on turn vs villain bet: correct (1).
+
+        Hero has top two pair (Ah Kd) on Ah Kd 2c flop, turn 3s.
+        Villain bets turn, hero calls: should not fold made hand.
+        """
+        self._setup_multistreet('MDA10', hero_cards='Ah Kd',
+                                board_flop='Ah Kd 2c', board_turn='3s',
+                                flop_villain_bets=True,
+                                turn_hero_action='call')
+        self.assertEqual(self._mda_result('MDA10'), 1)
+
+    def test_medium_hand_continues_correct(self):
+        """Medium hand (middle pair) continues on turn: correct (1).
+
+        Hero 7h 6d on As 7c 2h flop, turn Kd.
+        Villain bets, hero calls: middle pair is worth continuing.
+        """
+        self._setup_multistreet('MDA11', hero_cards='7h 6d',
+                                board_flop='As 7c 2h', board_turn='Kd',
+                                flop_villain_bets=True,
+                                turn_hero_action='call')
+        self.assertEqual(self._mda_result('MDA11'), 1)
+
+    def test_draw_continues_correct(self):
+        """Draw (flush draw) continues on turn: correct (1).
+
+        Hero Ah 2h on Kh 7h 3c flop (flush draw), turn 9s.
+        Villain bets, hero calls: semi-bluff/draw is correct multi-street play.
+        """
+        self._setup_multistreet('MDA12', hero_cards='Ah 2h',
+                                board_flop='Kh 7h 3c', board_turn='9s',
+                                flop_villain_bets=True,
+                                turn_hero_action='call')
+        self.assertEqual(self._mda_result('MDA12'), 1)
+
+    def test_air_folds_to_villain_bet_correct(self):
+        """Air folds to villain turn bet: correct (1).
+
+        Hero Qd Jc has no pair, no draw on As 7h 3c flop, turn Kd.
+        Villain bets turn, hero folds: correct MDA decision.
+        """
+        self._setup_multistreet('MDA13', hero_cards='Qd Jc',
+                                board_flop='As 7h 3c', board_turn='Kd',
+                                flop_villain_bets=True,
+                                turn_hero_action='fold')
+        self.assertEqual(self._mda_result('MDA13'), 1)
+
+    def test_air_checks_back_correct(self):
+        """Air checks back on turn (no villain bet): correct (1)."""
+        self._setup_multistreet('MDA14', hero_cards='Qd Jc',
+                                board_flop='As 7h 3c', board_turn='Kd',
+                                flop_villain_bets=False,
+                                turn_hero_action='check')
+        self.assertEqual(self._mda_result('MDA14'), 1)
+
+    # -- Incorrect execution (0) --
+
+    def test_strong_hand_folds_to_turn_bet_incorrect(self):
+        """Strong hand folds to single turn bet: incorrect (0).
+
+        Hero Ah Kd (top two pair) on Ah Kd 2c flop, turn 3s.
+        Villain bets turn, hero folds: critical MDA mistake.
+        """
+        self._setup_multistreet('MDA20', hero_cards='Ah Kd',
+                                board_flop='Ah Kd 2c', board_turn='3s',
+                                flop_villain_bets=True,
+                                turn_hero_action='fold')
+        self.assertEqual(self._mda_result('MDA20'), 0)
+
+    def test_medium_hand_folds_to_turn_bet_incorrect(self):
+        """Medium hand (top pair weak kicker) folds to turn bet: incorrect (0).
+
+        Hero 7h 6c on Ah 7d 3s flop, turn 2c.
+        Villain bets turn, hero folds: middle pair should not fold here.
+        """
+        self._setup_multistreet('MDA21', hero_cards='7h 6c',
+                                board_flop='Ah 7d 3s', board_turn='2c',
+                                flop_villain_bets=True,
+                                turn_hero_action='fold')
+        self.assertEqual(self._mda_result('MDA21'), 0)
+
+    # -- Marginal execution (None) --
+
+    def test_air_calls_villain_bet_marginal(self):
+        """Air calling villain turn bet: marginal (None).
+
+        Hero Td 9c has no pair, no draw on As 7h 3c Kd board
+        (T and 9 don't form a 4-card straight window with A 7 3 K).
+        Villain bets turn, hero calls: depends on pot odds and reads.
+        """
+        self._setup_multistreet('MDA30', hero_cards='Td 9c',
+                                board_flop='As 7h 3c', board_turn='Kd',
+                                flop_villain_bets=True,
+                                turn_hero_action='call')
+        self.assertIsNone(self._mda_result('MDA30'))
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_returns_none(self):
+        """Missing hero cards → cannot evaluate (None)."""
+        _insert_hand(self.repo, 'MDA40', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('MDA40',))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'MDA40', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'MDA40', 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'MDA40', 'flop', 'P1', 'bet',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'MDA40', 'turn', 'Hero', 'fold',
+                       0, 1, seq, 'BB')
+        self.assertIsNone(self._mda_result('MDA40'))
+
+
+# ── Lesson 12: Pós-Flop Avançado Evaluation Tests ────────────────────
+
+
+class TestPostflopAdvancedEvaluation(unittest.TestCase):
+    """Test _eval_postflop_advanced for Lesson 12 (Pós-Flop Avançado)."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _adv_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 12), None)
+        return m.executed_correctly if m else None
+
+    def _setup_three_streets(self, hand_id, hero_cards='Ah Kd',
+                              board_flop='Ts 7d 2c',
+                              board_turn='3s',
+                              board_river='5h',
+                              hero_pos='BB',
+                              river_villain_bets=False,
+                              river_hero_action='check'):
+        """Set up a 3-street hand: preflop, flop, turn, river."""
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     board_flop=board_flop, board_turn=board_turn,
+                     board_river=board_river)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, hero_pos); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'bet',
+                       2.0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'call',
+                       2.0, 1, seq, hero_pos); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'check',
+                       0, 1, seq, hero_pos); seq += 1
+        if river_villain_bets:
+            _insert_action(self.repo, hand_id, 'river', 'P1', 'bet',
+                           6.0, 0, seq, 'BTN'); seq += 1
+        if river_hero_action == 'fold':
+            _insert_action(self.repo, hand_id, 'river', 'Hero', 'fold',
+                           0, 1, seq, hero_pos)
+        elif river_hero_action == 'call':
+            _insert_action(self.repo, hand_id, 'river', 'Hero', 'call',
+                           6.0, 1, seq, hero_pos)
+        else:
+            _insert_action(self.repo, hand_id, 'river', 'Hero', 'check',
+                           0, 1, seq, hero_pos)
+
+    # -- Detection tests --
+
+    def test_detected_on_three_streets(self):
+        """Lesson 12 detected when hand has flop + turn + river."""
+        self._setup_three_streets('PA01')
+        matches = self._classify('PA01')
+        self.assertIn(12, [m.lesson_id for m in matches])
+
+    def test_not_detected_without_river(self):
+        """Lesson 12 NOT detected without river card."""
+        _insert_hand(self.repo, 'PA02', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        seq = 1
+        _insert_action(self.repo, 'PA02', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PA02', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PA02', 'turn', 'Hero', 'bet',
+                       3.0, 1, seq, 'BTN')
+        matches = self._classify('PA02')
+        self.assertNotIn(12, [m.lesson_id for m in matches])
+
+    def test_not_detected_flop_only(self):
+        """Lesson 12 NOT detected with flop only."""
+        _insert_hand(self.repo, 'PA03', position='BTN',
+                     board_flop='Ts 7d 2c')
+        seq = 1
+        _insert_action(self.repo, 'PA03', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PA03', 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN')
+        matches = self._classify('PA03')
+        self.assertNotIn(12, [m.lesson_id for m in matches])
+
+    def test_confidence_is_low(self):
+        """Lesson 12 has reduced confidence (0.5)."""
+        self._setup_three_streets('PA04')
+        matches = self._classify('PA04')
+        m = next((m for m in matches if m.lesson_id == 12), None)
+        self.assertIsNotNone(m)
+        self.assertAlmostEqual(m.confidence, 0.5)
+
+    # -- Strong hand: folding river bet is incorrect (0) --
+
+    def test_strong_hand_folds_river_bet_incorrect(self):
+        """Strong hand (top two pair) folds to river bet: incorrect (0).
+
+        Hero Ah Kd on Ah Kd 2c Ts 5h board = top two pair.
+        Villain bets river, hero folds: clear advanced postflop mistake.
+        """
+        self._setup_three_streets('PA10', hero_cards='Ah Kd',
+                                  board_flop='Ah Kd 2c',
+                                  board_turn='Ts',
+                                  board_river='5h',
+                                  river_villain_bets=True,
+                                  river_hero_action='fold')
+        self.assertEqual(self._adv_result('PA10'), 0)
+
+    def test_strong_hand_calls_river_bet_correct(self):
+        """Strong hand calls river bet: correct (1)."""
+        self._setup_three_streets('PA11', hero_cards='Ah Kd',
+                                  board_flop='Ah Kd 2c',
+                                  board_turn='Ts',
+                                  board_river='5h',
+                                  river_villain_bets=True,
+                                  river_hero_action='call')
+        self.assertEqual(self._adv_result('PA11'), 1)
+
+    def test_strong_hand_checks_correct(self):
+        """Strong hand checks river (no villain bet): correct (1)."""
+        self._setup_three_streets('PA12', hero_cards='Ah Kd',
+                                  board_flop='Ah Kd 2c',
+                                  board_turn='Ts',
+                                  board_river='5h',
+                                  river_villain_bets=False,
+                                  river_hero_action='check')
+        self.assertEqual(self._adv_result('PA12'), 1)
+
+    # -- Medium hand: folding river bet is marginal (None) --
+
+    def test_medium_hand_folds_river_marginal(self):
+        """Medium hand (second pair) folds to river bet: marginal (None).
+
+        Hero 7h 6d on As 7c 2h Kd 3s board = second pair.
+        Villain bets river, hero folds: depends on sizing and reads.
+        """
+        self._setup_three_streets('PA20', hero_cards='7h 6d',
+                                  board_flop='As 7c 2h',
+                                  board_turn='Kd',
+                                  board_river='3s',
+                                  river_villain_bets=True,
+                                  river_hero_action='fold')
+        self.assertIsNone(self._adv_result('PA20'))
+
+    def test_medium_hand_calls_correct(self):
+        """Medium hand calls or checks river (no threat): correct (1)."""
+        self._setup_three_streets('PA21', hero_cards='7h 6d',
+                                  board_flop='As 7c 2h',
+                                  board_turn='Kd',
+                                  board_river='3s',
+                                  river_villain_bets=False,
+                                  river_hero_action='check')
+        self.assertEqual(self._adv_result('PA21'), 1)
+
+    # -- Missed draw: folding river bet is correct (1) --
+
+    def test_missed_draw_folds_river_correct(self):
+        """Missed flush draw folds to river bet: correct (1).
+
+        Hero Ah 2h had flush draw on Kh 7h 3c Qs board.
+        River 5d: missed draw; folding to river bet is correct.
+        """
+        self._setup_three_streets('PA30', hero_cards='Ah 2h',
+                                  board_flop='Kh 7h 3c',
+                                  board_turn='Qs',
+                                  board_river='5d',
+                                  river_villain_bets=True,
+                                  river_hero_action='fold')
+        self.assertEqual(self._adv_result('PA30'), 1)
+
+    def test_missed_draw_calls_river_marginal(self):
+        """Missed draw calls river bet: marginal (None) (bluff catcher).
+
+        Hero Ah 2h missed flush draw on Kh 7h 3c Qs 5d.
+        Calling with missed draw can be a bluff catcher in some spots.
+        """
+        self._setup_three_streets('PA31', hero_cards='Ah 2h',
+                                  board_flop='Kh 7h 3c',
+                                  board_turn='Qs',
+                                  board_river='5d',
+                                  river_villain_bets=True,
+                                  river_hero_action='call')
+        self.assertIsNone(self._adv_result('PA31'))
+
+    # -- Air: folding river bet is correct (1) --
+
+    def test_air_folds_river_correct(self):
+        """Air (overcards, no draw) folds to river bet: correct (1)."""
+        self._setup_three_streets('PA40', hero_cards='Qd Jc',
+                                  board_flop='As 7h 3c',
+                                  board_turn='Kd',
+                                  board_river='2s',
+                                  river_villain_bets=True,
+                                  river_hero_action='fold')
+        self.assertEqual(self._adv_result('PA40'), 1)
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_returns_none(self):
+        """Missing hero cards → cannot evaluate (None)."""
+        _insert_hand(self.repo, 'PA50', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s',
+                     board_river='5h')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('PA50',))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'PA50', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PA50', 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PA50', 'flop', 'P1', 'bet',
+                       2.0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PA50', 'flop', 'Hero', 'call',
+                       2.0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PA50', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PA50', 'turn', 'Hero', 'check',
+                       0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PA50', 'river', 'P1', 'bet',
+                       4.0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PA50', 'river', 'Hero', 'fold',
+                       0, 1, seq, 'BB')
+        self.assertIsNone(self._adv_result('PA50'))
+
+    def test_also_triggers_lesson_11(self):
+        """A 3-street hand also triggers lesson 11 (MDA)."""
+        self._setup_three_streets('PA51')
+        matches = self._classify('PA51')
+        lesson_ids = [m.lesson_id for m in matches]
+        self.assertIn(11, lesson_ids)
+        self.assertIn(12, lesson_ids)
+
+
+# ── Lesson 21: Bet vs Missed Bet Evaluation Tests ─────────────────────
+
+
+class TestBetVsMissedBetEvaluation(unittest.TestCase):
+    """Test _eval_bet_vs_missed_bet for Lesson 21 (Bet vs Missed Bet)."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _bvmb_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 21), None)
+        return m.executed_correctly if m else None
+
+    def _setup_bet_vs_missed(self, hand_id, hero_cards='Ah Kd',
+                              board_flop='Ts 7d 2c',
+                              board_turn='3s',
+                              hero_pos='BB',
+                              villain_flop_action='bet'):
+        """Set up a bet vs missed bet scenario.
+
+        Villain bets flop (or checks back), then checks turn, hero bets turn.
+        """
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     board_flop=board_flop, board_turn=board_turn)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        # Preflop: villain raises, hero calls (hero is NOT PFA)
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, hero_pos); seq += 1
+        # Flop: villain acts first
+        if villain_flop_action == 'bet':
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'check',
+                           0, 1, seq, hero_pos); seq += 1
+            _insert_action(self.repo, hand_id, 'flop', 'P1', 'bet',
+                           2.0, 0, seq, 'BTN'); seq += 1
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'call',
+                           2.0, 1, seq, hero_pos); seq += 1
+        else:
+            # villain checks back
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'check',
+                           0, 1, seq, hero_pos); seq += 1
+            _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                           0, 0, seq, 'BTN'); seq += 1
+        # Turn: villain checks, hero bets (bet vs missed bet)
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, hero_pos)
+
+    # -- Detection tests --
+
+    def test_detected_villain_bet_flop_then_checked(self):
+        """Detected when villain bet flop, checked turn, hero bets turn."""
+        self._setup_bet_vs_missed('BVMB10', villain_flop_action='bet')
+        matches = self._classify('BVMB10')
+        self.assertIn(21, [m.lesson_id for m in matches])
+
+    def test_detected_villain_checked_back_flop(self):
+        """Detected when villain checked back flop, hero bets turn."""
+        self._setup_bet_vs_missed('BVMB11', villain_flop_action='check')
+        matches = self._classify('BVMB11')
+        self.assertIn(21, [m.lesson_id for m in matches])
+
+    def test_street_is_turn(self):
+        """Lesson 21 match has street='turn' when hero bets turn."""
+        self._setup_bet_vs_missed('BVMB12')
+        matches = self._classify('BVMB12')
+        m = next((m for m in matches if m.lesson_id == 21), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.street, 'turn')
+
+    # -- Correct execution (1): strong/medium/draw hands --
+
+    def test_strong_hand_bet_correct(self):
+        """Strong hand bets vs missed bet: correct (1).
+
+        Hero Ah Kd on Ah Kd 2c (top two pair) bets turn after villain checked.
+        """
+        self._setup_bet_vs_missed('BVMB20', hero_cards='Ah Kd',
+                                  board_flop='Ah Kd 2c',
+                                  board_turn='3s')
+        self.assertEqual(self._bvmb_result('BVMB20'), 1)
+
+    def test_medium_hand_bet_correct(self):
+        """Medium hand (middle pair) bets vs missed bet: correct (1).
+
+        Hero 7h 6d on As 7c 2h flop, turn 3d.
+        Villain bet flop, checked turn: hero middle pair bets = correct.
+        """
+        self._setup_bet_vs_missed('BVMB21', hero_cards='7h 6d',
+                                  board_flop='As 7c 2h',
+                                  board_turn='3d')
+        self.assertEqual(self._bvmb_result('BVMB21'), 1)
+
+    def test_draw_bet_correct(self):
+        """Draw (flush draw) bets vs missed bet: correct (1).
+
+        Hero Ah 2h on Kh 7h 3c flop, turn 9s.
+        Villain bet flop, checked turn: hero semi-bluffs = correct.
+        """
+        self._setup_bet_vs_missed('BVMB22', hero_cards='Ah 2h',
+                                  board_flop='Kh 7h 3c',
+                                  board_turn='9s')
+        self.assertEqual(self._bvmb_result('BVMB22'), 1)
+
+    # -- Air bets: depends on turn texture --
+
+    def test_air_blank_turn_bet_correct(self):
+        """Air bets on blank turn vs missed bet: correct (1).
+
+        Hero Qd Jc has no pair/draw on As 7h 3c flop.
+        Turn 2d (blank): villain showed weakness + blank turn = correct.
+        """
+        self._setup_bet_vs_missed('BVMB30', hero_cards='Qd Jc',
+                                  board_flop='As 7h 3c',
+                                  board_turn='2d')
+        self.assertEqual(self._bvmb_result('BVMB30'), 1)
+
+    def test_air_neutral_turn_bet_correct(self):
+        """Air bets on neutral turn vs missed bet: correct (1).
+
+        Hero Qd Jc on As 7h 3c flop, turn Tc (neutral high card).
+        Villain weakness + neutral turn: exploitation still correct.
+        """
+        self._setup_bet_vs_missed('BVMB31', hero_cards='Qd Jc',
+                                  board_flop='As 7h 3c',
+                                  board_turn='Tc')
+        self.assertEqual(self._bvmb_result('BVMB31'), 1)
+
+    def test_air_dangerous_turn_bet_marginal(self):
+        """Air bets on dangerous turn vs missed bet: marginal (None).
+
+        Hero Qd Jc on As 7h 3c flop.
+        Turn 6h (completes 4-card straight window 3-4-5-6-7): marginal.
+        Actually let me use a turn that makes flush.
+        Hero Qd Jc on Ah 7h 3c flop (2 hearts).
+        Turn 9h completes flush: villain may have caught up.
+        """
+        self._setup_bet_vs_missed('BVMB32', hero_cards='Qd Jc',
+                                  board_flop='Ah 7h 3c',
+                                  board_turn='9h')
+        self.assertIsNone(self._bvmb_result('BVMB32'))
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_correct_by_default(self):
+        """Missing hero cards → villain showed weakness → correct (1)."""
+        _insert_hand(self.repo, 'BVMB40', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('BVMB40',))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'BVMB40', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'BVMB40', 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'BVMB40', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'BVMB40', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'BVMB40', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'BVMB40', 'turn', 'Hero', 'bet',
+                       3.0, 1, seq, 'BB')
+        self.assertEqual(self._bvmb_result('BVMB40'), 1)
+
+    def test_not_triggered_when_hero_is_pfa(self):
+        """Lesson 21 NOT triggered when hero is the PFA (that's delayed cbet)."""
+        _insert_hand(self.repo, 'BVMB50', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        seq = 1
+        _insert_action(self.repo, 'BVMB50', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'BVMB50', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'BVMB50', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'BVMB50', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'BVMB50', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'BVMB50', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        matches = self._classify('BVMB50')
+        self.assertNotIn(21, [m.lesson_id for m in matches])
+
+
+# ── Lesson 22: Probe do BB Evaluation Tests ───────────────────────────
+
+
+class TestProbeEvaluation(unittest.TestCase):
+    """Test _eval_probe for Lesson 22 (Probe do BB)."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _probe_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 22), None)
+        return m.executed_correctly if m else None
+
+    def _setup_probe(self, hand_id, hero_cards='Ah Kd',
+                     board_flop='Ts 7d 2c', board_turn='3s'):
+        """Set up a BB probe bet scenario.
+
+        BB calls preflop, both check flop, BB probes turn.
+        """
+        _insert_hand(self.repo, hand_id, position='BB',
+                     board_flop=board_flop, board_turn=board_turn)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BB'); seq += 1
+        # Flop: both check (PFA checks back)
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        # Turn: hero probes
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       3.0, 1, seq, 'BB')
+
+    # -- Detection tests --
+
+    def test_detected(self):
+        """Probe detected: BB calls preflop, both check flop, BB bets turn."""
+        self._setup_probe('PRB01')
+        matches = self._classify('PRB01')
+        self.assertIn(22, [m.lesson_id for m in matches])
+
+    def test_not_detected_when_hero_not_bb(self):
+        """Lesson 22 NOT triggered when hero is not BB."""
+        _insert_hand(self.repo, 'PRB02', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        seq = 1
+        _insert_action(self.repo, 'PRB02', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'UTG'); seq += 1
+        _insert_action(self.repo, 'PRB02', 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB02', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB02', 'flop', 'P1', 'check',
+                       0, 0, seq, 'UTG'); seq += 1
+        _insert_action(self.repo, 'PRB02', 'turn', 'Hero', 'bet',
+                       3.0, 1, seq, 'BTN')
+        matches = self._classify('PRB02')
+        self.assertNotIn(22, [m.lesson_id for m in matches])
+
+    def test_not_detected_when_hero_pfa(self):
+        """Lesson 22 NOT triggered when hero is the PFA (that's delayed cbet)."""
+        _insert_hand(self.repo, 'PRB03', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        seq = 1
+        _insert_action(self.repo, 'PRB03', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        # Hero 3-bets (becomes PFA)
+        _insert_action(self.repo, 'PRB03', 'preflop', 'Hero', 'raise',
+                       4.5, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PRB03', 'preflop', 'P1', 'call',
+                       4.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB03', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PRB03', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB03', 'turn', 'Hero', 'bet',
+                       3.0, 1, seq, 'BB')
+        matches = self._classify('PRB03')
+        self.assertNotIn(22, [m.lesson_id for m in matches])
+
+    def test_not_detected_villain_bet_flop(self):
+        """Lesson 22 NOT triggered when villain bet flop (PFA c-bet)."""
+        _insert_hand(self.repo, 'PRB04', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        seq = 1
+        _insert_action(self.repo, 'PRB04', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB04', 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BB'); seq += 1
+        # Villain bets flop (not checked back)
+        _insert_action(self.repo, 'PRB04', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PRB04', 'flop', 'P1', 'bet',
+                       2.0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB04', 'flop', 'Hero', 'call',
+                       2.0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PRB04', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB04', 'turn', 'Hero', 'bet',
+                       3.0, 1, seq, 'BB')
+        # This should trigger Bet vs Missed Bet (21), not Probe (22)
+        matches = self._classify('PRB04')
+        self.assertNotIn(22, [m.lesson_id for m in matches])
+        self.assertIn(21, [m.lesson_id for m in matches])
+
+    def test_street_is_turn(self):
+        """Lesson 22 match has street='turn'."""
+        self._setup_probe('PRB05')
+        matches = self._classify('PRB05')
+        m = next((m for m in matches if m.lesson_id == 22), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.street, 'turn')
+
+    # -- Correct execution (1): strong/medium/draw hands or blank turn --
+
+    def test_strong_hand_probe_correct(self):
+        """Strong hand probes turn: correct (1).
+
+        Hero Ah Kd on Ah Kd 2c flop, turn 3s: top two pair probe.
+        """
+        self._setup_probe('PRB10', hero_cards='Ah Kd',
+                          board_flop='Ah Kd 2c', board_turn='3s')
+        self.assertEqual(self._probe_result('PRB10'), 1)
+
+    def test_medium_hand_probe_correct(self):
+        """Medium hand (middle pair) probes: correct (1).
+
+        Hero 7h 6d on As 7c 2h flop, turn 3d: second pair probe.
+        """
+        self._setup_probe('PRB11', hero_cards='7h 6d',
+                          board_flop='As 7c 2h', board_turn='3d')
+        self.assertEqual(self._probe_result('PRB11'), 1)
+
+    def test_draw_probe_correct(self):
+        """Draw (flush draw) probes turn: correct (1).
+
+        Hero Ah 2h on Kh 7h 3c flop, turn 9s: semi-bluff probe.
+        """
+        self._setup_probe('PRB12', hero_cards='Ah 2h',
+                          board_flop='Kh 7h 3c', board_turn='9s')
+        self.assertEqual(self._probe_result('PRB12'), 1)
+
+    def test_air_blank_turn_probe_correct(self):
+        """Air probes blank turn: correct (1).
+
+        Hero Qd Jc on As 7h 3c flop, turn 2d (blank).
+        PFA showed weakness + blank turn: probe is correct.
+        """
+        self._setup_probe('PRB13', hero_cards='Qd Jc',
+                          board_flop='As 7h 3c', board_turn='2d')
+        self.assertEqual(self._probe_result('PRB13'), 1)
+
+    # -- Marginal execution (None): air on neutral turn --
+
+    def test_air_neutral_turn_probe_marginal(self):
+        """Air probes neutral turn: marginal (None).
+
+        Hero 9d 5c on As 7h 3c flop (no pair, no draw), turn Tc (neutral).
+        9d 5c has indices [1,3,5,7,8,12] with max 3 in any 5-rank window.
+        Air probe is marginal on neutral turns.
+        """
+        self._setup_probe('PRB20', hero_cards='9d 5c',
+                          board_flop='As 7h 3c', board_turn='Tc')
+        self.assertIsNone(self._probe_result('PRB20'))
+
+    # -- Incorrect execution (0): air on dangerous turn (flush completes) --
+
+    def test_air_flush_completing_turn_probe_incorrect(self):
+        """Air probes dangerous turn (flush completes): incorrect (0).
+
+        Hero Qd Jc on Ah 7h 3c flop (2 hearts), turn 9h (flush completes).
+        Hero has no hearts; combined board has 3 hearts = no 4-flush for hero.
+        But turn completes villain flush draw: probing with air is incorrect.
+        """
+        self._setup_probe('PRB30', hero_cards='Qd Jc',
+                          board_flop='Ah 7h 3c', board_turn='9h')
+        self.assertEqual(self._probe_result('PRB30'), 0)
+
+    def test_air_flush_completing_turn_probe_incorrect_2(self):
+        """Air probes dangerous turn (flush completes, clubs): incorrect (0).
+
+        Hero Kd 4h on Ac 7c 3h flop (2 clubs), turn 9c (flush completes).
+        Hero no clubs: board now has 3 clubs. Probing with air is incorrect.
+        """
+        self._setup_probe('PRB31', hero_cards='Kd 4h',
+                          board_flop='Ac 7c 3h', board_turn='9c')
+        self.assertEqual(self._probe_result('PRB31'), 0)
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_correct_by_default(self):
+        """Missing hero cards → PFA checked, probing is correct (1)."""
+        _insert_hand(self.repo, 'PRB40', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('PRB40',))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'PRB40', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB40', 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PRB40', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'PRB40', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'PRB40', 'turn', 'Hero', 'bet',
+                       3.0, 1, seq, 'BB')
+        self.assertEqual(self._probe_result('PRB40'), 1)
+
+    def test_no_turn_card_correct_by_default(self):
+        """Missing turn card info → probing is correct (1) by default."""
+        hand = {'hand_id': 'PRB50', 'hero_cards': 'Qd Jc',
+                'hero_position': 'BB', 'board_flop': 'As 7h 3c',
+                'board_turn': None, 'board_river': None,
+                'net': 0.0, 'game_type': 'cash'}
+        flop_a = {'villain_checks_back': True}
+        turn_a = {'hero_bets': True}
+        result = self.classifier._eval_probe(hand, flop_a, turn_a)
+        self.assertEqual(result, 1)
+
+
 if __name__ == '__main__':
     unittest.main()
