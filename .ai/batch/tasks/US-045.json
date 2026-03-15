@@ -1,0 +1,32 @@
+{
+  "id": "US-045",
+  "title": "Lesson: Open Shove cEV 10BB + Bounty Ranges",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Read the 3 reference PDFs to extract open shove ranges by position/stack and bounty-adjusted ranges",
+    "Define position-based range data sets (_OPEN_SHOVE_RANGES, _BOUNTY_RANGES) in lesson_classifier.py",
+    "Add helper methods _open_shove_hand_tier() and _bounty_hand_tier() for hand classification",
+    "Enhance lesson 4 detection (line ~495) with proper range evaluation based on position and stack depth",
+    "Add _eval_bounty_intro() and _eval_bounty_ranges() evaluation methods for lessons 24-25 with bounty-adjusted range validation",
+    "Update lessons 24-25 detection (lines ~634-644) to include executed_correctly evaluation",
+    "Add 50-70+ tests in test_lesson_classifier.py covering all three lessons: tier membership, correct/incorrect/marginal classifications, detection conditions, edge cases",
+    "Run quality gates (typecheck, lint, tests, build)",
+    "Update prd.json status and active.md tracking"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "tests/test_lesson_classifier.py",
+    ".ai/tasks/prd.json",
+    ".ai/tasks/active.md"
+  ],
+  "created_at": "2026-03-15T06:03:21.921Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-045",
+  "replanned_at": "2026-03-15T06:13:52.489Z",
+  "replan_reason": "timeout after 630s (medium → high)"
+}
