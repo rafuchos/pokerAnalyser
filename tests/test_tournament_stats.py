@@ -331,18 +331,10 @@ Total pot 640"""
         self.assertEqual(hand.blinds_bb, 150)
         self.assertEqual(hand.hero_cards, 'Ks Qd')
         self.assertEqual(hand.platform, 'PokerStars')
-        # Invested: ante(20) + bb(150) + call 150 more = 320
-        # Actually: ante=20, posts bb=150, then calls 150 more
-        # current_street_total starts with: ante 20, then bb 150 (overwrites), then call 150 (adds)
-        # Actually hero_total_invested = preflop: 150+150=300 + ante 20 = 320... let me trace:
-        # Hero posts ante: current_street_total = 20
-        # Hero posts big blind: current_street_total = 150  (overwrite)
-        # Hero calls 150: current_street_total += 150 = 300
-        # Street change to flop: hero_total_invested += 300 = 300
-        # Flop: hero checks, folds - no investment
-        # Final: hero_total_invested = 300, returned = 0
-        # invested = 300
-        self.assertEqual(hand.invested, 300)
+        # Invested: ante tracked separately (20) + bb(150) + call 150 = 320
+        # hero_ante = 20, current_street_total: bb 150 (overwrite) + call 150 = 300
+        # hero_total_invested = 300, invested = 300 + hero_ante(20) = 320
+        self.assertEqual(hand.invested, 320)
 
     def test_parse_ps_tournament_hand_invalid(self):
         parser = PokerStarsParser()

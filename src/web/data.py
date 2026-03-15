@@ -1183,7 +1183,7 @@ def prepare_ev_data(data, period='year', from_date='', to_date=''):
 
     raw_ev = data.get('allin_ev') or {}
     # Flatten 'overall' sub-dict to top level for template access
-    ev = dict(raw_ev.get('overall', {}))
+    ev = dict(raw_ev.get('overall', raw_ev))
     ev['by_stakes'] = raw_ev.get('by_stakes', {})
     ev['allin_count'] = ev.get('allin_hands', 0)
     data['ev_summary'] = ev

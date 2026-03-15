@@ -141,10 +141,13 @@ class TestTournamentAnalyzerInitAttributes(unittest.TestCase):
         self.assertIsNotNone(self.analyzer._warning_ranges)
         self.assertIsNotNone(self.analyzer._postflop_warning_ranges)
 
-    def test_ranges_match_cash_analyzer(self):
-        self.assertEqual(self.analyzer._healthy_ranges, CashAnalyzer.HEALTHY_RANGES)
-        self.assertEqual(self.analyzer._pos_vpip_healthy, CashAnalyzer.POSITION_VPIP_HEALTHY)
-        self.assertEqual(self.analyzer._stack_vpip_healthy, CashAnalyzer.STACK_VPIP_HEALTHY)
+    def test_ranges_are_tournament_specific(self):
+        """Tournament ranges should be its own, not copied from CashAnalyzer."""
+        self.assertEqual(self.analyzer._healthy_ranges, TournamentAnalyzer.HEALTHY_RANGES)
+        self.assertEqual(self.analyzer._pos_vpip_healthy, TournamentAnalyzer.POSITION_VPIP_HEALTHY)
+        self.assertEqual(self.analyzer._stack_vpip_healthy, TournamentAnalyzer.STACK_VPIP_HEALTHY)
+        # Confirm they differ from cash (tournament ranges are wider)
+        self.assertNotEqual(TournamentAnalyzer.HEALTHY_RANGES, CashAnalyzer.HEALTHY_RANGES)
 
 
 # ── Tests: get_positional_stats ─────────────────────────────────────
