@@ -100,6 +100,21 @@ Update this section weekly with sprint goals and dates.
 - [x] US-035: EV Tracking Completo: Linha EV por Sessão, por Dia e na Overview (2026-03-11)
 - [x] US-036: Bugfix: Correções de Dados e Rendering em Todas as Páginas Web (2026-03-11)
 - [x] US-037: Satellite & Sit-and-Go Analysis: Tela Dedicada para Satélites e Spin & Gold (2026-03-11)
+- [x] US-038: Lesson Tracker Foundation: Schema, Models e Catálogo de Aulas RegLife (2026-03-15)
+- [x] US-039: Lesson Classifier Engine: Motor de Classificação Mão → Aula (2026-03-15)
+- [x] US-040: Lesson: Ranges de RFI em cEV (2026-03-15)
+- [x] US-041: Lesson: Defesa Multiway do Big Blind Pre-Flop (2026-03-15)
+- [x] US-042: Lesson: Jogando no Big Blind Pre-Flop (2026-03-15)
+- [x] US-043: Lesson: Blind War SB vs BB + BB vs SB (2026-03-15)
+- [x] US-044: Lesson: Ranges de Flat/3-Bet + Reação vs 3-Bet + Squeeze (2026-03-15)
+- [x] US-045: Lesson: Open Shove cEV 10BB + Bounty Ranges (2026-03-15)
+- [x] US-046: Lesson: CBet Flop (IP + OOP) + BB vs CBet OOP (2026-03-15)
+- [x] US-047: Lesson: Pós-Flop IP vs CBet (BTN) + 3Bet Pots Postflop + Check-Raise (2026-03-15)
+- [x] US-048: Lesson: CBet Turn + Delayed CBet (2026-03-15)
+- [x] US-049: Lesson: CBet River (2026-03-15)
+- [x] US-050: Lesson: Multi-Street (MDA, Pós-Flop Avançado, Probe, Bet vs Missed CBet) (2026-03-15)
+- [x] US-051: Lesson Tracker Web: Dashboard de Aulas + Performance por Aula (2026-03-15)
+- [x] US-052: Session Lesson Tab: Aba Hand Analyzer por Sessão com Cards de Aulas (2026-03-15)
 
 ---
 

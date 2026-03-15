@@ -1,0 +1,30 @@
+{
+  "id": "US-042",
+  "title": "Lesson: Jogando no Big Blind Pre-Flop",
+  "status": "completed",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Read the PDF source material for BB preflop ranges and strategy",
+    "Add BB defense hand tier constants (call ranges and 3-bet ranges per opener position) to lesson_classifier.py",
+    "Add _get_bb_defense_tier() helper method to map opener positions to tiers",
+    "Replace the stub _eval_bb_preflop() method with full evaluation logic",
+    "Add unit tests for BB preflop evaluation (tier assignment, correct calls, 3-bets, folds, marginal hands, edge cases)",
+    "Run quality gates (pytest, lint, typecheck)",
+    "Update prd.json status and tracking files"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "tests/test_lesson_classifier.py",
+    ".ai/tasks/prd.json",
+    ".ai/tasks/active.md"
+  ],
+  "created_at": "2026-03-15T05:23:21.184Z",
+  "completed_at": "2026-03-15T05:37:00.398Z",
+  "failure_reason": null,
+  "branch": "feat/US-042",
+  "replanned_at": "2026-03-15T05:33:51.679Z",
+  "replan_reason": "timeout after 630s (medium → high)"
+}

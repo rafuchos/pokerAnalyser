@@ -1,0 +1,32 @@
+{
+  "id": "US-047",
+  "title": "Lesson: Pós-Flop IP vs CBet (BTN) + 3Bet Pots Postflop + Check-Raise",
+  "status": "completed",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Read current lesson_classifier.py to understand existing stubs for lessons 19, 20, 23",
+    "Implement _eval_ip_vs_cbet() evaluation method for Lesson 20 (Pós-Flop IP vs CBet BTN) with board texture and hand strength analysis",
+    "Implement _eval_facing_checkraise() evaluation method for Lesson 19 (Enfrentando Check-Raise) handling flop and turn scenarios",
+    "Implement _eval_3bet_pot_postflop() evaluation method for Lesson 23 (3Bet Pots Postflop) with position-aware decision scoring",
+    "Wire all 3 lessons in classify() method with proper detection conditions and position/action filters",
+    "Add comprehensive tests for all 3 eval methods and detection logic (~60 new tests)",
+    "Run quality gates (typecheck, lint, tests, build)",
+    "Update tracking files (active.md, prd.json, batch task file) and commit"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "tests/test_lesson_classifier.py",
+    ".ai/tasks/active.md",
+    ".ai/tasks/prd.json",
+    ".ai/batch/tasks/US-047.json"
+  ],
+  "created_at": "2026-03-15T06:38:54.508Z",
+  "completed_at": "2026-03-15T06:53:49.156Z",
+  "failure_reason": null,
+  "branch": "feat/US-047",
+  "replanned_at": "2026-03-15T06:49:25.092Z",
+  "replan_reason": "timeout after 630s (medium → high)"
+}

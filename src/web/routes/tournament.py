@@ -7,18 +7,20 @@ from src.web.data import (
     prepare_overview_data,
     prepare_sessions_list,
     prepare_session_day,
+    prepare_session_day_lessons,
     prepare_stats_data,
     prepare_leaks_data,
     prepare_ev_data,
     prepare_range_data,
     prepare_tilt_data,
     prepare_sizing_data,
+    prepare_lessons_data,
     prepare_satellites_data,
 )
 
 tournament_bp = Blueprint('tournament', __name__)
 
-VALID_TABS = ('overview', 'sessions', 'stats', 'leaks', 'ev', 'range', 'tilt', 'sizing', 'satellites')
+VALID_TABS = ('overview', 'sessions', 'stats', 'leaks', 'ev', 'range', 'tilt', 'sizing', 'lessons', 'satellites')
 
 
 @tournament_bp.route('/')
@@ -67,6 +69,9 @@ def sub_tab(tab):
     elif tab == 'sizing':
         prepare_sizing_data(data, period=period,
                             from_date=from_date, to_date=to_date)
+    elif tab == 'lessons':
+        prepare_lessons_data(data, period=period,
+                             from_date=from_date, to_date=to_date)
     elif tab == 'satellites':
         prepare_satellites_data(data, period=period,
                                 from_date=from_date, to_date=to_date)
@@ -83,8 +88,10 @@ def sub_tab(tab):
 def session_day(date):
     """Render drill-down for a specific session day."""
     db_path = current_app.config['ANALYTICS_DB_PATH']
+    poker_db_path = current_app.config.get('POKER_DB_PATH', '')
     data = load_analytics_data(db_path, 'tournament')
     prepare_session_day(data, date)
+    prepare_session_day_lessons(data, date, 'tournament', poker_db_path)
 
     return render_template(
         'tournament/session_day.html',

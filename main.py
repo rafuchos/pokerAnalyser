@@ -222,7 +222,8 @@ def cmd_serve(args):
     print(f"Debug:        {debug}")
     print()
 
-    app = create_app(analytics_db_path=analytics_db, debug=debug)
+    poker_db = getattr(args, 'db', None) or 'poker.db'
+    app = create_app(analytics_db_path=analytics_db, poker_db_path=poker_db, debug=debug)
 
     url = f"http://127.0.0.1:{port}"
     if not args.no_browser:
@@ -233,6 +234,107 @@ def cmd_serve(args):
     print()
 
     app.run(host='127.0.0.1', port=port, debug=debug, use_reloader=debug)
+
+
+def cmd_lessons(args):
+    """List all lessons with linked hand counts."""
+    from src.db.connection import get_connection
+    from src.db.repository import Repository
+
+    conn = get_connection(args.db)
+    repo = Repository(conn)
+
+    # Ensure lessons are seeded
+    seeded = repo.seed_lessons_if_empty()
+    if seeded > 0:
+        print(f"(Seeded {seeded} lessons on first run)")
+        print()
+
+    lessons = repo.get_lessons_with_hand_count()
+
+    if not lessons:
+        print("No lessons found.")
+        return
+
+    print("=" * 70)
+    print("POKER ANALYZER - Lesson Tracker")
+    print("=" * 70)
+    print()
+
+    current_category = None
+    for lesson in lessons:
+        cat = lesson['category']
+        if cat != current_category:
+            if current_category is not None:
+                print()
+            print(f"  [{cat}]")
+            current_category = cat
+
+        hand_count = lesson['hand_count']
+        count_str = f"({hand_count} mão{'s' if hand_count != 1 else ''})" if hand_count > 0 else ""
+        subcat = lesson['subcategory']
+        print(f"    {lesson['lesson_id']:>2}. [{subcat:<12}] {lesson['title']:<45} {count_str}")
+
+    total_hands = sum(l['hand_count'] for l in lessons)
+    print()
+    print("-" * 70)
+    print(f"  Total: {len(lessons)} aulas | {total_hands} mão(s) vinculada(s)")
+    print("=" * 70)
+
+
+def cmd_classify(args):
+    """Classify hands into RegLife lessons."""
+    from src.db.connection import get_connection
+    from src.db.repository import Repository
+    from src.analyzers.lesson_classifier import LessonClassifier
+
+    conn = get_connection(args.db)
+    repo = Repository(conn)
+
+    # Ensure lessons are seeded
+    repo.seed_lessons_if_empty()
+
+    print("=" * 70)
+    print("POKER ANALYZER - Lesson Classifier")
+    print("=" * 70)
+    print()
+
+    if args.force:
+        print("Force mode: clearing existing classifications...")
+        cleared = repo.clear_hand_lessons()
+        if cleared > 0:
+            print(f"  Cleared {cleared} existing links.")
+        print()
+
+    classifier = LessonClassifier(repo)
+    result = classifier.classify_all()
+
+    print(f"  Total hands:      {result['total_hands']}")
+    print(f"  Classified hands: {result['classified_hands']}")
+    print(f"  Total links:      {result['total_links']}")
+    print(f"  Lessons matched:  {result['lessons_matched']} / 25")
+    print()
+
+    # Show per-lesson breakdown
+    lessons = repo.get_lessons_with_hand_count()
+    current_category = None
+    for lesson in lessons:
+        cat = lesson['category']
+        if cat != current_category:
+            if current_category is not None:
+                print()
+            print(f"  [{cat}]")
+            current_category = cat
+
+        count = lesson['hand_count']
+        bar = '#' * min(count, 40)
+        print(f"    {lesson['lesson_id']:>2}. {lesson['title']:<45} {count:>5} {bar}")
+
+    print()
+    print("-" * 70)
+    total_links = sum(l['hand_count'] for l in lessons)
+    print(f"  Total: {result['lessons_matched']} aulas com mãos | {total_links} vínculo(s)")
+    print("=" * 70)
 
 
 def cmd_stats(args):
@@ -355,6 +457,18 @@ def main():
         help='Path to config file (default: config/targets.yaml)'
     )
 
+    # lessons subcommand
+    subparsers.add_parser('lessons', help='List all lessons with linked hand counts')
+
+    # classify subcommand
+    classify_parser = subparsers.add_parser(
+        'classify', help='Classify hands into RegLife lessons'
+    )
+    classify_parser.add_argument(
+        '--force', action='store_true',
+        help='Clear existing classifications before re-classifying'
+    )
+
     # analyze subcommand
     analyze_parser = subparsers.add_parser(
         'analyze', help='Run all analyzers and persist results to analytics.db'
@@ -411,6 +525,10 @@ def main():
         cmd_analyze(args)
     elif args.command == 'serve':
         cmd_serve(args)
+    elif args.command == 'lessons':
+        cmd_lessons(args)
+    elif args.command == 'classify':
+        cmd_classify(args)
 
 
 if __name__ == '__main__':

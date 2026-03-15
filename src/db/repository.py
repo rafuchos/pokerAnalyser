@@ -752,6 +752,158 @@ class Repository:
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
+    # ── Lessons ────────────────────────────────────────────────────────
+
+    def get_lessons(self) -> list[dict]:
+        """Get all lessons ordered by sort_order."""
+        rows = self.conn.execute(
+            "SELECT * FROM lessons ORDER BY sort_order"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_lesson_by_id(self, lesson_id: int) -> Optional[dict]:
+        """Get a single lesson by ID."""
+        row = self.conn.execute(
+            "SELECT * FROM lessons WHERE lesson_id = ?",
+            (lesson_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_lessons_with_hand_count(self) -> list[dict]:
+        """Get all lessons with the count of linked hands.
+
+        Returns each lesson dict with an extra 'hand_count' key.
+        """
+        rows = self.conn.execute("""
+            SELECT l.*, COUNT(hl.id) as hand_count
+            FROM lessons l
+            LEFT JOIN hand_lessons hl ON l.lesson_id = hl.lesson_id
+            GROUP BY l.lesson_id
+            ORDER BY l.sort_order
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def link_hand_to_lesson(self, hand_id: str, lesson_id: int,
+                            notes: str = None, street: str = None,
+                            executed_correctly: int = None,
+                            confidence: float = 1.0) -> int:
+        """Link a hand to a lesson. Returns the hand_lessons row ID."""
+        cursor = self.conn.execute(
+            "INSERT INTO hand_lessons (hand_id, lesson_id, street, "
+            "executed_correctly, confidence, notes, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (hand_id, lesson_id, street, executed_correctly, confidence,
+             notes, datetime.now().isoformat())
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def unlink_hand_from_lesson(self, hand_id: str, lesson_id: int) -> bool:
+        """Remove a hand-lesson link. Returns True if a row was deleted."""
+        cursor = self.conn.execute(
+            "DELETE FROM hand_lessons WHERE hand_id = ? AND lesson_id = ?",
+            (hand_id, lesson_id)
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_hands_for_lesson(self, lesson_id: int) -> list[dict]:
+        """Get all hands linked to a specific lesson."""
+        rows = self.conn.execute("""
+            SELECT h.*, hl.notes as lesson_notes, hl.created_at as linked_at
+            FROM hands h
+            JOIN hand_lessons hl ON h.hand_id = hl.hand_id
+            WHERE hl.lesson_id = ?
+            ORDER BY h.date
+        """, (lesson_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_lessons_for_hand(self, hand_id: str) -> list[dict]:
+        """Get all lessons linked to a specific hand."""
+        rows = self.conn.execute("""
+            SELECT l.*, hl.notes as lesson_notes, hl.created_at as linked_at
+            FROM lessons l
+            JOIN hand_lessons hl ON l.lesson_id = hl.lesson_id
+            WHERE hl.hand_id = ?
+            ORDER BY l.sort_order
+        """, (hand_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_lesson_hand_count(self, lesson_id: int) -> int:
+        """Get count of hands linked to a lesson."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM hand_lessons WHERE lesson_id = ?",
+            (lesson_id,)
+        ).fetchone()
+        return row['cnt']
+
+    def bulk_link_hand_lessons(self, links: list[tuple]) -> int:
+        """Bulk insert hand-lesson links.
+
+        Each tuple: (hand_id, lesson_id, street, executed_correctly,
+                      confidence, notes).
+        Returns the number of rows inserted.
+        """
+        now = datetime.now().isoformat()
+        rows = [(h, l, s, e, c, n, now) for h, l, s, e, c, n in links]
+        self.conn.executemany(
+            "INSERT INTO hand_lessons (hand_id, lesson_id, street, "
+            "executed_correctly, confidence, notes, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        self.conn.commit()
+        return len(rows)
+
+    def clear_hand_lessons(self) -> int:
+        """Delete all hand-lesson links. Returns count deleted."""
+        cursor = self.conn.execute("DELETE FROM hand_lessons")
+        self.conn.commit()
+        return cursor.rowcount
+
+    def get_all_hands_for_classification(self) -> list[dict]:
+        """Get all hands with board info for classification."""
+        rows = self.conn.execute("""
+            SELECT hand_id, game_type, hero_cards, hero_position,
+                   blinds_sb, blinds_bb, hero_stack, num_players,
+                   board_flop, board_turn, board_river,
+                   has_allin, allin_street, tournament_id, net
+            FROM hands
+            ORDER BY date
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_all_actions_for_classification(self) -> list[dict]:
+        """Get all actions for all hands, ordered for grouping by hand."""
+        rows = self.conn.execute("""
+            SELECT hand_id, street, player, action_type, amount,
+                   is_hero, sequence_order, position
+            FROM hand_actions
+            ORDER BY hand_id,
+                CASE street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
+                WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
+                sequence_order
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_info(self, tournament_id: str) -> Optional[dict]:
+        """Get tournament info by ID."""
+        row = self.conn.execute(
+            "SELECT * FROM tournaments WHERE tournament_id = ?",
+            (tournament_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def seed_lessons_if_empty(self) -> int:
+        """Seed lessons table with RegLife catalog if empty.
+
+        Returns the number of lessons inserted.
+        """
+        from src.db.seed_lessons import seed_lessons
+        return seed_lessons(self.conn)
+
+    # ── Counts ────────────────────────────────────────────────────────
+
     def get_imported_files_count(self) -> int:
         """Get count of imported files."""
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM imported_files").fetchone()

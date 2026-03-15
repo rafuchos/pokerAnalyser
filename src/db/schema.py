@@ -105,6 +105,33 @@ CREATE INDEX IF NOT EXISTS idx_hand_actions_street ON hand_actions(hand_id, stre
 CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date);
 CREATE INDEX IF NOT EXISTS idx_tournaments_date ON tournaments(date);
 CREATE INDEX IF NOT EXISTS idx_tournaments_platform ON tournaments(platform);
+
+CREATE TABLE IF NOT EXISTS lessons (
+    lesson_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    subcategory TEXT NOT NULL,
+    pdf_filename TEXT,
+    description TEXT,
+    sort_order INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS hand_lessons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hand_id TEXT NOT NULL,
+    lesson_id INTEGER NOT NULL,
+    street TEXT,
+    executed_correctly INTEGER,
+    confidence REAL DEFAULT 1.0,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (hand_id) REFERENCES hands(hand_id),
+    FOREIGN KEY (lesson_id) REFERENCES lessons(lesson_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hand_lessons_hand_id ON hand_lessons(hand_id);
+CREATE INDEX IF NOT EXISTS idx_hand_lessons_lesson_id ON hand_lessons(lesson_id);
+CREATE INDEX IF NOT EXISTS idx_lessons_category ON lessons(category);
 """
 
 
@@ -124,6 +151,16 @@ def init_db(conn):
     conn.executescript(SCHEMA_SQL)
     conn.commit()
     _run_migrations(conn)
+    _seed_lessons(conn)
+
+
+def _seed_lessons(conn):
+    """Seed lessons if the table is empty (first-run auto-populate)."""
+    try:
+        from src.db.seed_lessons import seed_lessons
+        seed_lessons(conn)
+    except Exception:
+        pass  # Table may not exist yet during migration edge cases
 
 
 def _run_migrations(conn):
@@ -160,3 +197,50 @@ def _run_migrations(conn):
     if 'hero_stack' not in hand_cols:
         conn.execute("ALTER TABLE hands ADD COLUMN hero_stack REAL")
         conn.commit()
+
+    # US-038: Create lessons and hand_lessons tables if not exist
+    existing_tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if 'lessons' not in existing_tables:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS lessons (
+                lesson_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                subcategory TEXT NOT NULL,
+                pdf_filename TEXT,
+                description TEXT,
+                sort_order INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS hand_lessons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hand_id TEXT NOT NULL,
+                lesson_id INTEGER NOT NULL,
+                street TEXT,
+                executed_correctly INTEGER,
+                confidence REAL DEFAULT 1.0,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (hand_id) REFERENCES hands(hand_id),
+                FOREIGN KEY (lesson_id) REFERENCES lessons(lesson_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_hand_lessons_hand_id ON hand_lessons(hand_id);
+            CREATE INDEX IF NOT EXISTS idx_hand_lessons_lesson_id ON hand_lessons(lesson_id);
+            CREATE INDEX IF NOT EXISTS idx_lessons_category ON lessons(category);
+        """)
+        conn.commit()
+
+    # US-039: Add street, executed_correctly, confidence to hand_lessons
+    existing_tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if 'hand_lessons' in existing_tables:
+        hl_cols = {row[1] for row in conn.execute(
+            "PRAGMA table_info(hand_lessons)"
+        ).fetchall()}
+        if 'street' not in hl_cols:
+            conn.execute("ALTER TABLE hand_lessons ADD COLUMN street TEXT")
+            conn.execute("ALTER TABLE hand_lessons ADD COLUMN executed_correctly INTEGER")
+            conn.execute("ALTER TABLE hand_lessons ADD COLUMN confidence REAL DEFAULT 1.0")
+            conn.commit()

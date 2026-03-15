@@ -345,7 +345,7 @@ class TestTournamentAnalyzerAttributes(unittest.TestCase):
         self.assertIsInstance(analyzer._healthy_ranges, dict)
         self.assertIn('vpip', analyzer._healthy_ranges)
         self.assertIn('pfr', analyzer._healthy_ranges)
-        self.assertEqual(analyzer._healthy_ranges, CashAnalyzer.HEALTHY_RANGES)
+        self.assertEqual(analyzer._healthy_ranges, TournamentAnalyzer.HEALTHY_RANGES)
 
     def test_postflop_healthy_ranges_instance_attribute(self):
         conn, repo = _setup_db()
@@ -354,7 +354,7 @@ class TestTournamentAnalyzerAttributes(unittest.TestCase):
         self.assertIn('af', analyzer._postflop_healthy_ranges)
         self.assertIn('wtsd', analyzer._postflop_healthy_ranges)
         self.assertEqual(analyzer._postflop_healthy_ranges,
-                         CashAnalyzer.POSTFLOP_HEALTHY_RANGES)
+                         TournamentAnalyzer.POSTFLOP_HEALTHY_RANGES)
 
 
 # ── TournamentAnalyzer.get_preflop_stats() ───────────────────────────

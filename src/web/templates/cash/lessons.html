@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block page_title %}Cash — Aulas{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Dashboard de Aulas</h1>
+
+{% if data and (data.get('lessons_list') or data.get('lesson_summary')) %}
+
+{# ── Overview Cards ──────────────────────────────────────────── #}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Aulas com Dados</div>
+        <div class="stat-value neutral">{{ data.get('lesson_with_data', 0) }} / {{ data.get('lesson_total', 25) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Maos Classificadas</div>
+        <div class="stat-value neutral">{{ '{:,}'.format(data.get('lesson_classified_hands', 0)|int) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Acerto Global</div>
+        {% set acc = data.get('lesson_global_accuracy') %}
+        <div class="stat-value {% if acc is not none %}{{ 'positive' if acc >= 70 else ('negative' if acc < 50 else 'neutral') }}{% else %}neutral{% endif %}">
+            {% if acc is not none %}{{ '{:.1f}'.format(acc) }}%{% else %}-{% endif %}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Dominadas</div>
+        <div class="stat-value positive">{{ data.get('lesson_mastered', 0) }}</div>
+    </div>
+</div>
+
+{# ── Mastery Progress Bar ────────────────────────────────────── #}
+{% if data.get('lesson_with_data', 0) > 0 %}
+<div class="card">
+    <div class="card-title">Progresso de Mastery</div>
+    <div class="health-bar-container">
+        <div class="health-bar">
+            <div class="health-bar-fill health-good" style="width: {{ data.get('mastery_pct', 0) }}%"></div>
+        </div>
+        <div class="health-bar-label">
+            <span class="health-score-value">{{ data.get('lesson_mastered', 0) }} dominadas</span>
+            <span class="health-score-desc">
+                {{ data.get('lesson_learning', 0) }} aprendendo |
+                {{ data.get('lesson_needs_work', 0) }} precisam trabalho
+            </span>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ── Category Breakdown ──────────────────────────────────────── #}
+{% if data.get('lessons_by_category') %}
+<div class="card">
+    <div class="card-title">Acerto por Categoria</div>
+    <div class="table-responsive">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Categoria</th>
+                <th class="num">Maos</th>
+                <th class="num">Corretas</th>
+                <th class="num">Incorretas</th>
+                <th class="num">Acerto %</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cat in data['lessons_by_category'] %}
+            <tr>
+                <td>{{ cat['name'] }}</td>
+                <td class="num">{{ cat.get('total', 0) }}</td>
+                <td class="num positive">{{ cat.get('correct', 0) }}</td>
+                <td class="num negative">{{ cat.get('incorrect', 0) }}</td>
+                <td class="num">
+                    {% if cat.get('accuracy') is not none %}
+                    <span class="badge badge-{{ 'good' if cat['accuracy'] >= 70 else ('warning' if cat['accuracy'] >= 50 else 'danger') }}">
+                        {{ '{:.1f}'.format(cat['accuracy']) }}%
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+    {# ── Category Accuracy Bar Chart (SVG) ────────────────────── #}
+    {% if data.get('lessons_cat_chart') %}
+    <div style="margin-top: 1rem;">
+        <svg viewBox="0 0 400 120" style="width: 100%; max-width: 400px;">
+            {% for c in data['lessons_cat_chart'] %}
+            {% set bar_w = (c['accuracy'] / 100) * 300 %}
+            {% set y = loop.index0 * 40 + 10 %}
+            <text x="0" y="{{ y + 15 }}" fill="var(--text-secondary)" font-size="12">{{ c['name'] }}</text>
+            <rect x="80" y="{{ y }}" width="{{ bar_w }}" height="22" rx="3"
+                  fill="{{ '#22c55e' if c['accuracy'] >= 70 else ('#f59e0b' if c['accuracy'] >= 50 else '#ef4444') }}"
+                  opacity="0.8"/>
+            <text x="{{ 80 + bar_w + 5 }}" y="{{ y + 15 }}" fill="var(--text-primary)" font-size="11">{{ '{:.0f}'.format(c['accuracy']) }}%</text>
+            {% endfor %}
+        </svg>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ── Filter Toggle ───────────────────────────────────────────── #}
+<div class="card">
+    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>Performance por Aula</span>
+        <button class="filter-btn" onclick="toggleErrorsOnly()" id="errors-toggle-btn">Apenas com Erros</button>
+    </div>
+
+    {# ── All Lessons Table ───────────────────────────────────────── #}
+    <div class="table-responsive">
+    <table class="data-table" id="lessons-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Aula</th>
+                <th>Categoria</th>
+                <th class="num">Maos</th>
+                <th class="num">Corretas</th>
+                <th class="num">Incorretas</th>
+                <th class="num">Acerto %</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for lesson in data.get('lessons_list', []) %}
+            <tr class="lesson-row {% if lesson.get('incorrect', 0) > 0 %}has-errors{% endif %}"
+                data-has-errors="{{ '1' if lesson.get('incorrect', 0) > 0 else '0' }}">
+                <td>{{ lesson.get('lesson_id', '') }}</td>
+                <td>{{ lesson.get('title', '') }}</td>
+                <td><span class="badge badge-info">{{ lesson.get('category', '') }}</span></td>
+                <td class="num">{{ lesson.get('total_hands', 0) }}</td>
+                <td class="num positive">{{ lesson.get('correct', 0) }}</td>
+                <td class="num negative">{{ lesson.get('incorrect', 0) }}</td>
+                <td class="num">
+                    {% if lesson.get('accuracy') is not none %}
+                    <span class="badge badge-{{ 'good' if lesson['accuracy'] >= 70 else ('warning' if lesson['accuracy'] >= 50 else 'danger') }}">
+                        {{ '{:.1f}'.format(lesson['accuracy']) }}%
+                    </span>
+                    {% else %}-{% endif %}
+                </td>
+                <td>
+                    {% set m = lesson.get('mastery', 'no_data') %}
+                    {% if m == 'mastered' %}
+                    <span class="badge badge-good">Dominada</span>
+                    {% elif m == 'learning' %}
+                    <span class="badge badge-warning">Aprendendo</span>
+                    {% elif m == 'needs_work' %}
+                    <span class="badge badge-danger">Precisa Trabalho</span>
+                    {% else %}
+                    <span class="badge">Sem Dados</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+{# ── Study Suggestions ──────────────────────────────────────── #}
+{% if data.get('lessons_study_suggestions') %}
+<div class="card">
+    <div class="card-title">Sugestoes de Estudo</div>
+    <div class="leak-list">
+        {% for lesson in data['lessons_study_suggestions'] %}
+        <div class="leak-card {{ 'high' if lesson.get('accuracy') is not none and lesson['accuracy'] < 50 else '' }}">
+            <div class="leak-name">
+                #{{ loop.index }} — {{ lesson.get('title', '') }}
+                <span class="badge badge-{{ 'danger' if lesson.get('mastery') == 'needs_work' else 'warning' }}">
+                    {{ lesson.get('category', '') }}
+                </span>
+            </div>
+            <div class="leak-detail">
+                Acerto: {% if lesson.get('accuracy') is not none %}{{ '{:.1f}'.format(lesson['accuracy']) }}%{% else %}-{% endif %}
+                | Maos: {{ lesson.get('total_hands', 0) }}
+                | Erros: {{ lesson.get('incorrect', 0) }}
+            </div>
+            {% if lesson.get('description') %}
+            <div class="leak-detail" style="margin-top: 0.25rem; color: var(--accent-blue);">
+                {{ lesson['description'] }}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#128218;</div>
+    <div class="empty-state-text">Nenhum dado de aulas disponivel</div>
+    <div class="empty-state-hint">Run <code>python main.py analyze</code> to classify hands into lessons</div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+var errorsOnly = false;
+function toggleErrorsOnly() {
+    errorsOnly = !errorsOnly;
+    var btn = document.getElementById('errors-toggle-btn');
+    if (btn) btn.classList.toggle('active', errorsOnly);
+    var rows = document.querySelectorAll('#lessons-table .lesson-row');
+    for (var i = 0; i < rows.length; i++) {
+        if (errorsOnly && rows[i].getAttribute('data-has-errors') === '0') {
+            rows[i].style.display = 'none';
+        } else {
+            rows[i].style.display = '';
+        }
+    }
+}
+</script>
+{% endblock %}

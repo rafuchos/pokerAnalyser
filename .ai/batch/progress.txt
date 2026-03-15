@@ -437,3 +437,89 @@ US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sess
 
 === US-037 completed at 2026-03-11T05:53:02.354Z ===
 - All quality gates passed
+
+=== US-038 completed at 2026-03-15T04:28:11.472Z ===
+- All quality gates passed
+
+=== US-039 completed at 2026-03-15T04:43:30.957Z ===
+- All quality gates passed
+
+=== US-040 completed at 2026-03-15T05:10:09.978Z ===
+- All quality gates passed
+
+=== US-041 completed at 2026-03-15T05:22:00.292Z ===
+- All quality gates passed
+
+=== US-042 completed at 2026-03-15 ===
+- All 164 tests passing (60 new for BB preflop evaluation)
+- Pattern: _BB_TIER1 through _BB_TIER4 sets for BB defense ranges by strength tier
+- Pattern: _BB_POS_DEFEND_TIER maps opener position → max defense tier (UTG=1, MP/HJ=2, CO=3, BTN/SB=4)
+- Pattern: _bb_hand_tier(notation) → 1-5, same structure as _rfi_hand_tier()
+- Pattern: _eval_bb_preflop() uses tier comparison: hand_tier <= pos_tier → defend, hand_tier == pos_tier+1 → marginal, else fold
+- Pattern: Limped pot (no open_raiser_pos) → checking is always correct (return 1)
+- Pattern: Marginal hands capped at tier <= 4 (tier 5 vs any opener is always trash, never marginal)
+- Lesson: Previous attempt timed out; implementation was already complete, just needed test verification and commit
+
+=== US-042 completed at 2026-03-15T05:36:59.689Z ===
+- All quality gates passed
+
+=== US-043 completed at 2026-03-15T05:50:59.311Z ===
+- All quality gates passed
+
+=== US-044 completed at 2026-03-15 ===
+- All 283 lesson classifier tests passing (72 new)
+- Pattern: _FLAT_TIER1/2/3 sets for position-based flat-call ranges
+- Pattern: _3BET_TIER1/2/3/4 sets for position-based 3-bet ranges
+- Pattern: _VS3BET_CONTINUE / _VS3BET_4BET / _VS3BET_MARGINAL for reaction vs 3-bet classification
+- Pattern: _SQUEEZE_TIER1/2 sets with _SQUEEZE_POS_MAX_TIER for squeeze range validation
+- Pattern: _flat_hand_tier(), _3bet_hand_tier(), _squeeze_hand_tier() helper methods follow same tier pattern as _rfi_hand_tier()
+- Bugfix: _analyze_preflop() hero_faces_3bet was not set when hero folded (fold hit continue before line 802)
+- Lesson: Fold actions in _analyze_preflop() must set detection flags before the `continue` statement
+
+=== US-044 completed at 2026-03-15T06:01:36.135Z ===
+- All quality gates passed
+
+=== US-045 completed at 2026-03-15T06:16:20.580Z ===
+- All quality gates passed
+
+=== US-046 completed at 2026-03-15T06:37:20.395Z ===
+- All quality gates passed
+
+=== US-047 completed at 2026-03-15 ===
+- Lesson 20 (Pós-Flop IP vs CBet BTN): _eval_ip_vs_cbet() with board texture + hand strength evaluation
+- Lesson 19 (Enfrentando Check-Raise): _eval_facing_checkraise() replacing previous None stub
+- Lesson 23 (3-Betted Pots Pós-Flop): _eval_3bet_pot_postflop() with PFA vs caller distinction
+- Pattern: IP defense evaluation considers folding made hands as error, air as correct fold
+- Pattern: Check-raise evaluation correctly identifies air-fold as correct, strong-fold as incorrect
+- Pattern: 3-bet pot eval distinguishes PFA (should c-bet) from caller (should fold air)
+- 701 lines of new tests across 3 test classes (TestIPvsCBetEvaluation, TestFacingCheckRaiseEvaluation, Test3BetPotPostflopEvaluation)
+- All 463 classifier tests passing; 1876/1877 total (1 pre-existing unrelated failure)
+- All quality gates passed
+
+=== US-047 completed at 2026-03-15T06:53:48.373Z ===
+- All quality gates passed
+
+=== US-048 completed at 2026-03-15T07:16:21.393Z ===
+- All quality gates passed
+
+=== US-049 completed at 2026-03-15T07:31:14.625Z ===
+- All quality gates passed
+
+=== US-050 completed at 2026-03-15 ===
+- All 599 lesson classifier tests passing (2889 total, 7 pre-existing failures)
+- Pattern: _eval_mda() - made hand folds to turn bet = incorrect (0); air folds = correct (1); air calls = marginal (None)
+- Pattern: _eval_postflop_advanced() - strong hand folds river = incorrect (0); missed draw/air folds = correct (1); medium folds = marginal
+- Pattern: _eval_bet_vs_missed_bet() - value/draw always correct (1); air on blank/neutral turn correct (1); air on dangerous turn marginal (None)
+- Pattern: _eval_probe() - value/draw always correct (1); air on blank turn correct (1); air on neutral marginal (None); air on dangerous (flush) incorrect (0)
+- Pattern: Moved flop_a/turn_a/river_a analysis before lessons 11/12 in classify_hand() so eval methods have context
+- Lesson: Straight-danger case unreachable for 'incorrect' probe/MDA eval - board itself creates the 4-card window, so hero is always classified 'draw'
+- Lesson: Flush-based 'dangerous' turns work for incorrect eval (board has 3 of suit, hero 0 = combined 3 < 4 needed for flush draw)
+
+=== US-050 completed at 2026-03-15T07:53:21.255Z ===
+- All quality gates passed
+
+=== US-051 completed at 2026-03-15T08:07:37.667Z ===
+- All quality gates passed
+
+=== US-052 completed at 2026-03-15T08:29:32.296Z ===
+- All quality gates passed

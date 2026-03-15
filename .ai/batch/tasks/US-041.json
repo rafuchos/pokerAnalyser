@@ -1,0 +1,26 @@
+{
+  "id": "US-041",
+  "title": "Lesson: Defesa Multiway do Big Blind Pre-Flop",
+  "status": "completed",
+  "estimated_time_seconds": 600,
+  "timeout_seconds": 630,
+  "plan": [
+    "Read PDF 'classes/RegLife-DEFESAMULTIWAYDOBIGBLINDPRE-FLOP (1).pdf' to extract multiway BB defense ranges, hand categories, and decision criteria",
+    "Define multiway-appropriate hand tiers/constants (suited connectors, pairs, suited broadways, etc.) based on PDF content in lesson_classifier.py",
+    "Implement _eval_multiway_bb() method in LessonClassifier following the _eval_rfi() pattern - evaluate hand playability in multiway spots",
+    "Update existing detection block (sort_order 8, ~line 188-192) to call _eval_multiway_bb() instead of returning None",
+    "Also handle the fold case: detect when hero folds a strong multiway hand in BB (incorrect fold)",
+    "Add comprehensive tests in test_lesson_classifier.py covering: correct defense (suited connectors, pairs), incorrect defense (dominated hands), incorrect fold (strong hands), marginal cases, missing card info",
+    "Run quality gates: pytest, lint, typecheck"
+  ],
+  "complexity": "medium",
+  "recommended_model": "sonnet",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "tests/test_lesson_classifier.py"
+  ],
+  "created_at": "2026-03-15T05:11:53.352Z",
+  "completed_at": "2026-03-15T05:22:01.001Z",
+  "failure_reason": null,
+  "branch": "feat/US-041"
+}
