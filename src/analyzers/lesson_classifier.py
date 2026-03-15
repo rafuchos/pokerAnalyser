@@ -91,6 +91,50 @@ class LessonClassifier:
         'BTN': 4, 'SB': 4,
     }
 
+    # ── Multiway BB Defense Data (from RegLife 'Defesa Multiway do BB' PDF) ──
+    # Hands that should always defend in BB vs multiway action.
+    # Folding these is a clear mistake; calling/raising is correct.
+    _MWBB_DEFEND = {
+        # All pairs: set mining is very profitable with multiple callers
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33', '22',
+        # Suited aces: nut flush draws have enormous value multiway
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        # Suited kings and strong suited broadways
+        'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s',
+        'QJs', 'QTs', 'Q9s', 'Q8s',
+        'JTs', 'J9s', 'J8s',
+        # Suited connectors and 1-gappers (great implied odds multiway)
+        'T9s', 'T8s', 'T7s',
+        '98s', '97s', '96s',
+        '87s', '86s', '85s',
+        '76s', '75s', '74s',
+        '65s', '64s', '63s',
+        '54s', '53s', '52s',
+        '43s', '42s', '32s',
+        # Strong offsuit broadways
+        'AKo', 'AQo', 'AJo', 'ATo',
+        'KQo', 'KJo',
+    }
+    # Marginal hands: defending or folding is context-dependent
+    # (number of callers, stack depth, and opponent tendencies matter)
+    _MWBB_MARGINAL = {
+        # Weak suited hands (flush potential but poor connectivity)
+        'K6s', 'K5s', 'K4s', 'K3s', 'K2s',
+        'Q7s', 'Q6s', 'Q5s', 'Q4s', 'Q3s', 'Q2s',
+        'J7s', 'J6s', 'J5s', 'J4s', 'J3s', 'J2s',
+        'T6s', 'T5s', 'T4s', 'T3s', 'T2s',
+        '95s', '94s', '93s', '92s',
+        '84s', '83s', '82s',
+        '73s', '72s', '62s',
+        # Medium offsuit hands (some equity but dominated often)
+        'QJo', 'QTo', 'JTo',
+        'A9o', 'A8o', 'A7o', 'A6o', 'A5o', 'A4o', 'A3o', 'A2o',
+        'K9o', 'K8o', 'K7o',
+        'Q9o', 'J9o', 'T9o',
+        '98o', '87o', '76o', '65o', '54o',
+    }
+    # All other hands (offsuit with no pair, no suit, poor connectivity) → fold
+
     def __init__(self, repo: Repository):
         self.repo = repo
         self._lessons = {}  # lesson_id -> lesson dict
@@ -185,10 +229,10 @@ class LessonClassifier:
             m.executed_correctly = self._eval_sb_vs_bb(hand, pf)
             matches.append(m)
 
-        # 8: Multiway BB
-        if hero_pos == 'BB' and pf['is_multiway'] and not pf['hero_folds_preflop']:
+        # 8: Multiway BB (also catches incorrect folds of strong hands)
+        if hero_pos == 'BB' and pf['is_multiway']:
             m = self._match(hand_id, 8, 'preflop')
-            m.executed_correctly = None  # complex evaluation
+            m.executed_correctly = self._eval_multiway_bb(hand, pf)
             matches.append(m)
 
         # 9: Blind War BB vs SB
@@ -420,7 +464,10 @@ class LessonClassifier:
             action = a.get('action_type', '').lower()
             is_hero = a.get('is_hero', 0)
 
-            if action in ('fold',):
+            if action == 'fold':
+                if is_hero:
+                    result['hero_folds_preflop'] = True
+                    hero_last_action = 'fold'
                 continue
 
             if action in ('call', 'raise', 'bet', 'all-in'):
@@ -683,6 +730,38 @@ class LessonClassifier:
         if pf.get('hero_folds_preflop'):
             return None  # fold may be correct
         return 1  # defended
+
+    def _eval_multiway_bb(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate BB defense in multiway preflop situation.
+
+        Based on RegLife 'Defesa Multiway do Big Blind Pré-Flop':
+        - Correct (1): Defended with strong hand, or folded clear trash
+        - Partial (None): Marginal hand (defense vs fold depends on pot odds/SPR)
+        - Incorrect (0): Folded a strong multiway hand, or called with trash
+        """
+        hero_cards = hand.get('hero_cards')
+        hero_folded = pf.get('hero_folds_preflop', False)
+
+        if not hero_cards:
+            return None  # cannot evaluate without knowing the hand
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return None
+
+        if notation in self._MWBB_DEFEND:
+            # Strong multiway hand: folding is a mistake
+            if hero_folded:
+                return 0  # incorrect fold
+            return 1  # correct defense
+        elif notation in self._MWBB_MARGINAL:
+            # Marginal hand: either action could be correct
+            return None
+        else:
+            # Trash hand: should fold even with good pot odds
+            if hero_folded:
+                return 1  # correct fold
+            return 0  # incorrect defense with trash
 
     def _eval_cbet(self, street_analysis: dict) -> Optional[int]:
         """Evaluate c-bet execution."""

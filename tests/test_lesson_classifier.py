@@ -1450,5 +1450,246 @@ class TestRFIRangeEvaluation(unittest.TestCase):
             self.assertEqual(result, 1, f'RFI {cards} from {pos} should be correct')
 
 
+# ── Multiway BB Defense Evaluation Tests (US-041) ────────────────────
+
+
+class TestMultiwayBBEvaluation(unittest.TestCase):
+    """Test multiway BB defense evaluation with hand-based classification.
+
+    Based on RegLife 'Defesa Multiway do Big Blind Pré-Flop':
+    - Strong hands (pairs, suited, strong offsuit): always defend
+    - Trash offsuit (no pair, no suit, poor connectivity): fold
+    - Marginal hands: context-dependent
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _mwbb_result(self, hand_id):
+        """Get executed_correctly for lesson 8 (Multiway BB)."""
+        matches = self._classify(hand_id)
+        mwbb = next((m for m in matches if m.lesson_id == 8), None)
+        return mwbb.executed_correctly if mwbb else None
+
+    def _insert_multiway_hand(self, hand_id, hero_cards='Ah Kd', hero_action='check',
+                              hero_amount=0, num_limpers=3):
+        """Insert a BB hand with multiple callers (limped multiway)."""
+        _insert_hand(self.repo, hand_id, position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        # Insert limpers (callers before BB)
+        for i in range(num_limpers):
+            _insert_action(self.repo, hand_id, 'preflop', f'P{i+1}', 'call',
+                           0.5, 0, i + 1, f'P{i+1}')
+        # Insert hero action
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', hero_action,
+                       hero_amount, 1, num_limpers + 1, 'BB')
+
+    # -- Hand set membership tests --
+
+    def test_mwbb_defend_set_has_all_pairs(self):
+        """All pairs should be in the defend set."""
+        for pair in ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77',
+                     '66', '55', '44', '33', '22']:
+            self.assertIn(pair, self.classifier._MWBB_DEFEND,
+                          f'{pair} should be in MWBB_DEFEND')
+
+    def test_mwbb_defend_set_has_suited_aces(self):
+        """All suited aces should be in the defend set."""
+        for hand in ['AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s',
+                     'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s']:
+            self.assertIn(hand, self.classifier._MWBB_DEFEND,
+                          f'{hand} should be in MWBB_DEFEND')
+
+    def test_mwbb_defend_set_has_suited_connectors(self):
+        """Key suited connectors should be in the defend set."""
+        for hand in ['T9s', '98s', '87s', '76s', '65s', '54s']:
+            self.assertIn(hand, self.classifier._MWBB_DEFEND,
+                          f'{hand} should be in MWBB_DEFEND')
+
+    def test_mwbb_marginal_set_has_weak_suited(self):
+        """Weak suited hands should be marginal."""
+        for hand in ['K2s', 'Q2s', 'J2s', 'T2s', '92s']:
+            self.assertIn(hand, self.classifier._MWBB_MARGINAL,
+                          f'{hand} should be in MWBB_MARGINAL')
+
+    def test_mwbb_trash_not_in_defend_or_marginal(self):
+        """Trash hands like 72o, 83o should not be in defend or marginal sets."""
+        trash_hands = ['72o', '83o', '94o', 'K2o', 'Q2o', 'J2o', 'T2o']
+        for hand in trash_hands:
+            self.assertNotIn(hand, self.classifier._MWBB_DEFEND,
+                             f'{hand} should NOT be in MWBB_DEFEND')
+            self.assertNotIn(hand, self.classifier._MWBB_MARGINAL,
+                             f'{hand} should NOT be in MWBB_MARGINAL')
+
+    # -- Correct defense: strong hands --
+
+    def test_mwbb_correct_defend_pair(self):
+        """Calling with a pair in multiway BB = correct."""
+        self._insert_multiway_hand('MWBB01', hero_cards='7h 7d', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB01'), 1)
+
+    def test_mwbb_correct_defend_suited_connector(self):
+        """Calling with a suited connector in multiway BB = correct."""
+        self._insert_multiway_hand('MWBB02', hero_cards='Th 9h', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB02'), 1)
+
+    def test_mwbb_correct_defend_suited_ace(self):
+        """Calling with a suited ace in multiway BB = correct."""
+        self._insert_multiway_hand('MWBB03', hero_cards='Ah 5h', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB03'), 1)
+
+    def test_mwbb_correct_defend_premium_offsuit(self):
+        """Calling with AKo or AQo in multiway BB = correct."""
+        self._insert_multiway_hand('MWBB04', hero_cards='Ah Kd', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB04'), 1)
+
+    def test_mwbb_correct_defend_small_pair(self):
+        """Calling with 22 in multiway BB = correct (set mining)."""
+        self._insert_multiway_hand('MWBB05', hero_cards='2h 2d', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB05'), 1)
+
+    def test_mwbb_correct_defend_suited_king(self):
+        """Calling with K7s in multiway BB = correct (suited, flush potential)."""
+        self._insert_multiway_hand('MWBB06', hero_cards='Kh 7h', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB06'), 1)
+
+    # -- Correct fold: trash hands --
+
+    def test_mwbb_correct_fold_trash(self):
+        """Folding 72o in multiway BB = correct."""
+        self._insert_multiway_hand('MWBB10', hero_cards='7h 2d', hero_action='fold')
+        self.assertEqual(self._mwbb_result('MWBB10'), 1)
+
+    def test_mwbb_correct_fold_disconnected_offsuit(self):
+        """Folding K2o in multiway BB = correct (trash hand)."""
+        self._insert_multiway_hand('MWBB11', hero_cards='Kh 2d', hero_action='fold')
+        self.assertEqual(self._mwbb_result('MWBB11'), 1)
+
+    def test_mwbb_correct_fold_q2o(self):
+        """Folding Q2o in multiway BB = correct (trash hand)."""
+        self._insert_multiway_hand('MWBB12', hero_cards='Qh 2d', hero_action='fold')
+        self.assertEqual(self._mwbb_result('MWBB12'), 1)
+
+    # -- Incorrect defense: trash hands called --
+
+    def test_mwbb_incorrect_defend_trash(self):
+        """Calling with 72o in multiway BB = incorrect."""
+        self._insert_multiway_hand('MWBB20', hero_cards='7h 2d', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB20'), 0)
+
+    def test_mwbb_incorrect_defend_disconnected_offsuit(self):
+        """Calling with 83o in multiway BB = incorrect."""
+        self._insert_multiway_hand('MWBB21', hero_cards='8h 3d', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB21'), 0)
+
+    def test_mwbb_incorrect_defend_k2o(self):
+        """Calling with K2o in multiway BB = incorrect (trash)."""
+        self._insert_multiway_hand('MWBB22', hero_cards='Kh 2d', hero_action='check')
+        self.assertEqual(self._mwbb_result('MWBB22'), 0)
+
+    # -- Incorrect fold: strong hands folded --
+
+    def test_mwbb_incorrect_fold_pair(self):
+        """Folding 77 from BB in multiway = incorrect."""
+        self._insert_multiway_hand('MWBB30', hero_cards='7h 7d', hero_action='fold')
+        self.assertEqual(self._mwbb_result('MWBB30'), 0)
+
+    def test_mwbb_incorrect_fold_suited_connector(self):
+        """Folding T9s from BB in multiway = incorrect."""
+        self._insert_multiway_hand('MWBB31', hero_cards='Th 9h', hero_action='fold')
+        self.assertEqual(self._mwbb_result('MWBB31'), 0)
+
+    def test_mwbb_incorrect_fold_suited_ace(self):
+        """Folding A5s from BB in multiway = incorrect (great implied odds)."""
+        self._insert_multiway_hand('MWBB32', hero_cards='Ah 5h', hero_action='fold')
+        self.assertEqual(self._mwbb_result('MWBB32'), 0)
+
+    def test_mwbb_incorrect_fold_premium(self):
+        """Folding AA from BB in multiway = incorrect."""
+        self._insert_multiway_hand('MWBB33', hero_cards='Ah Ad', hero_action='fold')
+        self.assertEqual(self._mwbb_result('MWBB33'), 0)
+
+    # -- Marginal hands --
+
+    def test_mwbb_marginal_weak_suited(self):
+        """K2s from BB multiway = marginal (suit potential but weak)."""
+        self._insert_multiway_hand('MWBB40', hero_cards='Kh 2h', hero_action='check')
+        self.assertIsNone(self._mwbb_result('MWBB40'))
+
+    def test_mwbb_marginal_medium_offsuit(self):
+        """QJo from BB multiway = marginal (decent hand but context matters)."""
+        self._insert_multiway_hand('MWBB41', hero_cards='Qh Jd', hero_action='check')
+        self.assertIsNone(self._mwbb_result('MWBB41'))
+
+    def test_mwbb_marginal_a9o(self):
+        """A9o from BB multiway = marginal."""
+        self._insert_multiway_hand('MWBB42', hero_cards='Ah 9d', hero_action='check')
+        self.assertIsNone(self._mwbb_result('MWBB42'))
+
+    def test_mwbb_marginal_fold_medium_offsuit(self):
+        """Folding T9o from BB in multiway = marginal (borderline hand)."""
+        self._insert_multiway_hand('MWBB43', hero_cards='Th 9d', hero_action='fold')
+        self.assertIsNone(self._mwbb_result('MWBB43'))
+
+    # -- Missing card info --
+
+    def test_mwbb_no_cards_returns_none(self):
+        """Without hero cards, evaluation is unknown (None)."""
+        _insert_hand(self.repo, 'MWBB50', position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id='MWBB50'")
+        self.repo.conn.commit()
+        for i in range(3):
+            _insert_action(self.repo, 'MWBB50', 'preflop', f'P{i+1}', 'call',
+                           0.5, 0, i + 1, f'P{i+1}')
+        _insert_action(self.repo, 'MWBB50', 'preflop', 'Hero', 'check', 0, 1, 4, 'BB')
+        self.assertIsNone(self._mwbb_result('MWBB50'))
+
+    # -- Detection condition: must be BB in multiway --
+
+    def test_mwbb_not_triggered_from_btn(self):
+        """Lesson 8 should not trigger when hero is BTN (not BB)."""
+        _insert_hand(self.repo, 'MWBB60', position='BTN')
+        for i in range(3):
+            _insert_action(self.repo, 'MWBB60', 'preflop', f'P{i+1}', 'call',
+                           0.5, 0, i + 1, f'P{i+1}')
+        _insert_action(self.repo, 'MWBB60', 'preflop', 'Hero', 'call', 0.5, 1, 4, 'BTN')
+        matches = self._classify('MWBB60')
+        mwbb = next((m for m in matches if m.lesson_id == 8), None)
+        self.assertIsNone(mwbb, 'Lesson 8 should not fire for non-BB positions')
+
+    def test_mwbb_not_triggered_when_heads_up(self):
+        """Lesson 8 should not trigger in a heads-up (non-multiway) pot."""
+        _insert_hand(self.repo, 'MWBB61', position='BB')
+        # Only one opponent raises (2 players total, not multiway)
+        _insert_action(self.repo, 'MWBB61', 'preflop', 'P1', 'raise', 1.0, 0, 1, 'BTN')
+        _insert_action(self.repo, 'MWBB61', 'preflop', 'Hero', 'call', 1.0, 1, 2, 'BB')
+        matches = self._classify('MWBB61')
+        mwbb = next((m for m in matches if m.lesson_id == 8), None)
+        self.assertIsNone(mwbb, 'Lesson 8 should not fire in heads-up pot')
+
+    def test_mwbb_triggered_on_fold_with_strong_hand(self):
+        """Lesson 8 fires even when hero folds from BB in multiway."""
+        self._insert_multiway_hand('MWBB62', hero_cards='Ah Ad', hero_action='fold')
+        matches = self._classify('MWBB62')
+        mwbb = next((m for m in matches if m.lesson_id == 8), None)
+        self.assertIsNotNone(mwbb, 'Lesson 8 should fire even on fold in multiway')
+        self.assertEqual(mwbb.executed_correctly, 0, 'Folding AA multiway = incorrect')
+
+
 if __name__ == '__main__':
     unittest.main()
