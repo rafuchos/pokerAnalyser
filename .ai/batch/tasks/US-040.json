@@ -1,7 +1,7 @@
 {
   "id": "US-040",
   "title": "Lesson: Ranges de RFI em cEV",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -20,7 +20,7 @@
     "classes/Reg Life - Ranges de RFI em cEV.pdf"
   ],
   "created_at": "2026-03-15T04:45:12.760Z",
-  "completed_at": null,
+  "completed_at": "2026-03-15T05:10:10.679Z",
   "failure_reason": null,
   "branch": "feat/US-040",
   "replanned_at": "2026-03-15T04:55:43.213Z",
