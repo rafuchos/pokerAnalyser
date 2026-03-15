@@ -948,7 +948,7 @@ class TestExecutionEvaluation(unittest.TestCase):
         self.conn.close()
 
     def test_rfi_executed_correctly(self):
-        """RFI is always marked as executed correctly."""
+        """RFI with strong hand from BTN and standard sizing is correct."""
         _insert_hand(self.repo, 'EV001', position='BTN')
         _insert_action(self.repo, 'EV001', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
 
@@ -1139,6 +1139,315 @@ class TestHandLessonsMigration(unittest.TestCase):
         self.assertIn('confidence', new_cols)
 
         conn.close()
+
+
+# ── RFI Range Evaluation Tests (US-040) ──────────────────────────────
+
+
+class TestRFIRangeEvaluation(unittest.TestCase):
+    """Test RFI evaluation with position-based ranges and sizing rules.
+
+    Based on RegLife 'Ranges de RFI em cEV' PDF:
+    - Positions: EP(UTG/UTG+1) ~17%, MP(LJ/HJ) ~28%, CO ~37%, BTN ~54%
+    - Sizing: 2-2.5BB (tournament) / up to 3BB (cash)
+    - Hand strength tiers mapped to position groups
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _rfi_result(self, hand_id):
+        """Get executed_correctly for lesson 1 (RFI)."""
+        matches = self._classify(hand_id)
+        rfi = next((m for m in matches if m.lesson_id == 1), None)
+        return rfi.executed_correctly if rfi else None
+
+    # -- Hand notation parsing --
+
+    def test_hand_notation_offsuit(self):
+        n = self.classifier._hand_notation('Ah Kd')
+        self.assertEqual(n, 'AKo')
+
+    def test_hand_notation_suited(self):
+        n = self.classifier._hand_notation('Ah Kh')
+        self.assertEqual(n, 'AKs')
+
+    def test_hand_notation_pair(self):
+        n = self.classifier._hand_notation('As Ad')
+        self.assertEqual(n, 'AA')
+
+    def test_hand_notation_reversed_order(self):
+        n = self.classifier._hand_notation('Kd Ah')
+        self.assertEqual(n, 'AKo')
+
+    def test_hand_notation_low_cards(self):
+        n = self.classifier._hand_notation('7h 2d')
+        self.assertEqual(n, '72o')
+
+    def test_hand_notation_ten(self):
+        n = self.classifier._hand_notation('Th 9h')
+        self.assertEqual(n, 'T9s')
+
+    def test_hand_notation_empty(self):
+        self.assertIsNone(self.classifier._hand_notation(''))
+        self.assertIsNone(self.classifier._hand_notation(None))
+
+    # -- Hand tier assignment --
+
+    def test_tier1_premium(self):
+        """AA, AKs, AKo are tier 1 (EP range)."""
+        self.assertEqual(self.classifier._rfi_hand_tier('AA'), 1)
+        self.assertEqual(self.classifier._rfi_hand_tier('AKs'), 1)
+        self.assertEqual(self.classifier._rfi_hand_tier('AKo'), 1)
+        self.assertEqual(self.classifier._rfi_hand_tier('77'), 1)
+        self.assertEqual(self.classifier._rfi_hand_tier('T9s'), 1)
+
+    def test_tier2_mp(self):
+        """66, A9o, KQo are tier 2 (MP range)."""
+        self.assertEqual(self.classifier._rfi_hand_tier('66'), 2)
+        self.assertEqual(self.classifier._rfi_hand_tier('A9o'), 2)
+        self.assertEqual(self.classifier._rfi_hand_tier('KQo'), 2)
+        self.assertEqual(self.classifier._rfi_hand_tier('JTo'), 2)
+
+    def test_tier3_co(self):
+        """44, A8o, K9o are tier 3 (CO range)."""
+        self.assertEqual(self.classifier._rfi_hand_tier('44'), 3)
+        self.assertEqual(self.classifier._rfi_hand_tier('A8o'), 3)
+        self.assertEqual(self.classifier._rfi_hand_tier('K9o'), 3)
+        self.assertEqual(self.classifier._rfi_hand_tier('Q2s'), 3)
+
+    def test_tier4_btn(self):
+        """K2o, 87o, Q8o are tier 4 (BTN range)."""
+        self.assertEqual(self.classifier._rfi_hand_tier('K2o'), 4)
+        self.assertEqual(self.classifier._rfi_hand_tier('87o'), 4)
+        self.assertEqual(self.classifier._rfi_hand_tier('Q8o'), 4)
+        self.assertEqual(self.classifier._rfi_hand_tier('T2s'), 4)
+
+    def test_tier5_trash(self):
+        """Weak hands like Q5o, J6o, 83o are tier 5 (should not RFI)."""
+        self.assertEqual(self.classifier._rfi_hand_tier('Q5o'), 5)
+        self.assertEqual(self.classifier._rfi_hand_tier('J6o'), 5)
+        self.assertEqual(self.classifier._rfi_hand_tier('83o'), 5)
+
+    # -- Correct RFI: hand in range + good sizing --
+
+    def test_rfi_correct_premium_from_utg(self):
+        """AKo from UTG with 2.5x sizing = correct."""
+        _insert_hand(self.repo, 'RFIC01', position='UTG')
+        # hero_cards defaults to 'Ah Kd' = AKo (tier 1)
+        _insert_action(self.repo, 'RFIC01', 'preflop', 'Hero', 'raise',
+                       1.25, 1, 1, 'UTG')  # 1.25/0.50 = 2.5BB
+        self.assertEqual(self._rfi_result('RFIC01'), 1)
+
+    def test_rfi_correct_suited_connector_from_utg(self):
+        """T9s from UTG with proper sizing = correct (tier 1 hand)."""
+        _insert_hand(self.repo, 'RFIC02', position='UTG',
+                     hero_stack=50.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='Th 9h' WHERE hand_id='RFIC02'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIC02', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 1, 'UTG')  # 2.0BB
+        self.assertEqual(self._rfi_result('RFIC02'), 1)
+
+    def test_rfi_correct_medium_hand_from_hj(self):
+        """A9o from HJ = correct (tier 2 hand, HJ accepts tier 1-2)."""
+        _insert_hand(self.repo, 'RFIC03', position='HJ')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As 9d' WHERE hand_id='RFIC03'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIC03', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'RFIC03', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 2, 'HJ')  # 2.0BB
+        self.assertEqual(self._rfi_result('RFIC03'), 1)
+
+    def test_rfi_correct_wide_hand_from_btn(self):
+        """K7o from BTN = correct (tier 4 hand, BTN accepts tier 1-4)."""
+        _insert_hand(self.repo, 'RFIC04', position='BTN')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='Kh 7d' WHERE hand_id='RFIC04'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIC04', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'RFIC04', 'preflop', 'Hero', 'raise',
+                       1.25, 1, 2, 'BTN')  # 2.5BB
+        self.assertEqual(self._rfi_result('RFIC04'), 1)
+
+    def test_rfi_correct_co_range(self):
+        """A8o from CO = correct (tier 3 hand, CO accepts tier 1-3)."""
+        _insert_hand(self.repo, 'RFIC05', position='CO')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='Ah 8d' WHERE hand_id='RFIC05'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIC05', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 1, 'CO')
+        self.assertEqual(self._rfi_result('RFIC05'), 1)
+
+    # -- Incorrect RFI: hand too weak for position --
+
+    def test_rfi_incorrect_trash_from_utg(self):
+        """72o from UTG = incorrect (tier 5, way too weak)."""
+        _insert_hand(self.repo, 'RFII01', position='UTG')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='7h 2d' WHERE hand_id='RFII01'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFII01', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 1, 'UTG')
+        self.assertEqual(self._rfi_result('RFII01'), 0)
+
+    def test_rfi_incorrect_co_hand_from_utg(self):
+        """K9o from UTG = incorrect (tier 3, UTG only accepts tier 1)."""
+        _insert_hand(self.repo, 'RFII02', position='UTG')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='Kh 9d' WHERE hand_id='RFII02'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFII02', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 1, 'UTG')
+        self.assertEqual(self._rfi_result('RFII02'), 0)
+
+    def test_rfi_incorrect_btn_hand_from_hj(self):
+        """K2o from HJ = incorrect (tier 4, HJ only accepts tier 1-2)."""
+        _insert_hand(self.repo, 'RFII03', position='HJ')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='Kh 2d' WHERE hand_id='RFII03'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFII03', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'RFII03', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 2, 'HJ')
+        self.assertEqual(self._rfi_result('RFII03'), 0)
+
+    # -- Marginal RFI: hand one tier above position max --
+
+    def test_rfi_marginal_mp_hand_from_utg(self):
+        """A9o from UTG = marginal (tier 2, UTG accepts tier 1 only)."""
+        _insert_hand(self.repo, 'RFIM01', position='UTG')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As 9d' WHERE hand_id='RFIM01'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIM01', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 1, 'UTG')
+        self.assertIsNone(self._rfi_result('RFIM01'))
+
+    def test_rfi_marginal_co_hand_from_hj(self):
+        """A8o from HJ = marginal (tier 3, HJ accepts tier 1-2)."""
+        _insert_hand(self.repo, 'RFIM02', position='HJ')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='Ah 8d' WHERE hand_id='RFIM02'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIM02', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'RFIM02', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 2, 'HJ')
+        self.assertIsNone(self._rfi_result('RFIM02'))
+
+    # -- Sizing evaluation --
+
+    def test_rfi_wrong_sizing_good_hand(self):
+        """AKo from BTN but 4x sizing = partial (None)."""
+        _insert_hand(self.repo, 'RFIS01', position='BTN')
+        _insert_action(self.repo, 'RFIS01', 'preflop', 'Hero', 'raise',
+                       2.0, 1, 1, 'BTN')  # 2.0/0.50 = 4.0BB → too high
+        self.assertIsNone(self._rfi_result('RFIS01'))
+
+    def test_rfi_correct_sizing_2bb(self):
+        """2.0BB sizing is within acceptable range."""
+        _insert_hand(self.repo, 'RFIS02', position='BTN')
+        _insert_action(self.repo, 'RFIS02', 'preflop', 'Hero', 'raise',
+                       1.0, 1, 1, 'BTN')  # 1.0/0.50 = 2.0BB
+        self.assertEqual(self._rfi_result('RFIS02'), 1)
+
+    def test_rfi_correct_sizing_3bb(self):
+        """3.0BB sizing is within acceptable range (cash game standard)."""
+        _insert_hand(self.repo, 'RFIS03', position='BTN')
+        _insert_action(self.repo, 'RFIS03', 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'BTN')  # 1.5/0.50 = 3.0BB
+        self.assertEqual(self._rfi_result('RFIS03'), 1)
+
+    def test_rfi_minraise_wrong_sizing(self):
+        """Minraise (1.5BB) is below acceptable range."""
+        _insert_hand(self.repo, 'RFIS04', position='BTN', blinds_bb=1.0)
+        _insert_action(self.repo, 'RFIS04', 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'BTN')  # 1.5/1.0 = 1.5BB → too low
+        # Hand is AKo (tier 1) but sizing wrong → None
+        self.assertIsNone(self._rfi_result('RFIS04'))
+
+    # -- No hero cards available --
+
+    def test_rfi_no_cards_good_sizing(self):
+        """Without hero_cards, good sizing → correct."""
+        _insert_hand(self.repo, 'RFIN01', position='BTN')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id='RFIN01'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIN01', 'preflop', 'Hero', 'raise',
+                       1.25, 1, 1, 'BTN')  # 2.5BB
+        self.assertEqual(self._rfi_result('RFIN01'), 1)
+
+    def test_rfi_no_cards_bad_sizing(self):
+        """Without hero_cards, bad sizing → partial (None)."""
+        _insert_hand(self.repo, 'RFIN02', position='BTN')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id='RFIN02'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIN02', 'preflop', 'Hero', 'raise',
+                       2.5, 1, 1, 'BTN')  # 5.0BB → too high
+        self.assertIsNone(self._rfi_result('RFIN02'))
+
+    # -- Position-specific range tests from PDF --
+
+    def test_rfi_pairs_ep_range(self):
+        """77+ are in EP range (tier 1), 66 is tier 2."""
+        for pair in ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77']:
+            self.assertIn(pair, self.classifier._RFI_TIER1, f'{pair} should be tier 1')
+        self.assertIn('66', self.classifier._RFI_TIER2)
+        self.assertIn('55', self.classifier._RFI_TIER2)
+
+    def test_rfi_broadways_in_ranges(self):
+        """All broadway suited hands are in EP range."""
+        for hand in ['AKs', 'AQs', 'AJs', 'ATs', 'KQs', 'KJs', 'KTs',
+                     'QJs', 'QTs', 'JTs']:
+            self.assertIn(hand, self.classifier._RFI_TIER1,
+                          f'{hand} should be tier 1')
+
+    def test_rfi_btn_range_is_widest(self):
+        """BTN range includes all 4 tiers covering majority of hand types."""
+        total = (len(self.classifier._RFI_TIER1) +
+                 len(self.classifier._RFI_TIER2) +
+                 len(self.classifier._RFI_TIER3) +
+                 len(self.classifier._RFI_TIER4))
+        # ~54% of combos maps to ~80% of hand types since offsuit
+        # hands (12 combos each) in tier 5 inflate combo count
+        self.assertGreater(total, 100)
+        self.assertLess(total, 160)
+
+    def test_rfi_each_position_classifies(self):
+        """RFI from each position with appropriate hands classifies correctly."""
+        positions = [
+            ('UTG', 'As Kd', 1.0),   # AKo tier 1, 2.0BB
+            ('LJ', 'As 9d', 1.0),    # A9o tier 2, 2.0BB
+            ('CO', 'Ah 8d', 1.0),    # A8o tier 3, 2.0BB
+            ('BTN', 'Kh 7d', 1.0),   # K7o tier 4, 2.0BB
+        ]
+        for pos, cards, amount in positions:
+            hid = f'RFIP_{pos}'
+            _insert_hand(self.repo, hid, position=pos)
+            self.repo.conn.execute(
+                "UPDATE hands SET hero_cards=? WHERE hand_id=?", (cards, hid))
+            self.repo.conn.commit()
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'raise',
+                           amount, 1, 1, pos)
+            result = self._rfi_result(hid)
+            self.assertEqual(result, 1, f'RFI {cards} from {pos} should be correct')
 
 
 if __name__ == '__main__':

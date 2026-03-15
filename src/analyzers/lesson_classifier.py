@@ -35,6 +35,62 @@ class LessonClassifier:
     EARLY_POSITIONS = {'UTG', 'UTG+1', 'EP', 'LJ'}
     MIDDLE_POSITIONS = {'MP', 'HJ'}
 
+    # ── RFI Range Data (from RegLife 'Ranges de RFI em cEV' PDF) ─────
+    _RANK_ORDER = '23456789TJQKA'
+
+    # RFI hand tiers: tier N = can open from position tier N or wider.
+    # Tier 1: EP (UTG/UTG+1) ~17% range
+    _RFI_TIER1 = {
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77',
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s',
+        'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s',
+        'QJs', 'QTs', 'Q9s',
+        'JTs', 'J9s',
+        'T9s', 'T8s',
+        '98s', '87s', '76s', '65s', '54s',
+        'AKo', 'AQo', 'AJo', 'ATo',
+    }
+    # Tier 2: MP (LJ/HJ) adds ~10% → total ~28%
+    _RFI_TIER2 = {
+        '66', '55',
+        'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        'K6s', 'K5s',
+        'Q8s', 'J8s', 'T7s', '97s', '86s', '75s', '64s', '53s',
+        'A9o', 'KQo', 'KJo', 'KTo', 'QJo', 'QTo', 'JTo',
+    }
+    # Tier 3: CO adds ~9% → total ~37%
+    _RFI_TIER3 = {
+        '44', '33', '22',
+        'K4s', 'K3s', 'K2s',
+        'Q7s', 'Q6s', 'Q5s', 'Q4s', 'Q3s', 'Q2s',
+        'J7s', 'T6s', '96s', '85s', '74s', '63s', '52s', '43s',
+        'A8o', 'A7o', 'A6o', 'A5o',
+        'K9o', 'Q9o', 'J9o', 'T9o',
+    }
+    # Tier 4: BTN adds ~17% → total ~54%
+    _RFI_TIER4 = {
+        'J6s', 'J5s', 'J4s', 'J3s', 'J2s',
+        'T5s', 'T4s', 'T3s', 'T2s',
+        '95s', '94s', '93s', '92s',
+        '84s', '83s', '82s',
+        '73s', '72s', '62s', '42s', '32s',
+        'A4o', 'A3o', 'A2o',
+        'K8o', 'K7o', 'K6o', 'K5o', 'K4o', 'K3o', 'K2o',
+        'Q8o', 'Q7o', 'Q6o',
+        'J8o', 'J7o',
+        'T8o', 'T7o',
+        '98o', '97o', '87o', '86o',
+        '76o', '75o', '65o', '64o', '54o', '53o',
+    }
+
+    # Position → maximum hand tier allowed for RFI
+    _RFI_POS_MAX_TIER = {
+        'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+        'LJ': 2, 'MP': 2, 'HJ': 2,
+        'CO': 3,
+        'BTN': 4, 'SB': 4,
+    }
+
     def __init__(self, repo: Repository):
         self.repo = repo
         self._lessons = {}  # lesson_id -> lesson dict
@@ -342,6 +398,7 @@ class LessonClassifier:
             'is_multiway': False,
             'is_3bet_pot': False,
             'hero_action': None,
+            'hero_raise_amount': 0,
             'open_raiser_pos': None,
             'callers_before_hero': 0,
         }
@@ -375,6 +432,7 @@ class LessonClassifier:
                 if is_hero:
                     result['hero_is_rfi'] = True
                     result['hero_is_preflop_aggressor'] = True
+                    result['hero_raise_amount'] = a.get('amount', 0)
                     if action == 'all-in':
                         result['hero_open_shoves'] = True
                 raises.append(a)
@@ -511,10 +569,90 @@ class LessonClassifier:
 
     # ── Execution Evaluation ─────────────────────────────────────────
 
+    def _hand_notation(self, hero_cards: str) -> Optional[str]:
+        """Convert 'Ah Kd' → 'AKo', 'Ah Kh' → 'AKs', 'Ad Ah' → 'AA'."""
+        if not hero_cards or not hero_cards.strip():
+            return None
+        parts = hero_cards.strip().split()
+        if len(parts) != 2:
+            return None
+        c1, c2 = parts[0].strip(), parts[1].strip()
+        if len(c1) < 2 or len(c2) < 2:
+            return None
+        r1, s1 = c1[:-1].upper(), c1[-1].lower()
+        r2, s2 = c2[:-1].upper(), c2[-1].lower()
+        if r1 == '10':
+            r1 = 'T'
+        if r2 == '10':
+            r2 = 'T'
+        if r1 not in self._RANK_ORDER or r2 not in self._RANK_ORDER:
+            return None
+        i1 = self._RANK_ORDER.index(r1)
+        i2 = self._RANK_ORDER.index(r2)
+        if i1 < i2:
+            r1, r2 = r2, r1
+        if r1 == r2:
+            return f'{r1}{r2}'
+        suffix = 's' if s1 == s2 else 'o'
+        return f'{r1}{r2}{suffix}'
+
+    def _rfi_hand_tier(self, notation: str) -> int:
+        """Return RFI tier (1-5) for a hand notation. Lower = stronger."""
+        if notation in self._RFI_TIER1:
+            return 1
+        if notation in self._RFI_TIER2:
+            return 2
+        if notation in self._RFI_TIER3:
+            return 3
+        if notation in self._RFI_TIER4:
+            return 4
+        return 5
+
     def _eval_rfi(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate RFI execution. Basic: did hero raise from a valid position?"""
-        # RFI from any position is basically correct if hero opens
-        return 1
+        """Evaluate RFI execution based on position, hand strength, and sizing.
+
+        Based on RegLife 'Ranges de RFI em cEV' PDF:
+        - Correct (1): Hand in range for position with standard sizing (2-2.5BB)
+        - Partial (None): In range but wrong sizing, or marginal hand
+        - Incorrect (0): Hand clearly too weak for position
+        """
+        hero_pos = (hand.get('hero_position') or '').upper()
+        hero_cards = hand.get('hero_cards')
+
+        # Check sizing: PDF recommends 2-2.5BB (cEV), cash games use up to 3BB
+        sizing_ok = None
+        raise_amount = pf.get('hero_raise_amount', 0)
+        bb = hand.get('blinds_bb')
+        if raise_amount and bb and bb > 0:
+            sizing_bb = raise_amount / bb
+            sizing_ok = 2.0 <= sizing_bb <= 3.0
+
+        # Without hero cards, evaluate sizing only
+        if not hero_cards:
+            if sizing_ok is True:
+                return 1
+            if sizing_ok is False:
+                return None
+            return None
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return 1 if sizing_ok is not False else None
+
+        hand_tier = self._rfi_hand_tier(notation)
+        pos_tier = self._RFI_POS_MAX_TIER.get(hero_pos, 2)
+
+        if hand_tier <= pos_tier:
+            # Hand is in range for this position
+            if sizing_ok is False:
+                return None  # right hand, wrong sizing
+            return 1
+        elif hand_tier == pos_tier + 1:
+            # Marginal hand for this position
+            return None
+        else:
+            # Hand clearly too weak for position
+            return 0
 
     def _eval_flat_3bet(self, hand: dict, pf: dict) -> Optional[int]:
         """Evaluate flat/3-bet execution."""
