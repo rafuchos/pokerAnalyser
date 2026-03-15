@@ -1,7 +1,7 @@
 {
   "id": "US-048",
   "title": "Lesson: CBet Turn + Delayed CBet",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -23,7 +23,7 @@
     ".ai/batch/tasks/US-048.json"
   ],
   "created_at": "2026-03-15T06:55:48.874Z",
-  "completed_at": null,
+  "completed_at": "2026-03-15T07:16:22.108Z",
   "failure_reason": null,
   "branch": "feat/US-048",
   "replanned_at": "2026-03-15T07:06:19.366Z",
