@@ -4894,5 +4894,663 @@ class Test3BetPotPostflopEvaluation(unittest.TestCase):
         self.assertEqual(self._3bet_result('TBP71'), 1)
 
 
+# ── Turn Changes Texture Helper Tests (US-048) ───────────────────────
+
+
+class TestTurnChangesTexture(unittest.TestCase):
+    """Test _turn_changes_texture helper."""
+
+    # -- Flush danger --
+
+    def test_flush_danger_turn_completes_2suited_flop(self):
+        """Turn is same suit as 2-suited flop → dangerous."""
+        result = LessonClassifier._turn_changes_texture('9h 8h 7c', '2h')
+        self.assertEqual(result, 'dangerous')
+
+    def test_flush_danger_turn_completes_suited_ace_flop(self):
+        """Turn adds 3rd heart to Ah 7h 2c flop → dangerous."""
+        result = LessonClassifier._turn_changes_texture('Ah 7h 2c', '9h')
+        self.assertEqual(result, 'dangerous')
+
+    def test_no_flush_danger_different_suit(self):
+        """Turn is different suit from 2-suited flop → no flush danger."""
+        # Flop: 2 hearts; turn is spade
+        result = LessonClassifier._turn_changes_texture('9h 8h 7c', '2s')
+        # No flush, no new straight window from this addition:
+        # 9→7, 8→6, 7→5, 2→0: indices [0,5,6,7], no 4-card window → blank
+        self.assertEqual(result, 'blank')
+
+    def test_rainbow_flop_flush_not_possible(self):
+        """Rainbow flop with low turn = blank."""
+        result = LessonClassifier._turn_changes_texture('Ah 7d 2c', '3s')
+        self.assertEqual(result, 'blank')
+
+    # -- Straight danger --
+
+    def test_straight_danger_completes_4card_window(self):
+        """Turn creates 4-card connected window not present on flop → dangerous."""
+        # Flop: 9,8,7; turn: 6 → creates 9-8-7-6 window
+        result = LessonClassifier._turn_changes_texture('9h 8c 7d', '6s')
+        self.assertEqual(result, 'dangerous')
+
+    def test_straight_danger_top_end_connect(self):
+        """Turn completes KQJ + T straight draw."""
+        result = LessonClassifier._turn_changes_texture('Kh Qd Jc', 'Ts')
+        self.assertEqual(result, 'dangerous')
+
+    def test_no_straight_danger_flop_already_connected(self):
+        """If flop already had a 4-card window, turn extending it is not newly dangerous."""
+        # This tests the flop_had_window guard.
+        # Flop 9h 8c 7d 6s: that's 4 cards on flop which is impossible.
+        # Instead: let's test a case where flop had the window already.
+        # flop: T 9 8 7 would be 4 cards (not valid for flop).
+        # Create a flop with a 4-card window: we'd need board_flop to have 4 ranks in a 5-span window.
+        # Actually flop is 3 cards; the helper checks ALL board cards up to turn.
+        # A normal 3-card flop can't have a 4-card window.
+        # But if a turn extends 3-card flop: flop T9 + 8 = T,9,8 (indices 8,7,6) → only 3 in window
+        # Turn: 7 (idx=5) → now [5,6,7,8] → 4 card → dangerous
+        # Since the flop only had 3 in window, it's new → dangerous
+        result = LessonClassifier._turn_changes_texture('Th 9c 8d', '7s')
+        self.assertEqual(result, 'dangerous')
+
+    # -- High card neutral --
+
+    def test_neutral_high_card_turn(self):
+        """Low-rank flop + high turn card (T+) → neutral."""
+        result = LessonClassifier._turn_changes_texture('Ah 7d 2c', 'Ks')
+        self.assertEqual(result, 'neutral')
+
+    def test_neutral_ten_is_boundary(self):
+        """T-rank turn = neutral (boundary case)."""
+        result = LessonClassifier._turn_changes_texture('Ah 7d 2c', 'Ts')
+        self.assertEqual(result, 'neutral')
+
+    def test_neutral_jack(self):
+        """J-rank turn on rainbow disconnected flop → neutral."""
+        result = LessonClassifier._turn_changes_texture('Ah 7d 2c', 'Js')
+        self.assertEqual(result, 'neutral')
+
+    # -- Blank turn --
+
+    def test_blank_low_card_rainbow(self):
+        """2-rank turn on rainbow disconnected flop → blank."""
+        result = LessonClassifier._turn_changes_texture('Kh 7d 2c', '4s')
+        self.assertEqual(result, 'blank')
+
+    def test_blank_9_rank(self):
+        """9-rank turn (below T) on dry flop → blank (no draws)."""
+        result = LessonClassifier._turn_changes_texture('Kh 7d 2c', '9s')
+        self.assertEqual(result, 'blank')
+
+    # -- Edge cases --
+
+    def test_missing_turn_card_returns_neutral(self):
+        """Empty board_turn returns neutral."""
+        result = LessonClassifier._turn_changes_texture('Ah 7d 2c', '')
+        self.assertEqual(result, 'neutral')
+
+    def test_missing_flop_returns_neutral(self):
+        """Empty board_flop returns neutral."""
+        result = LessonClassifier._turn_changes_texture('', 'Ks')
+        self.assertEqual(result, 'neutral')
+
+
+# ── CBet Turn Evaluation Tests (US-048) ─────────────────────────────
+
+
+class TestCBetTurnEvaluation(unittest.TestCase):
+    """Test _eval_cbet_turn and lesson 15 detection+evaluation."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _cbet_turn_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 15), None)
+        return m.executed_correctly if m else None
+
+    def _setup_double_barrel(self, hand_id, hero_cards='Ah Kd',
+                              board_flop='Ts 7d 2c',
+                              board_turn='3s'):
+        """Set up a double barrel: hero opens BTN, villain BB, hero bets flop
+        and bets turn."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop, board_turn=board_turn)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+
+    # -- Detection --
+
+    def test_detected_as_lesson_15(self):
+        """Double barrel detects lesson 15."""
+        self._setup_double_barrel('CBT01')
+        matches = self._classify('CBT01')
+        self.assertIn(15, [m.lesson_id for m in matches])
+
+    def test_street_is_turn(self):
+        """Lesson 15 match has street='turn'."""
+        self._setup_double_barrel('CBT02')
+        matches = self._classify('CBT02')
+        m = next((m for m in matches if m.lesson_id == 15), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.street, 'turn')
+
+    def test_not_detected_without_turn(self):
+        """No turn card → lesson 15 not detected."""
+        _insert_hand(self.repo, 'CBT03', position='BTN',
+                     board_flop='Ts 7d 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'CBT03'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'CBT03', 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'BTN')
+        _insert_action(self.repo, 'CBT03', 'preflop', 'P1', 'call',
+                       1.5, 0, 2, 'BB')
+        _insert_action(self.repo, 'CBT03', 'flop', 'P1', 'check',
+                       0, 0, 3, 'BB')
+        _insert_action(self.repo, 'CBT03', 'flop', 'Hero', 'bet',
+                       2.0, 1, 4, 'BTN')
+        matches = self._classify('CBT03')
+        self.assertNotIn(15, [m.lesson_id for m in matches])
+
+    def test_not_detected_without_hero_pfa(self):
+        """Villain is PFA, hero just bets turn → lesson 15 not triggered."""
+        _insert_hand(self.repo, 'CBT04', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'CBT04'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'CBT04', 'preflop', 'P1', 'raise',
+                       1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, 'CBT04', 'preflop', 'Hero', 'call',
+                       1.5, 1, 2, 'BB')
+        _insert_action(self.repo, 'CBT04', 'flop', 'P1', 'bet',
+                       2.0, 0, 3, 'BTN')
+        _insert_action(self.repo, 'CBT04', 'flop', 'Hero', 'call',
+                       2.0, 1, 4, 'BB')
+        _insert_action(self.repo, 'CBT04', 'turn', 'P1', 'check',
+                       0, 0, 5, 'BTN')
+        _insert_action(self.repo, 'CBT04', 'turn', 'Hero', 'bet',
+                       4.0, 1, 6, 'BB')
+        matches = self._classify('CBT04')
+        self.assertNotIn(15, [m.lesson_id for m in matches])
+
+    # -- Value hands: always correct --
+
+    def test_strong_hand_blank_turn_correct(self):
+        """Top pair good kicker + blank turn: double barrel = correct (1)."""
+        self._setup_double_barrel('CBT10', hero_cards='Ah Kd',
+                                  board_flop='As 7d 2c', board_turn='3s')
+        self.assertEqual(self._cbet_turn_result('CBT10'), 1)
+
+    def test_strong_hand_dangerous_turn_correct(self):
+        """Strong hand + dangerous turn: still correct (value always correct)."""
+        # Flop: Ah 7h 2c (2-suited), turn: 9h (flush completes)
+        # But hero has AK (top pair good kicker + evaluates on full board Ah 7h 2c 9h)
+        # strength = 'strong' → always correct
+        self._setup_double_barrel('CBT11', hero_cards='Ah Kd',
+                                  board_flop='As 7h 2c', board_turn='9h')
+        self.assertEqual(self._cbet_turn_result('CBT11'), 1)
+
+    def test_overpair_neutral_turn_correct(self):
+        """Overpair (KK) + neutral turn (Q): double barrel = correct (1)."""
+        self._setup_double_barrel('CBT12', hero_cards='Kh Kd',
+                                  board_flop='9h 7d 2c', board_turn='Qs')
+        self.assertEqual(self._cbet_turn_result('CBT12'), 1)
+
+    def test_set_dangerous_turn_correct(self):
+        """Set + dangerous turn (flush completed): still correct (1)."""
+        self._setup_double_barrel('CBT13', hero_cards='9h 9d',
+                                  board_flop='9s 8h 7h', board_turn='2h')
+        self.assertEqual(self._cbet_turn_result('CBT13'), 1)
+
+    def test_medium_hand_blank_turn_correct(self):
+        """Middle pair + blank turn: double barrel = correct (1)."""
+        self._setup_double_barrel('CBT14', hero_cards='7h 3d',
+                                  board_flop='Ah 7c 2s', board_turn='4h')
+        self.assertEqual(self._cbet_turn_result('CBT14'), 1)
+
+    # -- Draw hands: semi-bluff is correct --
+
+    def test_flush_draw_blank_turn_correct(self):
+        """Flush draw + blank turn: semi-bluff = correct (1)."""
+        self._setup_double_barrel('CBT20', hero_cards='Qh 9h',
+                                  board_flop='Ah 7h 2c', board_turn='3s')
+        self.assertEqual(self._cbet_turn_result('CBT20'), 1)
+
+    def test_oesd_draw_correct(self):
+        """OESD + blank turn: semi-bluff double barrel = correct (1)."""
+        self._setup_double_barrel('CBT21', hero_cards='Jh Td',
+                                  board_flop='9c 8h 2s', board_turn='4d')
+        self.assertEqual(self._cbet_turn_result('CBT21'), 1)
+
+    def test_draw_dangerous_turn_correct(self):
+        """Draw with dangerous turn: still correct (semi-bluff has equity)."""
+        # Hero has flush draw on flop; turn is dangerous but hero is still drawing
+        self._setup_double_barrel('CBT22', hero_cards='Qd Jd',
+                                  board_flop='Ad 7d 2c', board_turn='Th')
+        self.assertEqual(self._cbet_turn_result('CBT22'), 1)
+
+    # -- Air (weak): depends on turn texture --
+
+    def test_air_blank_turn_correct(self):
+        """Air + blank turn: double barrel bluff = correct (1)."""
+        # 'Qd Jc' on 'Ah 7d 2c 3s' → no pair, no draw, turn='3s' is blank
+        self._setup_double_barrel('CBT30', hero_cards='Qd Jc',
+                                  board_flop='Ah 7d 2c', board_turn='3s')
+        self.assertEqual(self._cbet_turn_result('CBT30'), 1)
+
+    def test_air_neutral_turn_marginal(self):
+        """Air + neutral turn (K): double barrel = marginal (None)."""
+        # Hero: 8c 4h → no pair, no draw on Ah 7d 2c Ks
+        self._setup_double_barrel('CBT31', hero_cards='8c 4h',
+                                  board_flop='Ah 7d 2c', board_turn='Ks')
+        self.assertIsNone(self._cbet_turn_result('CBT31'))
+
+    def test_air_dangerous_turn_flush_completion_incorrect(self):
+        """Air + dangerous turn (flush completes): over-barreling = incorrect (0)."""
+        # Flop: 9h 8h 7c (2-suited hearts); turn: 2h completes flush → dangerous
+        # Hero: Kd 4c → no pair, no draw on full board (K/4 don't connect 9-8-7)
+        self._setup_double_barrel('CBT32', hero_cards='Kd 4c',
+                                  board_flop='9h 8h 7c', board_turn='2h')
+        self.assertEqual(self._cbet_turn_result('CBT32'), 0)
+
+    def test_air_dangerous_turn_flush_completion_incorrect_2(self):
+        """Air + dangerous turn (flush completes on different board): over-barreling = incorrect (0)."""
+        # Flop: Ks Qs 3d (2-suited spades); turn: 5s → 3rd spade → dangerous
+        # Hero: 8c 4h → no pair, no draw on full board
+        self._setup_double_barrel('CBT33', hero_cards='8c 4h',
+                                  board_flop='Ks Qs 3d', board_turn='5s')
+        self.assertEqual(self._cbet_turn_result('CBT33'), 0)
+
+    def test_air_neutral_turn_jack(self):
+        """Air + neutral turn (J): double barrel = marginal (None)."""
+        # Hero: Kd 4c → no pair, no draw on Ah 7d 2c Js
+        self._setup_double_barrel('CBT34', hero_cards='Kd 4c',
+                                  board_flop='Ah 7d 2c', board_turn='Js')
+        self.assertIsNone(self._cbet_turn_result('CBT34'))
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_assumes_correct(self):
+        """No hero_cards = assume correct (1)."""
+        _insert_hand(self.repo, 'CBT40', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('CBT40',))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'CBT40', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBT40', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBT40', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBT40', 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBT40', 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBT40', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBT40', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        self.assertEqual(self._cbet_turn_result('CBT40'), 1)
+
+    def test_no_board_turn_card_marginal(self):
+        """Board turn field exists but empty hero cards scenario."""
+        # Turn bet but no board_turn card stored → marginal (None)
+        _insert_hand(self.repo, 'CBT41', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn=None)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Qd Jc', 'CBT41'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'CBT41', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBT41', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBT41', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBT41', 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBT41', 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBT41', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBT41', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        self.assertIsNone(self._cbet_turn_result('CBT41'))
+
+    def test_two_pair_turn_correct(self):
+        """Two pair on turn (hero has both board cards): double barrel = correct."""
+        self._setup_double_barrel('CBT50', hero_cards='Ah 7d',
+                                  board_flop='As 7c 2h', board_turn='5s')
+        self.assertEqual(self._cbet_turn_result('CBT50'), 1)
+
+    def test_top_pair_weak_kicker_blank_turn_correct(self):
+        """Top pair weak kicker + blank turn: double barrel = correct (1)."""
+        self._setup_double_barrel('CBT51', hero_cards='Ah 3d',
+                                  board_flop='As 7c 2h', board_turn='4s')
+        self.assertEqual(self._cbet_turn_result('CBT51'), 1)
+
+
+# ── Delayed CBet Evaluation Tests (US-048) ───────────────────────────
+
+
+class TestDelayedCBetEvaluation(unittest.TestCase):
+    """Test _eval_delayed_cbet and lesson 17 detection+evaluation."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _delayed_cbet_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 17), None)
+        return m.executed_correctly if m else None
+
+    def _setup_delayed_cbet(self, hand_id, hero_cards='Ah Kd',
+                             board_flop='Ts 7d 2c',
+                             board_turn='3s'):
+        """Set up delayed cbet: hero opens BTN, checks flop, villain checks
+        back, hero bets turn."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop, board_turn=board_turn)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BTN'); seq += 1  # hero checks (delayed)
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+
+    # -- Detection --
+
+    def test_detected_as_lesson_17(self):
+        """Delayed cbet detects lesson 17."""
+        self._setup_delayed_cbet('DCB01')
+        matches = self._classify('DCB01')
+        self.assertIn(17, [m.lesson_id for m in matches])
+
+    def test_street_is_turn(self):
+        """Lesson 17 match has street='turn'."""
+        self._setup_delayed_cbet('DCB02')
+        matches = self._classify('DCB02')
+        m = next((m for m in matches if m.lesson_id == 17), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.street, 'turn')
+
+    def test_not_detected_without_flop_check(self):
+        """Hero bets flop (normal cbet) and bets turn → no lesson 17."""
+        _insert_hand(self.repo, 'DCB03', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'DCB03'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'DCB03', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB03', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB03', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB03', 'flop', 'Hero', 'bet',  # cbet
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB03', 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB03', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB03', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        matches = self._classify('DCB03')
+        self.assertNotIn(17, [m.lesson_id for m in matches])
+
+    def test_not_detected_without_turn_bet(self):
+        """Hero checks flop, checks turn → no lesson 17."""
+        _insert_hand(self.repo, 'DCB04', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'DCB04'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'DCB04', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB04', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB04', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB04', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB04', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB04', 'turn', 'Hero', 'check',
+                       0, 1, seq, 'BTN')
+        matches = self._classify('DCB04')
+        self.assertNotIn(17, [m.lesson_id for m in matches])
+
+    def test_not_detected_if_not_pfa(self):
+        """Villain is PFA and hero checks flop and bets turn → no lesson 17."""
+        _insert_hand(self.repo, 'DCB05', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'DCB05'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'DCB05', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB05', 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB05', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB05', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB05', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BB')
+        matches = self._classify('DCB05')
+        self.assertNotIn(17, [m.lesson_id for m in matches])
+
+    # -- Value hands: always correct --
+
+    def test_strong_hand_blank_turn_correct(self):
+        """Delayed cbet with strong hand + blank turn = correct (1)."""
+        self._setup_delayed_cbet('DCB10', hero_cards='Ah Kd',
+                                 board_flop='As 7d 2c', board_turn='3s')
+        self.assertEqual(self._delayed_cbet_result('DCB10'), 1)
+
+    def test_strong_hand_dangerous_turn_correct(self):
+        """Delayed cbet with strong hand + dangerous turn = correct (1)."""
+        # Hero has top pair + good kicker; turn is dangerous but value is value
+        self._setup_delayed_cbet('DCB11', hero_cards='Ah Kd',
+                                 board_flop='As 7h 2c', board_turn='9h')
+        self.assertEqual(self._delayed_cbet_result('DCB11'), 1)
+
+    def test_overpair_neutral_turn_correct(self):
+        """Delayed cbet with overpair + neutral turn = correct (1)."""
+        self._setup_delayed_cbet('DCB12', hero_cards='Kh Kd',
+                                 board_flop='9h 7d 2c', board_turn='Qs')
+        self.assertEqual(self._delayed_cbet_result('DCB12'), 1)
+
+    def test_set_blank_turn_correct(self):
+        """Delayed cbet with set + blank turn = correct (1)."""
+        self._setup_delayed_cbet('DCB13', hero_cards='7h 7d',
+                                 board_flop='7s 8c 2h', board_turn='3d')
+        self.assertEqual(self._delayed_cbet_result('DCB13'), 1)
+
+    def test_medium_hand_correct(self):
+        """Delayed cbet with medium hand = correct (1)."""
+        self._setup_delayed_cbet('DCB14', hero_cards='7h 3d',
+                                 board_flop='Ah 7c 2s', board_turn='4d')
+        self.assertEqual(self._delayed_cbet_result('DCB14'), 1)
+
+    # -- Draw hands: semi-bluff is correct --
+
+    def test_flush_draw_blank_turn_correct(self):
+        """Delayed cbet with flush draw + blank turn = correct (1)."""
+        self._setup_delayed_cbet('DCB20', hero_cards='Qh 9h',
+                                 board_flop='Ah 7h 2c', board_turn='3s')
+        self.assertEqual(self._delayed_cbet_result('DCB20'), 1)
+
+    def test_oesd_draw_blank_turn_correct(self):
+        """Delayed cbet with OESD + blank turn = correct (1)."""
+        self._setup_delayed_cbet('DCB21', hero_cards='Jh Td',
+                                 board_flop='9c 8h 2s', board_turn='4d')
+        self.assertEqual(self._delayed_cbet_result('DCB21'), 1)
+
+    def test_draw_dangerous_turn_correct(self):
+        """Delayed cbet with draw + dangerous turn = correct (equity + villain weakness)."""
+        # Hero has flush draw; turn adds more flush cards but hero still has equity
+        self._setup_delayed_cbet('DCB22', hero_cards='Qd Jd',
+                                 board_flop='Ad 7d 2c', board_turn='Th')
+        self.assertEqual(self._delayed_cbet_result('DCB22'), 1)
+
+    # -- Air: depends on turn texture --
+
+    def test_air_blank_turn_correct(self):
+        """Delayed cbet with air + blank turn = correct (villain weakness + blank)."""
+        # Villain checked back showing weakness, turn is blank → delayed bluff is sound
+        self._setup_delayed_cbet('DCB30', hero_cards='Qd Jc',
+                                 board_flop='Ah 7d 2c', board_turn='3s')
+        self.assertEqual(self._delayed_cbet_result('DCB30'), 1)
+
+    def test_air_neutral_turn_correct(self):
+        """Delayed cbet with air + neutral turn = correct (villain weakness justifies)."""
+        self._setup_delayed_cbet('DCB31', hero_cards='Qd Jc',
+                                 board_flop='Ah 7d 2c', board_turn='Ks')
+        self.assertEqual(self._delayed_cbet_result('DCB31'), 1)
+
+    def test_air_dangerous_turn_flush_marginal(self):
+        """Delayed cbet with air + dangerous turn (flush completes) = marginal (None)."""
+        # Flop: 9h 8h 7c (2-suited hearts); turn: 2h → dangerous
+        # Hero: Kd 4c → no pair, no draw on full board
+        self._setup_delayed_cbet('DCB32', hero_cards='Kd 4c',
+                                 board_flop='9h 8h 7c', board_turn='2h')
+        self.assertIsNone(self._delayed_cbet_result('DCB32'))
+
+    def test_air_dangerous_flush_turn_marginal_2(self):
+        """Delayed cbet with air + dangerous flush turn = marginal (None)."""
+        # Flop: Ks Qs 3d (2-suited spades); turn: 5s → 3rd spade → dangerous
+        # Hero: 8c 4h → no pair, no draw on full board
+        self._setup_delayed_cbet('DCB33', hero_cards='8c 4h',
+                                 board_flop='Ks Qs 3d', board_turn='5s')
+        self.assertIsNone(self._delayed_cbet_result('DCB33'))
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_assumes_correct(self):
+        """No hero_cards = assume correct (villain checked back)."""
+        _insert_hand(self.repo, 'DCB40', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('DCB40',))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'DCB40', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB40', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB40', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB40', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB40', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB40', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        self.assertEqual(self._delayed_cbet_result('DCB40'), 1)
+
+    def test_no_board_turn_not_detected(self):
+        """No board_turn stored → lesson 17 not detected (has_turn=False)."""
+        _insert_hand(self.repo, 'DCB41', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn=None)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Qd Jc', 'DCB41'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'DCB41', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB41', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB41', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB41', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'DCB41', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'DCB41', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        self.assertIsNone(self._delayed_cbet_result('DCB41'))
+
+    def test_two_pair_turn_correct(self):
+        """Delayed cbet with two pair improved on turn = correct (1)."""
+        self._setup_delayed_cbet('DCB50', hero_cards='Ah 7d',
+                                 board_flop='As 7c 2h', board_turn='5s')
+        self.assertEqual(self._delayed_cbet_result('DCB50'), 1)
+
+    def test_also_triggers_lesson_15(self):
+        """A delayed cbet also triggers lesson 15 (PFA + turn bet)."""
+        self._setup_delayed_cbet('DCB51')
+        matches = self._classify('DCB51')
+        lesson_ids = [m.lesson_id for m in matches]
+        self.assertIn(15, lesson_ids)
+        self.assertIn(17, lesson_ids)
+
+
 if __name__ == '__main__':
     unittest.main()

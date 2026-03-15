@@ -672,7 +672,7 @@ class LessonClassifier:
             # 15: C-Bet Turn
             if pf_agg and has_turn and turn_a['hero_bets']:
                 m = self._match(hand_id, 15, 'turn')
-                m.executed_correctly = self._eval_cbet(turn_a)
+                m.executed_correctly = self._eval_cbet_turn(hand, flop_a, turn_a)
                 matches.append(m)
 
             # 16: C-Bet River
@@ -684,7 +684,7 @@ class LessonClassifier:
             # 17: Delayed C-Bet
             if pf_agg and flop_a['hero_checks'] and has_turn and turn_a['hero_bets']:
                 m = self._match(hand_id, 17, 'turn')
-                m.executed_correctly = 1  # executed delayed cbet
+                m.executed_correctly = self._eval_delayed_cbet(hand, flop_a, turn_a)
                 matches.append(m)
 
             # 18: BB vs C-Bet OOP
@@ -1855,6 +1855,154 @@ class LessonClassifier:
             if hero_raises:
                 return 0  # raising with air as caller: incorrect
             return None  # floating with air as caller: marginal
+
+    @classmethod
+    def _turn_changes_texture(cls, board_flop: str,
+                              board_turn: str) -> str:
+        """Classify how the turn card changes the board texture.
+
+        Returns:
+            'blank':     Turn card is low/unconnected; does not complete draws.
+            'neutral':   Turn card has some impact (partial draw completion,
+                         high card, or paired board).
+            'dangerous': Turn card completes a flush draw (3-flush on flop)
+                         or significantly extends straight possibilities.
+        """
+        flop_cards = cls._parse_cards(board_flop)
+        turn_cards = cls._parse_cards(board_turn)
+        if not flop_cards or not turn_cards:
+            return 'neutral'
+
+        turn_rank, turn_suit = turn_cards[0]
+        all_board = flop_cards + turn_cards
+
+        # -- Flush danger: flop was 2-suited and turn is same suit ------
+        flop_suits = [c[1] for c in flop_cards]
+        suit_cnt: dict[str, int] = {}
+        for s in flop_suits:
+            suit_cnt[s] = suit_cnt.get(s, 0) + 1
+        two_suited_suit = next(
+            (s for s, v in suit_cnt.items() if v >= 2), None
+        )
+        if two_suited_suit and turn_suit == two_suited_suit:
+            return 'dangerous'  # flush draw completed
+
+        # -- Straight danger: turn creates 4-card straight window -------
+        ro = cls._RANK_ORDER
+        all_rank_idxs = sorted(
+            set(ro.index(r) for r in [c[0] for c in all_board] if r in ro)
+        )
+        for i in range(len(all_rank_idxs)):
+            window = [
+                x for x in all_rank_idxs
+                if all_rank_idxs[i] <= x <= all_rank_idxs[i] + 4
+            ]
+            if len(window) >= 4:
+                # Straight draw on turn: check if flop already had this
+                flop_rank_idxs = sorted(
+                    set(ro.index(r) for r in [c[0] for c in flop_cards]
+                        if r in ro)
+                )
+                flop_had_window = any(
+                    len([x for x in flop_rank_idxs
+                         if flop_rank_idxs[j] <= x <= flop_rank_idxs[j] + 4
+                         ]) >= 4
+                    for j in range(len(flop_rank_idxs))
+                )
+                if not flop_had_window:
+                    return 'dangerous'
+
+        # -- High card turn (T+): neutral, gives villain potential -------
+        if turn_rank in cls._RANK_ORDER and ro.index(turn_rank) >= ro.index('T'):
+            return 'neutral'
+
+        return 'blank'
+
+    def _eval_cbet_turn(self, hand: dict,
+                        flop_a: dict,  # noqa: ARG002
+                        turn_a: dict) -> Optional[int]:  # noqa: ARG002
+        """Evaluate c-bet turn (double barrel) execution.
+
+        Based on RegLife 'C-Bet Turn':
+        - Double-barreling with value or semi-bluff is always correct.
+        - Bluffing air on a blank turn is correct (villain can't have improved).
+        - Bluffing air when the turn completes draws is a mistake.
+        - Correct (1): strong/medium hand, draw, or air on a blank turn.
+        - Partial (None): air on a neutral turn.
+        - Incorrect (0): air when turn is dangerous (completes draws).
+        """
+        board_flop = hand.get('board_flop')
+        board_turn = hand.get('board_turn')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            return 1  # cannot evaluate; assume correct
+
+        full_board = (f"{board_flop} {board_turn}"
+                      if board_turn else board_flop)
+        strength = self._hand_connects_board(hero_cards, full_board)
+
+        if strength is None:
+            return 1
+
+        if strength in ('strong', 'medium', 'draw'):
+            return 1  # value or semi-bluff: double barrel is always correct
+
+        # strength == 'weak' (air bluff)
+        if not board_turn:
+            return None  # no turn card info; cannot classify
+
+        turn_change = self._turn_changes_texture(board_flop, board_turn)
+        if turn_change == 'blank':
+            return 1   # blank turn: bluffing is a sound double barrel
+        if turn_change == 'neutral':
+            return None  # marginal: depends on reads and range
+        return 0  # dangerous turn: bluffing here is over-barreling
+
+    def _eval_delayed_cbet(self, hand: dict,
+                           flop_a: dict,  # noqa: ARG002
+                           turn_a: dict) -> Optional[int]:  # noqa: ARG002
+        """Evaluate delayed c-bet execution.
+
+        Based on RegLife 'Delayed CBet':
+        - Hero was PFA but checked the flop, then bets the turn after
+          villain checked back (showing weakness).
+        - Strong/medium hands: correct to bet the turn for value.
+        - Draws: semi-bluff on the turn is correct.
+        - Air: the delayed bet is generally correct when villain checked back
+          (sign of weakness), unless the turn is clearly dangerous.
+        - Correct (1): value, draw, or air with blank/neutral turn.
+        - Partial (None): air when turn is dangerous (draws completed).
+        - Incorrect (0): not applicable (execution of delayed bet is the trigger).
+        """
+        board_flop = hand.get('board_flop')
+        board_turn = hand.get('board_turn')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            # Villain checked back, hero fired: sound play in principle.
+            return 1
+
+        full_board = (f"{board_flop} {board_turn}"
+                      if board_turn else board_flop)
+        strength = self._hand_connects_board(hero_cards, full_board)
+
+        if strength is None:
+            return 1
+
+        if strength in ('strong', 'medium', 'draw'):
+            return 1  # betting for value or semi-bluff: correct
+
+        # strength == 'weak' (air delayed bluff)
+        # Villain showing weakness (checked back) justifies the bluff,
+        # but a dangerous turn (completed draws) makes it risky.
+        if not board_turn:
+            return 1  # villain checked back; delayed bluff is correct by default
+
+        turn_change = self._turn_changes_texture(board_flop, board_turn)
+        if turn_change in ('blank', 'neutral'):
+            return 1   # villain weakness + acceptable turn: correct delayed bluff
+        return None  # dangerous turn: delayed bluff becomes marginal
 
     # ── Advanced Detection ───────────────────────────────────────────
 
