@@ -355,6 +355,71 @@ class LessonClassifier:
         'BTN': 2, 'SB': 2, 'BB': 2,
     }
 
+    # ── Open Shove cEV 10BB Range Data (from RegLife 'Ranges de Open Shove cEV 10BB' PDF) ──
+    # Open shove ranges for ≤10BB stacks (all-in as first raise, preflop).
+    # At 10BB, GTO solution strongly favors shoving a wide range vs folding/minraising.
+
+    # Tier 1: profitable shove from any position including UTG (~35% range).
+    _OPEN_SHOVE_TIER1 = {
+        # All pairs: always profitable vs typical calling range at 10BB
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33', '22',
+        # All suited aces: blockers + flush equity + domination potential
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        # Suited broadways
+        'KQs', 'KJs', 'KTs',
+        # Strong offsuit hands
+        'AKo', 'AQo', 'AJo', 'ATo',
+    }
+    # Tier 2: shove from MP/HJ or later (~50-55% total range).
+    _OPEN_SHOVE_TIER2 = {
+        # Medium suited kings
+        'K9s', 'K8s', 'K7s', 'K6s', 'K5s',
+        # More suited broadways
+        'QJs', 'QTs', 'Q9s',
+        'JTs', 'J9s',
+        'T9s', 'T8s',
+        '98s', '87s',
+        # Medium offsuit
+        'A9o', 'A8o', 'A7o',
+        'KQo', 'KJo',
+    }
+    # Tier 3: shove from CO or later (~62-65% total range).
+    _OPEN_SHOVE_TIER3 = {
+        # Weak suited kings
+        'K4s', 'K3s', 'K2s',
+        # More suited connectors and gappers
+        '76s', '65s', '54s',
+        'Q8s', 'J8s',
+        '97s', '86s', '75s',
+        # Weaker offsuit
+        'A6o', 'A5o', 'A4o', 'A3o', 'A2o',
+        'KTo', 'K9o',
+        'QJo', 'QTo',
+        'JTo',
+    }
+    # Tier 4: shove from BTN/SB only (~72-75% total, very wide).
+    _OPEN_SHOVE_TIER4 = {
+        # Weak suited queens, jacks, tens
+        'Q7s', 'Q6s', 'Q5s', 'Q4s',
+        'J7s', 'J6s',
+        'T7s', 'T6s',
+        '96s', '85s', '74s', '64s', '53s', '43s',
+        # Offsuit medium hands
+        'K8o', 'K7o', 'K6o',
+        'Q9o', 'Q8o',
+        'J9o', 'J8o',
+        'T9o', 'T8o',
+        '98o', '87o', '76o',
+    }
+
+    # Position → maximum hand tier allowed for open shove at 10BB
+    _OPEN_SHOVE_POS_MAX_TIER = {
+        'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+        'LJ': 1, 'MP': 2, 'HJ': 2,
+        'CO': 3,
+        'BTN': 4, 'SB': 4,
+    }
+
     # ── SB vs BB Blind War Data (from RegLife 'O Conceito de Blind War - SB vs BB') ──
     # Additional hands SB can profitably steal with vs sole BB opponent.
     # SB opens ~60% in blind war: all RFI Tier 1-4 (BTN range, ~54%) + these extras.
@@ -420,6 +485,41 @@ class LessonClassifier:
         '63o', '62o',
         '53o', '52o',
         '43o', '42o', '32o',
+    }
+
+    # ── Bounty Tournament Range Data (from RegLife Bounty PDFs) ─────────────
+    # Bounty-adjusted ranges: wider calling/shoving ranges due to bounty value overlay.
+    # Winning a bounty adds significant EV, making normally marginal spots profitable.
+
+    # Tier 1: always profitable in bounty spots (strong hands + bounty premium).
+    _BOUNTY_TIER1 = {
+        # All pairs: set mining and pair value plus bounty overlay
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33', '22',
+        # All suited aces: extra equity from flush potential
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        # Suited broadways and medium kings
+        'KQs', 'KJs', 'KTs', 'K9s', 'K8s',
+        'QJs', 'QTs', 'Q9s',
+        'JTs', 'J9s',
+        'T9s', 'T8s',
+        '98s', '87s', '76s',
+        # Strong offsuit hands
+        'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'A8o',
+        'KQo', 'KJo', 'KTo',
+        'QJo',
+    }
+    # Tier 2: marginal hands made profitable specifically by bounty overlay.
+    _BOUNTY_TIER2 = {
+        # Weak suited kings and medium queens
+        'K7s', 'K6s', 'K5s', 'K4s', 'K3s', 'K2s',
+        'Q8s', 'Q7s', 'J8s', 'J7s',
+        'T7s', '97s', '86s', '75s', '65s', '64s', '54s',
+        # Medium offsuit hands
+        'A7o', 'A6o', 'A5o', 'A4o', 'A3o', 'A2o',
+        'K9o', 'K8o',
+        'QTo', 'Q9o',
+        'JTo', 'J9o',
+        'T9o', '98o', '87o',
     }
 
     def __init__(self, repo: Repository):
@@ -495,7 +595,7 @@ class LessonClassifier:
         # 4: Open Shove cEV 10BB
         if pf['hero_open_shoves'] and hero_stack_bb is not None and hero_stack_bb <= 12:
             m = self._match(hand_id, 4, 'preflop')
-            m.executed_correctly = 1 if hero_stack_bb <= 10 else None
+            m.executed_correctly = self._eval_open_shove(hand, pf)
             matches.append(m)
 
         # 5: Squeeze
@@ -634,13 +734,13 @@ class LessonClassifier:
             # 24: Intro Torneios Bounty
             if is_bounty:
                 m = self._match(hand_id, 24, 'preflop')
-                m.confidence = 0.8
+                m.executed_correctly = self._eval_bounty_intro(hand, pf)
                 matches.append(m)
 
             # 25: Bounty Ranges Práticos
             if is_bounty and preflop:
                 m = self._match(hand_id, 25, 'preflop')
-                m.confidence = 0.8
+                m.executed_correctly = self._eval_bounty_ranges(hand, pf)
                 matches.append(m)
 
         return matches
@@ -1037,6 +1137,26 @@ class LessonClassifier:
             return 2
         return 3  # not in any squeeze range
 
+    def _open_shove_hand_tier(self, notation: str) -> int:
+        """Return open shove tier (1-5) for a hand notation. Lower = stronger."""
+        if notation in self._OPEN_SHOVE_TIER1:
+            return 1
+        if notation in self._OPEN_SHOVE_TIER2:
+            return 2
+        if notation in self._OPEN_SHOVE_TIER3:
+            return 3
+        if notation in self._OPEN_SHOVE_TIER4:
+            return 4
+        return 5  # not in any open shove range
+
+    def _bounty_hand_tier(self, notation: str) -> int:
+        """Return bounty call tier (1-3) for a hand notation. Lower = stronger."""
+        if notation in self._BOUNTY_TIER1:
+            return 1
+        if notation in self._BOUNTY_TIER2:
+            return 2
+        return 3  # not in any bounty range
+
     def _eval_flat_3bet(self, hand: dict, pf: dict) -> Optional[int]:
         """Evaluate flat/3-bet execution based on position and hand ranges.
 
@@ -1134,6 +1254,88 @@ class LessonClassifier:
             return None  # marginal squeeze
         else:
             return 0  # hand too weak to squeeze
+
+    def _eval_open_shove(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate open shove execution based on position and hand strength.
+
+        Based on RegLife 'Ranges de Open Shove cEV 10BB':
+        - Correct (1): Hand in open shove range for position at ≤10BB stack.
+        - Partial (None): Marginal hand (one tier outside range) or 10-12BB stack.
+        - Incorrect (0): Hand clearly too weak for position.
+        """
+        hero_cards = hand.get('hero_cards')
+        hero_pos = (hand.get('hero_position') or '').upper()
+        hero_stack_bb = self._stack_in_bb(hand)
+
+        # Stack in marginal range (10-12BB): shoving may be suboptimal vs minraising
+        if hero_stack_bb is not None and hero_stack_bb > 10:
+            return None
+
+        if not hero_cards:
+            return 1  # can't evaluate hand quality, assume correct
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return 1  # can't parse hand, assume correct
+
+        hand_tier = self._open_shove_hand_tier(notation)
+        pos_tier = self._OPEN_SHOVE_POS_MAX_TIER.get(hero_pos, 2)
+
+        if hand_tier <= pos_tier:
+            return 1  # hand is in open shove range for position
+        elif hand_tier == pos_tier + 1:
+            return None  # marginal open shove (one tier outside range)
+        else:
+            return 0  # hand too weak to open shove from this position
+
+    def _eval_bounty_intro(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate preflop play in introductory bounty tournament context.
+
+        Based on RegLife 'Introdução aos Torneios Bounty':
+        - This is a conceptual lesson; most situations are context-dependent.
+        - Incorrect (0): folding a premium hand when a bounty is at stake.
+        - Otherwise None: cannot evaluate nuanced bounty decisions without more context.
+        """
+        hero_cards = hand.get('hero_cards')
+        hero_folded = pf.get('hero_folds_preflop', False)
+
+        if not hero_cards:
+            return None
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return None
+
+        # Clear mistake: folding a premium hand when facing a bounty opportunity
+        if hero_folded and notation in {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo'}:
+            return 0
+
+        return None  # most bounty situations are context-dependent
+
+    def _eval_bounty_ranges(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate preflop ranges in practical bounty tournament play.
+
+        Based on RegLife 'Torneios Bounty - Ranges Práticos':
+        - Correct (1): Hand in bounty-adjusted tier 1 range (clearly profitable).
+        - Partial (None): Marginal hand in bounty tier 2 (context-dependent).
+        - Incorrect (0): Hand too weak even with bounty overlay.
+        """
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards:
+            return None  # can't evaluate without knowing the hand
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return None
+
+        hand_tier = self._bounty_hand_tier(notation)
+        if hand_tier == 1:
+            return 1  # clearly profitable with bounty overlay
+        elif hand_tier == 2:
+            return None  # marginal, depends on bounty size and stack depth
+        else:
+            return 0  # too weak even with bounty overlay
 
     def _eval_bb_preflop(self, hand: dict, pf: dict) -> Optional[int]:
         """Evaluate BB preflop play vs a single raise.

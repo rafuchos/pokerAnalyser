@@ -3109,5 +3109,516 @@ class TestSqueezeEvaluation(unittest.TestCase):
                              f'{pos} should have squeeze tier 2')
 
 
+class TestOpenShoveEvaluation(unittest.TestCase):
+    """Test open shove evaluation with position-based range validation.
+
+    Based on RegLife 'Ranges de Open Shove cEV 10BB':
+    - Tier 1: all pairs + all suited aces + strong broadways (shove from any pos)
+    - Tier 2: medium kings, suited connectors (shove from MP+)
+    - Tier 3: weak kings, more connectors (shove from CO+)
+    - Tier 4: speculative hands (shove from BTN/SB only)
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _shove_result(self, hand_id):
+        """Get executed_correctly for lesson 4 (Open Shove cEV 10BB)."""
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 4), None)
+        return m.executed_correctly if m else None
+
+    def _insert_shove(self, hand_id, hero_cards='Ah Ad', hero_pos='BTN',
+                      hero_stack=4.0, blinds_bb=0.50):
+        """Insert a hand where hero open shoves preflop."""
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'all-in',
+                       hero_stack, 1, 1, hero_pos)
+
+    # -- Tier membership tests --
+
+    def test_open_shove_tier1_has_all_pairs(self):
+        """All pairs 22+ should be in open shove tier 1."""
+        for pair in ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77',
+                     '66', '55', '44', '33', '22']:
+            self.assertIn(pair, self.classifier._OPEN_SHOVE_TIER1,
+                          f'{pair} should be in OPEN_SHOVE_TIER1')
+
+    def test_open_shove_tier1_has_all_suited_aces(self):
+        """All suited aces should be in tier 1."""
+        for hand in ['AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s',
+                     'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s']:
+            self.assertIn(hand, self.classifier._OPEN_SHOVE_TIER1,
+                          f'{hand} should be in OPEN_SHOVE_TIER1')
+
+    def test_open_shove_tier1_has_strong_offsuit(self):
+        """Strong offsuit hands (AKo, AQo, AJo, ATo) in tier 1."""
+        for hand in ['AKo', 'AQo', 'AJo', 'ATo']:
+            self.assertIn(hand, self.classifier._OPEN_SHOVE_TIER1,
+                          f'{hand} should be in OPEN_SHOVE_TIER1')
+
+    def test_open_shove_tier2_has_medium_kings(self):
+        """Medium suited kings (K9s-K5s) in tier 2."""
+        for hand in ['K9s', 'K8s', 'K7s', 'K6s', 'K5s']:
+            self.assertIn(hand, self.classifier._OPEN_SHOVE_TIER2,
+                          f'{hand} should be in OPEN_SHOVE_TIER2')
+
+    def test_open_shove_tier2_has_suited_broadways(self):
+        """Suited broadways (QJs, QTs, JTs, T9s) in tier 2."""
+        for hand in ['QJs', 'QTs', 'JTs', 'T9s', '98s', '87s']:
+            self.assertIn(hand, self.classifier._OPEN_SHOVE_TIER2,
+                          f'{hand} should be in OPEN_SHOVE_TIER2')
+
+    def test_open_shove_tier3_has_weak_kings(self):
+        """Weak suited kings (K4s-K2s) in tier 3."""
+        for hand in ['K4s', 'K3s', 'K2s']:
+            self.assertIn(hand, self.classifier._OPEN_SHOVE_TIER3,
+                          f'{hand} should be in OPEN_SHOVE_TIER3')
+
+    def test_open_shove_tier4_has_speculative(self):
+        """Speculative hands only valid from BTN/SB in tier 4."""
+        for hand in ['Q7s', 'Q6s', 'T9o', '98o', 'J8o']:
+            self.assertIn(hand, self.classifier._OPEN_SHOVE_TIER4,
+                          f'{hand} should be in OPEN_SHOVE_TIER4')
+
+    # -- Hand tier classification tests --
+
+    def test_open_shove_hand_tier_premium_pair(self):
+        """AA is tier 1."""
+        self.assertEqual(self.classifier._open_shove_hand_tier('AA'), 1)
+
+    def test_open_shove_hand_tier_small_pair(self):
+        """22 is tier 1 (all pairs in tier 1)."""
+        self.assertEqual(self.classifier._open_shove_hand_tier('22'), 1)
+
+    def test_open_shove_hand_tier_suited_ace(self):
+        """A5s is tier 1."""
+        self.assertEqual(self.classifier._open_shove_hand_tier('A5s'), 1)
+
+    def test_open_shove_hand_tier_medium_king(self):
+        """K8s is tier 2."""
+        self.assertEqual(self.classifier._open_shove_hand_tier('K8s'), 2)
+
+    def test_open_shove_hand_tier_weak_king(self):
+        """K3s is tier 3."""
+        self.assertEqual(self.classifier._open_shove_hand_tier('K3s'), 3)
+
+    def test_open_shove_hand_tier_speculative(self):
+        """Q7s is tier 4."""
+        self.assertEqual(self.classifier._open_shove_hand_tier('Q7s'), 4)
+
+    def test_open_shove_hand_tier_trash(self):
+        """72o is tier 5 (not in any open shove range)."""
+        self.assertEqual(self.classifier._open_shove_hand_tier('72o'), 5)
+
+    # -- Position tier mapping tests --
+
+    def test_open_shove_pos_tier_utg_is_1(self):
+        """UTG/EP/LJ positions have tier 1 (tightest)."""
+        for pos in ['UTG', 'EP', 'UTG+1', 'UTG+2', 'LJ']:
+            self.assertEqual(self.classifier._OPEN_SHOVE_POS_MAX_TIER.get(pos), 1,
+                             f'{pos} should have open shove tier 1')
+
+    def test_open_shove_pos_tier_mp_hj_is_2(self):
+        """MP/HJ have tier 2."""
+        for pos in ['MP', 'HJ']:
+            self.assertEqual(self.classifier._OPEN_SHOVE_POS_MAX_TIER.get(pos), 2,
+                             f'{pos} should have open shove tier 2')
+
+    def test_open_shove_pos_tier_co_is_3(self):
+        """CO has tier 3."""
+        self.assertEqual(self.classifier._OPEN_SHOVE_POS_MAX_TIER.get('CO'), 3)
+
+    def test_open_shove_pos_tier_btn_sb_is_4(self):
+        """BTN/SB have tier 4 (widest)."""
+        for pos in ['BTN', 'SB']:
+            self.assertEqual(self.classifier._OPEN_SHOVE_POS_MAX_TIER.get(pos), 4,
+                             f'{pos} should have open shove tier 4')
+
+    # -- Correct shove evaluations --
+
+    def test_open_shove_correct_aa_utg_8bb(self):
+        """Shoving AA from UTG at 8BB = correct (tier 1 ≤ pos_tier 1)."""
+        self._insert_shove('OS01', hero_cards='Ah Ad', hero_pos='UTG',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS01'), 1)
+
+    def test_open_shove_correct_22_utg_8bb(self):
+        """Shoving 22 from UTG at 8BB = correct (all pairs in tier 1)."""
+        self._insert_shove('OS02', hero_cards='2h 2d', hero_pos='UTG',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS02'), 1)
+
+    def test_open_shove_correct_a5s_mp_9bb(self):
+        """Shoving A5s from MP at 9BB = correct (tier 1 ≤ pos_tier 2)."""
+        self._insert_shove('OS03', hero_cards='Ah 5h', hero_pos='MP',
+                           hero_stack=4.5, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS03'), 1)
+
+    def test_open_shove_correct_k9s_mp_8bb(self):
+        """Shoving K9s from MP at 8BB = correct (tier 2 ≤ pos_tier 2)."""
+        self._insert_shove('OS04', hero_cards='Kh 9h', hero_pos='MP',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS04'), 1)
+
+    def test_open_shove_correct_k3s_co_7bb(self):
+        """Shoving K3s from CO at 7BB = correct (tier 3 ≤ pos_tier 3)."""
+        self._insert_shove('OS05', hero_cards='Kh 3h', hero_pos='CO',
+                           hero_stack=3.5, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS05'), 1)
+
+    def test_open_shove_correct_q7s_btn_8bb(self):
+        """Shoving Q7s from BTN at 8BB = correct (tier 4 ≤ pos_tier 4)."""
+        self._insert_shove('OS06', hero_cards='Qh 7h', hero_pos='BTN',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS06'), 1)
+
+    def test_open_shove_correct_t9o_sb_9bb(self):
+        """Shoving T9o from SB at 9BB = correct (tier 4 ≤ pos_tier 4)."""
+        self._insert_shove('OS07', hero_cards='Th 9d', hero_pos='SB',
+                           hero_stack=4.5, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS07'), 1)
+
+    # -- Incorrect shove evaluations (gap > 1 tier) --
+
+    def test_open_shove_incorrect_72o_utg(self):
+        """Shoving 72o from UTG = incorrect (tier 5, gap > 1 from pos_tier 1)."""
+        self._insert_shove('OS08', hero_cards='7h 2d', hero_pos='UTG',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS08'), 0)
+
+    def test_open_shove_incorrect_k3s_utg(self):
+        """Shoving K3s from UTG = incorrect (tier 3 vs pos_tier 1, gap = 2)."""
+        self._insert_shove('OS09', hero_cards='Kh 3h', hero_pos='UTG',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS09'), 0)
+
+    def test_open_shove_incorrect_q7s_mp(self):
+        """Shoving Q7s from MP = incorrect (tier 4 vs pos_tier 2, gap = 2)."""
+        self._insert_shove('OS10', hero_cards='Qh 7h', hero_pos='MP',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS10'), 0)
+
+    def test_open_shove_incorrect_j8s_utg(self):
+        """Shoving J8s from UTG = incorrect (tier 3 vs pos_tier 1, gap = 2)."""
+        self._insert_shove('OS11', hero_cards='Jh 8h', hero_pos='UTG',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertEqual(self._shove_result('OS11'), 0)
+
+    # -- Marginal shove evaluations (gap = 1 tier) --
+
+    def test_open_shove_marginal_k9s_utg(self):
+        """Shoving K9s from UTG = marginal (tier 2 = pos_tier 1 + 1)."""
+        self._insert_shove('OS12', hero_cards='Kh 9h', hero_pos='UTG',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertIsNone(self._shove_result('OS12'))
+
+    def test_open_shove_marginal_q9s_utg(self):
+        """Shoving Q9s from UTG = marginal (tier 2 = pos_tier 1 + 1)."""
+        self._insert_shove('OS13', hero_cards='Qh 9h', hero_pos='UTG',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertIsNone(self._shove_result('OS13'))
+
+    def test_open_shove_marginal_k3s_mp(self):
+        """Shoving K3s from MP = marginal (tier 3 = pos_tier 2 + 1)."""
+        self._insert_shove('OS14', hero_cards='Kh 3h', hero_pos='MP',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertIsNone(self._shove_result('OS14'))
+
+    def test_open_shove_marginal_q7s_co(self):
+        """Shoving Q7s from CO = marginal (tier 4 = pos_tier 3 + 1)."""
+        self._insert_shove('OS15', hero_cards='Qh 7h', hero_pos='CO',
+                           hero_stack=4.0, blinds_bb=0.50)
+        self.assertIsNone(self._shove_result('OS15'))
+
+    # -- Stack depth tests --
+
+    def test_open_shove_stack_10_to_12bb_is_marginal(self):
+        """Open shove at 11BB is detected but evaluation is marginal (stack too deep)."""
+        self._insert_shove('OS16', hero_cards='Ah Ad', hero_pos='BTN',
+                           hero_stack=5.5, blinds_bb=0.50)  # 11BB
+        self.assertIsNone(self._shove_result('OS16'))
+
+    def test_open_shove_not_detected_above_12bb(self):
+        """Open shove at 15BB is not detected as lesson 4 (too deep)."""
+        _insert_hand(self.repo, 'OS17', position='BTN',
+                     hero_stack=7.5, blinds_bb=0.50)  # 15BB
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", ('Ah Ad', 'OS17'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'OS17', 'preflop', 'Hero', 'all-in',
+                       7.5, 1, 1, 'BTN')
+        matches = self._classify('OS17')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(4, ids)
+
+    def test_open_shove_no_cards_returns_1(self):
+        """Without hero cards, open shove returns 1 (action taken, assume correct)."""
+        _insert_hand(self.repo, 'OS18', position='BTN',
+                     hero_stack=4.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('OS18',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'OS18', 'preflop', 'Hero', 'all-in',
+                       4.0, 1, 1, 'BTN')
+        self.assertEqual(self._shove_result('OS18'), 1)
+
+    def test_open_shove_exact_10bb_is_evaluated(self):
+        """Stack at exactly 10BB (not marginal) uses hand range evaluation."""
+        self._insert_shove('OS19', hero_cards='Ah Ad', hero_pos='BTN',
+                           hero_stack=5.0, blinds_bb=0.50)  # exactly 10BB
+        self.assertEqual(self._shove_result('OS19'), 1)
+
+
+class TestBountyEvaluation(unittest.TestCase):
+    """Test bounty tournament range evaluation for lessons 24 and 25.
+
+    Based on RegLife 'Introdução aos Torneios Bounty' and
+    'Torneios Bounty - Ranges Práticos' PDFs.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+        # Set up a bounty tournament
+        self.repo.insert_tournament({
+            'tournament_id': 'BT01',
+            'platform': 'GGPoker',
+            'name': 'Bounty Hunter',
+            'date': '2026-01-15',
+            'buy_in': 10, 'rake': 1, 'bounty': 5,
+            'total_buy_in': 16, 'is_bounty': True,
+        })
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _bounty_result(self, hand_id, lesson_id):
+        """Get executed_correctly for a given bounty lesson."""
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == lesson_id), None)
+        return m.executed_correctly if m else None
+
+    def _insert_bounty_hand(self, hand_id, hero_cards='Ah Kd', hero_pos='BTN',
+                             action='raise', hero_folded=False):
+        """Insert a bounty tournament hand with hero action."""
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     game_type='tournament', tournament_id='BT01')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        if hero_folded:
+            _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                           300, 0, 1, 'UTG')
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'fold',
+                           0, 1, 2, hero_pos)
+        else:
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', action,
+                           300, 1, 1, hero_pos)
+
+    # -- Bounty tier membership tests --
+
+    def test_bounty_tier1_has_all_pairs(self):
+        """All pairs 22+ in bounty tier 1."""
+        for pair in ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77',
+                     '66', '55', '44', '33', '22']:
+            self.assertIn(pair, self.classifier._BOUNTY_TIER1,
+                          f'{pair} should be in BOUNTY_TIER1')
+
+    def test_bounty_tier1_has_all_suited_aces(self):
+        """All suited aces in bounty tier 1."""
+        for hand in ['AKs', 'AQs', 'AJs', 'ATs', 'A5s', 'A2s']:
+            self.assertIn(hand, self.classifier._BOUNTY_TIER1,
+                          f'{hand} should be in BOUNTY_TIER1')
+
+    def test_bounty_tier1_has_suited_connectors(self):
+        """Strong suited connectors in bounty tier 1."""
+        for hand in ['T9s', 'T8s', '98s', '87s', '76s']:
+            self.assertIn(hand, self.classifier._BOUNTY_TIER1,
+                          f'{hand} should be in BOUNTY_TIER1')
+
+    def test_bounty_tier2_has_medium_kings(self):
+        """Medium suited kings in bounty tier 2."""
+        for hand in ['K7s', 'K6s', 'K5s']:
+            self.assertIn(hand, self.classifier._BOUNTY_TIER2,
+                          f'{hand} should be in BOUNTY_TIER2')
+
+    def test_bounty_tier2_has_medium_offsuit(self):
+        """Medium offsuit hands in bounty tier 2."""
+        for hand in ['T9o', '98o', '87o', 'A6o', 'K9o']:
+            self.assertIn(hand, self.classifier._BOUNTY_TIER2,
+                          f'{hand} should be in BOUNTY_TIER2')
+
+    # -- Bounty hand tier helper tests --
+
+    def test_bounty_hand_tier_premium_pair(self):
+        """AA is bounty tier 1."""
+        self.assertEqual(self.classifier._bounty_hand_tier('AA'), 1)
+
+    def test_bounty_hand_tier_suited_connector(self):
+        """T9s is bounty tier 1."""
+        self.assertEqual(self.classifier._bounty_hand_tier('T9s'), 1)
+
+    def test_bounty_hand_tier_medium_king(self):
+        """K7s is bounty tier 2."""
+        self.assertEqual(self.classifier._bounty_hand_tier('K7s'), 2)
+
+    def test_bounty_hand_tier_offsuit_medium(self):
+        """T9o is bounty tier 2."""
+        self.assertEqual(self.classifier._bounty_hand_tier('T9o'), 2)
+
+    def test_bounty_hand_tier_trash(self):
+        """72o is bounty tier 3 (not in any bounty range)."""
+        self.assertEqual(self.classifier._bounty_hand_tier('72o'), 3)
+
+    # -- Lesson 25: Bounty Ranges Práticos --
+
+    def test_bounty_ranges_correct_aa(self):
+        """AA in bounty tournament = correct (tier 1)."""
+        self._insert_bounty_hand('BT_R01', hero_cards='Ah Ad')
+        self.assertEqual(self._bounty_result('BT_R01', 25), 1)
+
+    def test_bounty_ranges_correct_kk(self):
+        """KK in bounty tournament = correct (tier 1)."""
+        self._insert_bounty_hand('BT_R02', hero_cards='Kh Kd')
+        self.assertEqual(self._bounty_result('BT_R02', 25), 1)
+
+    def test_bounty_ranges_correct_t9s(self):
+        """T9s in bounty tier 1 = correct."""
+        self._insert_bounty_hand('BT_R03', hero_cards='Th 9h')
+        self.assertEqual(self._bounty_result('BT_R03', 25), 1)
+
+    def test_bounty_ranges_correct_aks(self):
+        """AKs in bounty tier 1 = correct."""
+        self._insert_bounty_hand('BT_R04', hero_cards='Ah Kh')
+        self.assertEqual(self._bounty_result('BT_R04', 25), 1)
+
+    def test_bounty_ranges_marginal_k7s(self):
+        """K7s in bounty tier 2 = marginal (None)."""
+        self._insert_bounty_hand('BT_R05', hero_cards='Kh 7h')
+        self.assertIsNone(self._bounty_result('BT_R05', 25))
+
+    def test_bounty_ranges_marginal_a6o(self):
+        """A6o in bounty tier 2 = marginal (None)."""
+        self._insert_bounty_hand('BT_R06', hero_cards='Ah 6d')
+        self.assertIsNone(self._bounty_result('BT_R06', 25))
+
+    def test_bounty_ranges_marginal_t9o(self):
+        """T9o in bounty tier 2 = marginal (None)."""
+        self._insert_bounty_hand('BT_R07', hero_cards='Th 9d')
+        self.assertIsNone(self._bounty_result('BT_R07', 25))
+
+    def test_bounty_ranges_incorrect_72o(self):
+        """72o = incorrect (too weak even with bounty overlay)."""
+        self._insert_bounty_hand('BT_R08', hero_cards='7h 2d')
+        self.assertEqual(self._bounty_result('BT_R08', 25), 0)
+
+    def test_bounty_ranges_incorrect_32o(self):
+        """32o = incorrect (trash hand, not in any bounty tier)."""
+        self._insert_bounty_hand('BT_R09', hero_cards='3h 2d')
+        self.assertEqual(self._bounty_result('BT_R09', 25), 0)
+
+    def test_bounty_ranges_no_cards_returns_none(self):
+        """Without hero cards, bounty ranges returns None."""
+        _insert_hand(self.repo, 'BT_R10', position='BTN',
+                     game_type='tournament', tournament_id='BT01')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('BT_R10',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'BT_R10', 'preflop', 'Hero', 'raise',
+                       300, 1, 1, 'BTN')
+        self.assertIsNone(self._bounty_result('BT_R10', 25))
+
+    # -- Lesson 24: Intro Torneios Bounty --
+
+    def test_bounty_intro_fold_aa_is_incorrect(self):
+        """Folding AA in a bounty spot = incorrect (clear mistake)."""
+        self._insert_bounty_hand('BT_I01', hero_cards='Ah Ad', hero_folded=True)
+        self.assertEqual(self._bounty_result('BT_I01', 24), 0)
+
+    def test_bounty_intro_fold_kk_is_incorrect(self):
+        """Folding KK in a bounty spot = incorrect."""
+        self._insert_bounty_hand('BT_I02', hero_cards='Kh Kd', hero_folded=True)
+        self.assertEqual(self._bounty_result('BT_I02', 24), 0)
+
+    def test_bounty_intro_fold_aks_is_incorrect(self):
+        """Folding AKs in a bounty spot = incorrect (premium hand)."""
+        self._insert_bounty_hand('BT_I03', hero_cards='Ah Kh', hero_folded=True)
+        self.assertEqual(self._bounty_result('BT_I03', 24), 0)
+
+    def test_bounty_intro_medium_hand_is_none(self):
+        """Playing 77 in a bounty tournament = contextual (None)."""
+        self._insert_bounty_hand('BT_I04', hero_cards='7h 7d')
+        self.assertIsNone(self._bounty_result('BT_I04', 24))
+
+    def test_bounty_intro_not_folding_aa_is_none(self):
+        """Playing (not folding) AA in bounty = None (not a clear mistake)."""
+        self._insert_bounty_hand('BT_I05', hero_cards='Ah Ad')
+        self.assertIsNone(self._bounty_result('BT_I05', 24))
+
+    def test_bounty_intro_no_cards_returns_none(self):
+        """Without hero cards, bounty intro returns None."""
+        _insert_hand(self.repo, 'BT_I06', position='BTN',
+                     game_type='tournament', tournament_id='BT01')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('BT_I06',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'BT_I06', 'preflop', 'Hero', 'raise',
+                       300, 1, 1, 'BTN')
+        self.assertIsNone(self._bounty_result('BT_I06', 24))
+
+    def test_bounty_intro_fold_trash_is_none(self):
+        """Folding 72o in a bounty pot = None (folding trash is fine)."""
+        self._insert_bounty_hand('BT_I07', hero_cards='7h 2d', hero_folded=True)
+        self.assertIsNone(self._bounty_result('BT_I07', 24))
+
+    # -- Both lessons detected --
+
+    def test_bounty_both_lessons_detected(self):
+        """Both lessons 24 and 25 are detected for bounty tournament hands."""
+        self._insert_bounty_hand('BT_D01', hero_cards='Ah Ad')
+        matches = self._classify('BT_D01')
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(24, ids)
+        self.assertIn(25, ids)
+
+    def test_bounty_lesson_24_detected_without_preflop_action(self):
+        """Lesson 24 is detected for all bounty tournament hands (detection only)."""
+        _insert_hand(self.repo, 'BT_D02', position='BTN',
+                     game_type='tournament', tournament_id='BT01')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", ('Ah Kd', 'BT_D02'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'BT_D02', 'preflop', 'Hero', 'raise',
+                       300, 1, 1, 'BTN')
+        matches = self._classify('BT_D02')
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(24, ids)
+
+
 if __name__ == '__main__':
     unittest.main()
