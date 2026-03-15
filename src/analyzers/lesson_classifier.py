@@ -678,7 +678,8 @@ class LessonClassifier:
             # 16: C-Bet River
             if pf_agg and has_river and river_a['hero_bets']:
                 m = self._match(hand_id, 16, 'river')
-                m.executed_correctly = self._eval_cbet(river_a)
+                m.executed_correctly = self._eval_cbet_river(
+                    hand, flop_a, turn_a, river_a)
                 matches.append(m)
 
             # 17: Delayed C-Bet
@@ -1918,6 +1919,71 @@ class LessonClassifier:
 
         return 'blank'
 
+    @classmethod
+    def _river_changes_texture(cls, board_flop: str, board_turn: str,
+                               board_river: str) -> str:
+        """Classify how the river card changes the board texture.
+
+        Returns:
+            'blank':     River card is low/unconnected; does not complete draws.
+            'neutral':   River pairs the board or brings a high card.
+            'dangerous': River completes a flush draw or extends straight draws.
+        """
+        flop_cards = cls._parse_cards(board_flop)
+        turn_cards = cls._parse_cards(board_turn) if board_turn else []
+        river_cards = cls._parse_cards(board_river)
+        if not flop_cards or not river_cards:
+            return 'neutral'
+
+        river_rank, river_suit = river_cards[0]
+        prior_board = flop_cards + turn_cards
+        all_board = prior_board + river_cards
+
+        # -- Flush danger: 2-suited flop and river completes flush ------
+        flop_suits = [c[1] for c in flop_cards]
+        suit_cnt: dict[str, int] = {}
+        for s in flop_suits:
+            suit_cnt[s] = suit_cnt.get(s, 0) + 1
+        two_suited_suit = next(
+            (s for s, v in suit_cnt.items() if v >= 2), None
+        )
+        if two_suited_suit and river_suit == two_suited_suit:
+            return 'dangerous'  # flush draw completed on river
+
+        # -- Straight danger: river creates new 4-card straight window ----
+        ro = cls._RANK_ORDER
+        all_rank_idxs = sorted(
+            set(ro.index(r) for r in [c[0] for c in all_board] if r in ro)
+        )
+        prior_rank_idxs = sorted(
+            set(ro.index(r) for r in [c[0] for c in prior_board] if r in ro)
+        )
+        for i in range(len(all_rank_idxs)):
+            window = [
+                x for x in all_rank_idxs
+                if all_rank_idxs[i] <= x <= all_rank_idxs[i] + 4
+            ]
+            if len(window) >= 4:
+                prior_had_window = any(
+                    len([x for x in prior_rank_idxs
+                         if prior_rank_idxs[j] <= x <= prior_rank_idxs[j] + 4
+                         ]) >= 4
+                    for j in range(len(prior_rank_idxs))
+                )
+                if not prior_had_window:
+                    return 'dangerous'
+
+        # -- Paired board: river pairs a prior board card (neutral) ------
+        prior_ranks = [c[0] for c in prior_board]
+        if river_rank in prior_ranks:
+            return 'neutral'  # board paired: range advantage unclear
+
+        # -- High card river (T+): neutral --------------------------------
+        if river_rank in ro and ro.index(river_rank) >= ro.index('T'):
+            return 'neutral'
+
+        return 'blank'
+
     def _eval_cbet_turn(self, hand: dict,
                         flop_a: dict,  # noqa: ARG002
                         turn_a: dict) -> Optional[int]:  # noqa: ARG002
@@ -1958,6 +2024,55 @@ class LessonClassifier:
         if turn_change == 'neutral':
             return None  # marginal: depends on reads and range
         return 0  # dangerous turn: bluffing here is over-barreling
+
+    def _eval_cbet_river(self, hand: dict,
+                        flop_a: dict,  # noqa: ARG002
+                        turn_a: dict,  # noqa: ARG002
+                        river_a: dict) -> Optional[int]:  # noqa: ARG002
+        """Evaluate c-bet river (triple barrel) execution.
+
+        Based on RegLife 'C-Bet River':
+        - Triple-barreling with value is always correct.
+        - Air bluffs on blank rivers are sound (polarized triple barrel).
+        - Bluffing air when the river completes flush/straight draws is a mistake.
+        - Correct (1): strong/medium hand, or air on a blank river.
+        - Partial (None): air on a neutral river (paired board, high card).
+        - Incorrect (0): air when river is dangerous (completes draws).
+        """
+        board_flop = hand.get('board_flop')
+        board_turn = hand.get('board_turn')
+        board_river = hand.get('board_river')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            return 1  # cannot evaluate; assume correct
+
+        full_board = board_flop
+        if board_turn:
+            full_board += f" {board_turn}"
+        if board_river:
+            full_board += f" {board_river}"
+
+        strength = self._hand_connects_board(hero_cards, full_board)
+
+        if strength is None:
+            return 1
+
+        if strength in ('strong', 'medium', 'draw'):
+            return 1  # value or draw: triple barrel is always correct
+
+        # strength == 'weak' (air bluff)
+        if not board_river:
+            return None  # no river card info; cannot classify
+
+        river_change = self._river_changes_texture(
+            board_flop, board_turn or '', board_river
+        )
+        if river_change == 'blank':
+            return 1   # blank river: bluffing is a sound triple barrel
+        if river_change == 'neutral':
+            return None  # marginal: depends on reads and range
+        return 0  # dangerous river: bluffing here is over-barreling
 
     def _eval_delayed_cbet(self, hand: dict,
                            flop_a: dict,  # noqa: ARG002

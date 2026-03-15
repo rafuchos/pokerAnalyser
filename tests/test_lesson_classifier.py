@@ -5552,5 +5552,383 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
         self.assertIn(17, lesson_ids)
 
 
+class TestCBetRiverEvaluation(unittest.TestCase):
+    """Test _eval_cbet_river and lesson 16 detection+evaluation."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _cbet_river_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 16), None)
+        return m.executed_correctly if m else None
+
+    def _setup_triple_barrel(self, hand_id, hero_cards='Ah Kd',
+                              board_flop='Ts 7d 2c',
+                              board_turn='3s',
+                              board_river='5h'):
+        """Set up a triple barrel: hero opens BTN, villain BB, hero bets
+        flop, turn, and river."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop, board_turn=board_turn,
+                     board_river=board_river)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'call',
+                       4.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'river', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'river', 'Hero', 'bet',
+                       8.0, 1, seq, 'BTN')
+
+    # -- Detection tests --
+
+    def test_detected_as_lesson_16(self):
+        """Triple barrel detects lesson 16."""
+        self._setup_triple_barrel('CBR01')
+        matches = self._classify('CBR01')
+        self.assertIn(16, [m.lesson_id for m in matches])
+
+    def test_street_is_river(self):
+        """Lesson 16 match has street='river'."""
+        self._setup_triple_barrel('CBR02')
+        matches = self._classify('CBR02')
+        m = next((m for m in matches if m.lesson_id == 16), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.street, 'river')
+
+    def test_not_detected_without_river(self):
+        """No river card → lesson 16 not detected."""
+        _insert_hand(self.repo, 'CBR03', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'CBR03'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'CBR03', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR03', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR03', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR03', 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR03', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR03', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        matches = self._classify('CBR03')
+        self.assertNotIn(16, [m.lesson_id for m in matches])
+
+    def test_not_detected_without_hero_pfa(self):
+        """Villain is PFA, hero bets river → lesson 16 not triggered."""
+        _insert_hand(self.repo, 'CBR04', position='BB',
+                     board_flop='Ts 7d 2c', board_turn='3s',
+                     board_river='5h')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'CBR04'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'CBR04', 'preflop', 'P1', 'raise',
+                       1.5, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR04', 'preflop', 'Hero', 'call',
+                       1.5, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR04', 'flop', 'P1', 'bet',
+                       2.0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR04', 'flop', 'Hero', 'call',
+                       2.0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR04', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR04', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR04', 'river', 'P1', 'check',
+                       0, 0, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR04', 'river', 'Hero', 'bet',
+                       8.0, 1, seq, 'BB')
+        matches = self._classify('CBR04')
+        self.assertNotIn(16, [m.lesson_id for m in matches])
+
+    def test_not_detected_without_hero_river_bet(self):
+        """Hero checks river → lesson 16 not triggered."""
+        _insert_hand(self.repo, 'CBR05', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s',
+                     board_river='5h')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'CBR05'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'CBR05', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR05', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR05', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR05', 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR05', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR05', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR05', 'river', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR05', 'river', 'Hero', 'check',
+                       0, 1, seq, 'BTN')
+        matches = self._classify('CBR05')
+        self.assertNotIn(16, [m.lesson_id for m in matches])
+
+    # -- Value hands: always correct (1) --
+
+    def test_strong_hand_blank_river_correct(self):
+        """Top pair good kicker + blank river: triple barrel = correct (1)."""
+        self._setup_triple_barrel('CBR10', hero_cards='Ah Kd',
+                                  board_flop='As 7d 2c',
+                                  board_turn='3s',
+                                  board_river='4h')
+        self.assertEqual(self._cbet_river_result('CBR10'), 1)
+
+    def test_strong_hand_dangerous_river_correct(self):
+        """Strong hand + dangerous river: still correct (value is always right)."""
+        # Flop: Ah 7h 2c (2-suited hearts), turn: 9h (3-flush), river: Qh (flush)
+        # Hero has AK: top pair + connects with full board as strong hand
+        self._setup_triple_barrel('CBR11', hero_cards='Ah Kd',
+                                  board_flop='As 7d 2c',
+                                  board_turn='3s',
+                                  board_river='8h')
+        self.assertEqual(self._cbet_river_result('CBR11'), 1)
+
+    def test_two_pair_blank_river_correct(self):
+        """Two pair + blank river: triple barrel = correct (1)."""
+        self._setup_triple_barrel('CBR12', hero_cards='Ah 7d',
+                                  board_flop='As 7c 2h',
+                                  board_turn='Kd',
+                                  board_river='3s')
+        self.assertEqual(self._cbet_river_result('CBR12'), 1)
+
+    def test_set_correct(self):
+        """Set (pocket pair + board match) + any river: correct (1)."""
+        self._setup_triple_barrel('CBR13', hero_cards='7h 7c',
+                                  board_flop='7s Kd 2h',
+                                  board_turn='4c',
+                                  board_river='9s')
+        self.assertEqual(self._cbet_river_result('CBR13'), 1)
+
+    def test_overpair_correct(self):
+        """Overpair + blank river: triple barrel = correct (1)."""
+        self._setup_triple_barrel('CBR14', hero_cards='Kh Kd',
+                                  board_flop='Ts 7c 2h',
+                                  board_turn='3s',
+                                  board_river='4h')
+        self.assertEqual(self._cbet_river_result('CBR14'), 1)
+
+    def test_medium_hand_correct(self):
+        """Middle pair + blank river: triple barrel = correct (1)."""
+        self._setup_triple_barrel('CBR15', hero_cards='7h 6d',
+                                  board_flop='As 7c 2h',
+                                  board_turn='Kd',
+                                  board_river='3s')
+        self.assertEqual(self._cbet_river_result('CBR15'), 1)
+
+    # -- Air bluffs: blank river is correct (1) --
+
+    def test_air_blank_river_correct(self):
+        """Air + blank river (low, disconnected): triple barrel = correct (1).
+
+        Flop: Ts 7d 2c, turn: 3s (blank), river: 5h (low, no draw completion).
+        """
+        self._setup_triple_barrel('CBR20', hero_cards='Ah Kd',
+                                  board_flop='Ts 7d 2c',
+                                  board_turn='3s',
+                                  board_river='5h')
+        self.assertEqual(self._cbet_river_result('CBR20'), 1)
+
+    def test_air_blank_river_no_flush_correct(self):
+        """Air + rainbow board + blank river: correct (1)."""
+        self._setup_triple_barrel('CBR21', hero_cards='Qh Jd',
+                                  board_flop='Ts 7d 2c',
+                                  board_turn='3h',
+                                  board_river='4s')
+        self.assertEqual(self._cbet_river_result('CBR21'), 1)
+
+    # -- Air bluffs: neutral river is marginal (None) --
+
+    def test_air_paired_board_river_neutral(self):
+        """Air + river pairs prior board card: marginal (None).
+
+        River K pairs the turn K, making range advantage unclear.
+        Hero 6c 4h has no pair, no draw on this board.
+        """
+        self._setup_triple_barrel('CBR30', hero_cards='6c 4h',
+                                  board_flop='Ts 7d 2c',
+                                  board_turn='Ks',
+                                  board_river='Kh')
+        self.assertIsNone(self._cbet_river_result('CBR30'))
+
+    def test_air_high_card_river_neutral(self):
+        """Air + river brings high card (T+): marginal (None).
+
+        Hero Kd 4c has no pair, no draw on 8s 7d 2c 3s Tc.
+        """
+        self._setup_triple_barrel('CBR31', hero_cards='Kd 4c',
+                                  board_flop='8s 7d 2c',
+                                  board_turn='3s',
+                                  board_river='Tc')
+        self.assertIsNone(self._cbet_river_result('CBR31'))
+
+    def test_air_river_pairs_flop_card_neutral(self):
+        """Air + river pairs a flop card: marginal (None)."""
+        self._setup_triple_barrel('CBR32', hero_cards='Qh Jd',
+                                  board_flop='8s 7d 2c',
+                                  board_turn='3s',
+                                  board_river='8h')
+        self.assertIsNone(self._cbet_river_result('CBR32'))
+
+    # -- Air bluffs: dangerous river is incorrect (0) --
+
+    def test_air_flush_completing_river_incorrect(self):
+        """Air + river completes flush draw (2-suited flop): incorrect (0).
+
+        Flop: Ah 7h 2c (2 hearts), river: 9h completes flush.
+        """
+        self._setup_triple_barrel('CBR40', hero_cards='Kd Qs',
+                                  board_flop='Ah 7h 2c',
+                                  board_turn='3d',
+                                  board_river='9h')
+        self.assertEqual(self._cbet_river_result('CBR40'), 0)
+
+    def test_air_flush_completing_river_incorrect_2(self):
+        """Air + 2-suited flop, river completes flush: incorrect (0).
+
+        Hero Tc 5s has no heart (non-matching suit) and no draw on this board.
+        """
+        self._setup_triple_barrel('CBR41', hero_cards='Tc 5s',
+                                  board_flop='Jh 7h 3c',
+                                  board_turn='2s',
+                                  board_river='Kh')
+        self.assertEqual(self._cbet_river_result('CBR41'), 0)
+
+    def test_air_flush_completing_river_incorrect_3(self):
+        """Air + 2-suited flop (clubs), river completes flush: incorrect (0).
+
+        Hero 8d 4h has no club (non-matching suit) and no draw on this board.
+        """
+        self._setup_triple_barrel('CBR42', hero_cards='8d 4h',
+                                  board_flop='Ac 9c 2h',
+                                  board_turn='5d',
+                                  board_river='Tc')
+        self.assertEqual(self._cbet_river_result('CBR42'), 0)
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_assumes_correct(self):
+        """Missing hero cards → cannot evaluate, assumes correct (1)."""
+        _insert_hand(self.repo, 'CBR50', position='BTN',
+                     board_flop='Ts 7d 2c', board_turn='3s',
+                     board_river='5h')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('CBR50',))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'CBR50', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR50', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR50', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR50', 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR50', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR50', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'CBR50', 'river', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'CBR50', 'river', 'Hero', 'bet',
+                       8.0, 1, seq, 'BTN')
+        self.assertEqual(self._cbet_river_result('CBR50'), 1)
+
+    def test_also_triggers_lesson_15(self):
+        """A triple barrel also triggers lesson 15 (PFA + turn bet)."""
+        self._setup_triple_barrel('CBR51')
+        matches = self._classify('CBR51')
+        lesson_ids = [m.lesson_id for m in matches]
+        self.assertIn(15, lesson_ids)
+        self.assertIn(16, lesson_ids)
+
+    def test_river_changes_texture_blank(self):
+        """_river_changes_texture returns 'blank' for low disconnected river."""
+        result = LessonClassifier._river_changes_texture(
+            'Ts 7d 2c', '3s', '5h')
+        self.assertEqual(result, 'blank')
+
+    def test_river_changes_texture_flush_dangerous(self):
+        """_river_changes_texture returns 'dangerous' when river completes
+        flush draw."""
+        # Flop has 2 hearts, river brings another heart
+        result = LessonClassifier._river_changes_texture(
+            'Ah 7h 2c', '3d', '9h')
+        self.assertEqual(result, 'dangerous')
+
+    def test_river_changes_texture_straight_dangerous(self):
+        """_river_changes_texture returns 'dangerous' when river creates
+        new 4-card straight window."""
+        # Flop: 6s 7d 8c, turn: 2h, river: 5s → new window 5-6-7-8
+        result = LessonClassifier._river_changes_texture(
+            '6s 7d 8c', '2h', '5s')
+        self.assertEqual(result, 'dangerous')
+
+    def test_river_changes_texture_paired_neutral(self):
+        """_river_changes_texture returns 'neutral' when river pairs board."""
+        result = LessonClassifier._river_changes_texture(
+            'Ts 7d 2c', 'Ks', 'Kh')
+        self.assertEqual(result, 'neutral')
+
+    def test_river_changes_texture_high_card_neutral(self):
+        """_river_changes_texture returns 'neutral' for high river card."""
+        result = LessonClassifier._river_changes_texture(
+            '8s 7d 2c', '3s', 'Tc')
+        self.assertEqual(result, 'neutral')
+
+    def test_river_changes_texture_no_prior_straight_window(self):
+        """_river_changes_texture 'dangerous' only if flop/turn lacked window."""
+        # Flop: Ts 9d 8c already has a 3-card window, turn adds Jh (4-card window)
+        # River: 7s completes... but the 4-card window was already there on turn.
+        result = LessonClassifier._river_changes_texture(
+            'Ts 9d 8c', 'Jh', '7s')
+        # Prior board already had 4-card window (8-9-T-J), so river 7 doesn't add new danger
+        self.assertNotEqual(result, 'dangerous')
+
+
 if __name__ == '__main__':
     unittest.main()
