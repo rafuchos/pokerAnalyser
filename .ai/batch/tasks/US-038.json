@@ -1,7 +1,7 @@
 {
   "id": "US-038",
   "title": "Lesson Tracker Foundation: Schema, Models e Catálogo de Aulas RegLife",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -23,7 +23,7 @@
     "tests/test_lesson_repository.py"
   ],
   "created_at": "2026-03-15T04:21:49.378Z",
-  "completed_at": null,
+  "completed_at": "2026-03-15T04:28:12.245Z",
   "failure_reason": null,
   "branch": "feat/US-038"
 }
