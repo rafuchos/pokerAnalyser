@@ -1,7 +1,7 @@
 {
   "id": "US-049",
   "title": "Lesson: CBet River",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -21,7 +21,7 @@
     ".ai/tasks/active.md"
   ],
   "created_at": "2026-03-15T07:17:46.586Z",
-  "completed_at": null,
+  "completed_at": "2026-03-15T07:31:15.355Z",
   "failure_reason": null,
   "branch": "feat/US-049",
   "replanned_at": "2026-03-15T07:28:17.084Z",
