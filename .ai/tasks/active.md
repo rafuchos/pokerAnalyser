@@ -112,6 +112,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-047: Lesson: Pós-Flop IP vs CBet (BTN) + 3Bet Pots Postflop + Check-Raise (2026-03-15)
 - [x] US-048: Lesson: CBet Turn + Delayed CBet (2026-03-15)
 - [x] US-049: Lesson: CBet River (2026-03-15)
+- [x] US-050: Lesson: Multi-Street (MDA, Pós-Flop Avançado, Probe, Bet vs Missed CBet) (2026-03-15)
 
 ---
 

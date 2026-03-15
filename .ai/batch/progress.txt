@@ -504,3 +504,13 @@ US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sess
 
 === US-049 completed at 2026-03-15T07:31:14.625Z ===
 - All quality gates passed
+
+=== US-050 completed at 2026-03-15 ===
+- All 599 lesson classifier tests passing (2889 total, 7 pre-existing failures)
+- Pattern: _eval_mda() - made hand folds to turn bet = incorrect (0); air folds = correct (1); air calls = marginal (None)
+- Pattern: _eval_postflop_advanced() - strong hand folds river = incorrect (0); missed draw/air folds = correct (1); medium folds = marginal
+- Pattern: _eval_bet_vs_missed_bet() - value/draw always correct (1); air on blank/neutral turn correct (1); air on dangerous turn marginal (None)
+- Pattern: _eval_probe() - value/draw always correct (1); air on blank turn correct (1); air on neutral marginal (None); air on dangerous (flush) incorrect (0)
+- Pattern: Moved flop_a/turn_a/river_a analysis before lessons 11/12 in classify_hand() so eval methods have context
+- Lesson: Straight-danger case unreachable for 'incorrect' probe/MDA eval - board itself creates the 4-card window, so hero is always classified 'draw'
+- Lesson: Flush-based 'dangerous' turns work for incorrect eval (board has 3 of suit, hero 0 = combined 3 < 4 needed for flush draw)
