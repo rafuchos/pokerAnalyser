@@ -235,6 +235,52 @@ def cmd_serve(args):
     app.run(host='127.0.0.1', port=port, debug=debug, use_reloader=debug)
 
 
+def cmd_lessons(args):
+    """List all lessons with linked hand counts."""
+    from src.db.connection import get_connection
+    from src.db.repository import Repository
+
+    conn = get_connection(args.db)
+    repo = Repository(conn)
+
+    # Ensure lessons are seeded
+    seeded = repo.seed_lessons_if_empty()
+    if seeded > 0:
+        print(f"(Seeded {seeded} lessons on first run)")
+        print()
+
+    lessons = repo.get_lessons_with_hand_count()
+
+    if not lessons:
+        print("No lessons found.")
+        return
+
+    print("=" * 70)
+    print("POKER ANALYZER - Lesson Tracker")
+    print("=" * 70)
+    print()
+
+    current_category = None
+    for lesson in lessons:
+        cat = lesson['category']
+        if cat != current_category:
+            if current_category is not None:
+                print()
+            print(f"  [{cat}]")
+            current_category = cat
+
+        hand_count = lesson['hand_count']
+        count_str = f"({hand_count} mão{'s' if hand_count != 1 else ''})" if hand_count > 0 else ""
+        subcat = lesson['subcategory']
+        print(f"    {lesson['lesson_id']:>2}. [{subcat:<12}] {lesson['title']:<45} {count_str}")
+
+    total_hands = sum(l['hand_count'] for l in lessons)
+    print()
+    print("-" * 70)
+    print(f"  Total: {len(lessons)} aulas | {total_hands} mão(s) vinculada(s)")
+    print("=" * 70)
+
+
 def cmd_stats(args):
     """Show quick stats in the terminal."""
     from src.db.connection import get_connection
@@ -355,6 +401,9 @@ def main():
         help='Path to config file (default: config/targets.yaml)'
     )
 
+    # lessons subcommand
+    subparsers.add_parser('lessons', help='List all lessons with linked hand counts')
+
     # analyze subcommand
     analyze_parser = subparsers.add_parser(
         'analyze', help='Run all analyzers and persist results to analytics.db'
@@ -411,6 +460,8 @@ def main():
         cmd_analyze(args)
     elif args.command == 'serve':
         cmd_serve(args)
+    elif args.command == 'lessons':
+        cmd_lessons(args)
 
 
 if __name__ == '__main__':

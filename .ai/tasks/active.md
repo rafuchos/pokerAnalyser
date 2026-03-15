@@ -100,6 +100,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-035: EV Tracking Completo: Linha EV por Sessão, por Dia e na Overview (2026-03-11)
 - [x] US-036: Bugfix: Correções de Dados e Rendering em Todas as Páginas Web (2026-03-11)
 - [x] US-037: Satellite & Sit-and-Go Analysis: Tela Dedicada para Satélites e Spin & Gold (2026-03-11)
+- [x] US-038: Lesson Tracker Foundation: Schema, Models e Catálogo de Aulas RegLife (2026-03-15)
 
 ---
 
