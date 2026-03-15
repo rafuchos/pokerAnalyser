@@ -1169,7 +1169,8 @@
         "src/web/templates/tournament/lessons.html",
         "src/web/templates/base.html",
         "src/analytics_pipeline.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-052",
