@@ -1,7 +1,7 @@
 {
   "id": "US-051",
   "title": "Lesson Tracker Web: Dashboard de Aulas + Performance por Aula",
-  "status": "planned",
+  "status": "completed",
   "estimated_time_seconds": 900,
   "timeout_seconds": 945,
   "plan": [
@@ -31,7 +31,7 @@
     "src/web/static/js/app.js"
   ],
   "created_at": "2026-03-15T07:55:17.702Z",
-  "completed_at": null,
+  "completed_at": "2026-03-15T08:07:38.476Z",
   "failure_reason": null,
   "branch": "feat/US-051"
 }
