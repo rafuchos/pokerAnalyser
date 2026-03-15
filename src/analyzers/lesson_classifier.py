@@ -203,6 +203,158 @@ class LessonClassifier:
         'BTN': 4, 'SB': 4,
     }
 
+    # ── Flat / 3-Bet Range Data (from RegLife 'Ranges de Flat e 3-BET' PDF) ─────
+    # When facing an open raise, which hands should flat, 3-bet, or fold.
+    # Simplified into tiers by caller position vs opener position.
+
+    # Flat range: hands good enough to call an open raise (position-dependent).
+    # Tier 1: call vs EP opener from any position (tightest flat range).
+    _FLAT_TIER1 = {
+        # Premium pairs trap/call for deception + suited connectors for implied odds
+        'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55',
+        'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        'KQs', 'KJs', 'KTs', 'K9s',
+        'QJs', 'QTs', 'Q9s',
+        'JTs', 'J9s',
+        'T9s', 'T8s',
+        '98s', '97s',
+        '87s', '86s',
+        '76s', '75s',
+        '65s', '64s',
+        '54s', '53s',
+    }
+    # Tier 2: call vs MP/HJ opener (slightly wider, includes suited broadways)
+    _FLAT_TIER2 = {
+        '44', '33', '22',
+        'K8s', 'K7s',
+        'Q8s', 'J8s', 'T7s',
+        '96s', '85s', '74s', '63s',
+        'AKo',  # AKo can flat vs MP with deep stacks
+    }
+    # Tier 3: call vs CO/BTN opener (wide flat range with connectors + gappers)
+    _FLAT_TIER3 = {
+        'K6s', 'K5s', 'K4s', 'K3s', 'K2s',
+        'Q7s', 'Q6s', 'Q5s', 'Q4s',
+        'J7s', 'J6s', 'T6s', 'T5s',
+        '95s', '94s', '84s', '83s',
+        '73s', '72s', '62s', '52s', '43s', '42s', '32s',
+        'AQo', 'AJo', 'ATo', 'A9o',
+        'KQo', 'KJo', 'KTo', 'K9o',
+        'QJo', 'QTo', 'Q9o',
+        'JTo', 'J9o',
+        'T9o', 'T8o',
+        '98o', '87o',
+    }
+
+    # 3-Bet range: hands that should 3-bet an open raise.
+    # Tier 1: always 3-bet vs any opener
+    _3BET_TIER1 = {
+        'AA',
+        'AKs', 'AKo',
+    }
+    # Tier 2: 3-bet vs MP+ opener
+    _3BET_TIER2 = {
+        'KK', 'QQ',
+        'AQs', 'AQo',
+    }
+    # Tier 3: 3-bet vs CO+ opener (polarized: value + bluffs)
+    _3BET_TIER3 = {
+        'JJ', 'TT',
+        'AJs', 'ATs',
+        'A5s', 'A4s', 'A3s',  # suited ace blockers as bluffs
+        'KQs',
+        'KJo', 'KTo', 'QJo',  # off-suited broadways as bluffs (fold equity)
+    }
+    # Tier 4: 3-bet vs BTN opener (wide 3-bet from blinds/late pos)
+    _3BET_TIER4 = {
+        '99', '88',
+        'A9s', 'A8s', 'A7s', 'A6s', 'A2s',
+        'KJs', 'KTs',
+        'QJs', 'QTs',
+        'JTs',
+        'AJo', 'ATo',
+        'KQo',
+    }
+
+    # Caller position → max flat tier + 3-bet tier
+    _FLAT_POS_MAX_TIER = {
+        'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+        'LJ': 1, 'MP': 1, 'HJ': 2,
+        'CO': 3,
+        'BTN': 3, 'SB': 3,
+    }
+    _3BET_POS_MAX_TIER = {
+        'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+        'LJ': 1, 'MP': 2, 'HJ': 2,
+        'CO': 3,
+        'BTN': 4, 'SB': 4, 'BB': 4,
+    }
+
+    # ── Reaction vs 3-Bet Range Data (from RegLife 'Ranges de reação vs 3-bet') ──
+    # How to react when facing a 3-bet after opening.
+    # Always continue: these hands should never fold to a 3-bet.
+    _VS3BET_CONTINUE = {
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55',
+        'AKs', 'AQs', 'AJs', 'ATs',
+        'KQs', 'KJs', 'KTs',
+        'QJs', 'QTs',
+        'JTs',
+        'T9s', '98s', '87s', '76s', '65s', '54s',
+        'AKo', 'AQo',
+    }
+    # 4-bet range: hands that should 4-bet (for value or as bluffs).
+    _VS3BET_4BET = {
+        'AA', 'KK', 'QQ',
+        'AKs', 'AKo',
+    }
+    # Marginal: continue when in position, lean fold when OOP vs tight 3-bet.
+    _VS3BET_MARGINAL = {
+        '44', '33', '22',
+        'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        'K9s', 'K8s', 'K7s',
+        'Q9s', 'Q8s',
+        'J9s', 'J8s',
+        'T8s', '97s', '86s', '75s', '64s', '53s',
+        'AJo', 'ATo',
+        'KQo', 'KJo',
+        'QJo', 'JTo',
+    }
+
+    # ── Squeeze Range Data (from RegLife 'SQUEEZE' PDF) ─────────────
+    # Squeeze ranges when facing open + call.
+    # Linear squeeze range for early/middle positions (tight).
+    _SQUEEZE_TIER1 = {
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88',
+        'AKs', 'AQs', 'AJs', 'ATs', 'A5s',
+        'KQs', 'KJs', 'KTs',
+        'QJs', 'JTs',
+        'AKo', 'AQo',
+    }
+    # Wider squeeze range for BTN/late position (in position squeeze).
+    _SQUEEZE_TIER2 = {
+        '77', '66', '55', '44', '33', '22',
+        'A9s', 'A8s', 'A7s', 'A6s', 'A4s', 'A3s', 'A2s',
+        'K9s', 'K8s',
+        'QTs', 'Q9s',
+        'J9s', 'J8s',
+        'T9s', 'T8s',
+        '98s', '97s',
+        '87s', '86s',
+        '76s', '75s',
+        '65s', '64s',
+        '54s', '53s',
+        'AJo', 'ATo', 'A9o',
+        'KQo', 'KJo', 'KTo',
+        'QJo',
+    }
+    # Position → max squeeze tier allowed.
+    _SQUEEZE_POS_MAX_TIER = {
+        'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+        'LJ': 1, 'MP': 1, 'HJ': 1,
+        'CO': 2,
+        'BTN': 2, 'SB': 2, 'BB': 2,
+    }
+
     # ── SB vs BB Blind War Data (from RegLife 'O Conceito de Blind War - SB vs BB') ──
     # Additional hands SB can profitably steal with vs sole BB opponent.
     # SB opens ~60% in blind war: all RFI Tier 1-4 (BTN range, ~54%) + these extras.
@@ -349,7 +501,7 @@ class LessonClassifier:
         # 5: Squeeze
         if pf['hero_squeezes']:
             m = self._match(hand_id, 5, 'preflop')
-            m.executed_correctly = 1  # executed squeeze
+            m.executed_correctly = self._eval_squeeze(hand, pf)
             matches.append(m)
 
         # 6: BB Pré-Flop
@@ -603,6 +755,9 @@ class LessonClassifier:
                 if is_hero:
                     result['hero_folds_preflop'] = True
                     hero_last_action = 'fold'
+                    # Hero faces 3-bet: hero opened, then someone re-raised, hero folds
+                    if result['hero_is_rfi'] and second_raise_seen and not result['hero_3bets']:
+                        result['hero_faces_3bet'] = True
                 continue
 
             if action in ('call', 'raise', 'bet', 'all-in'):
@@ -852,17 +1007,133 @@ class LessonClassifier:
             # Hand clearly too weak for position
             return 0
 
+    def _flat_hand_tier(self, notation: str) -> int:
+        """Return flat-call tier (1-4) for a hand notation. Lower = stronger."""
+        if notation in self._FLAT_TIER1:
+            return 1
+        if notation in self._FLAT_TIER2:
+            return 2
+        if notation in self._FLAT_TIER3:
+            return 3
+        return 4  # not in any flat range
+
+    def _3bet_hand_tier(self, notation: str) -> int:
+        """Return 3-bet tier (1-5) for a hand notation. Lower = stronger."""
+        if notation in self._3BET_TIER1:
+            return 1
+        if notation in self._3BET_TIER2:
+            return 2
+        if notation in self._3BET_TIER3:
+            return 3
+        if notation in self._3BET_TIER4:
+            return 4
+        return 5  # not in any 3-bet range
+
+    def _squeeze_hand_tier(self, notation: str) -> int:
+        """Return squeeze tier (1-3) for a hand notation. Lower = stronger."""
+        if notation in self._SQUEEZE_TIER1:
+            return 1
+        if notation in self._SQUEEZE_TIER2:
+            return 2
+        return 3  # not in any squeeze range
+
     def _eval_flat_3bet(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate flat/3-bet execution."""
-        # Basic: did hero make the action? (advanced evaluation needs range analysis)
-        return 1 if pf['hero_3bets'] or pf['hero_flats'] else None
+        """Evaluate flat/3-bet execution based on position and hand ranges.
+
+        Based on RegLife 'Ranges de Flat e 3-BET':
+        - Correct (1): Hand in appropriate flat or 3-bet range for position.
+        - Partial (None): Marginal hand (one tier outside range).
+        - Incorrect (0): Hand clearly too weak to flat or 3-bet.
+        """
+        hero_cards = hand.get('hero_cards')
+        hero_pos = (hand.get('hero_position') or '').upper()
+
+        if not hero_cards:
+            return 1  # action taken, can't evaluate hand quality
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return 1  # can't parse hand
+
+        if pf['hero_3bets']:
+            # Evaluate 3-bet range
+            hand_tier = self._3bet_hand_tier(notation)
+            pos_tier = self._3BET_POS_MAX_TIER.get(hero_pos, 2)
+            if hand_tier <= pos_tier:
+                return 1  # hand is in 3-bet range for position
+            elif hand_tier == pos_tier + 1:
+                return None  # marginal 3-bet
+            else:
+                return 0  # hand too weak to 3-bet
+
+        if pf['hero_flats']:
+            # Evaluate flat-call range
+            hand_tier = self._flat_hand_tier(notation)
+            pos_tier = self._FLAT_POS_MAX_TIER.get(hero_pos, 2)
+            if hand_tier <= pos_tier:
+                return 1  # hand is in flat range for position
+            elif hand_tier == pos_tier + 1:
+                return None  # marginal flat
+            else:
+                return 0  # hand too weak to flat
+
+        return None
 
     def _eval_reaction_vs_3bet(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate reaction to 3-bet. Did hero fold/call/4-bet appropriately?"""
-        # Basic rule: not folding everything is at least a decision
-        if pf.get('hero_folds_preflop'):
-            return None  # fold is sometimes correct
-        return 1  # continued action
+        """Evaluate reaction to 3-bet based on hand strength and ranges.
+
+        Based on RegLife 'Ranges de reação vs 3-bet':
+        - Correct (1): Continued with strong hand, folded trash, or 4-bet premium.
+        - Partial (None): Marginal hand where both actions have similar EV.
+        - Incorrect (0): Folded a clearly continuable hand, or called with trash.
+        """
+        hero_cards = hand.get('hero_cards')
+        hero_folded = pf.get('hero_folds_preflop', False)
+
+        if not hero_cards:
+            return None  # can't evaluate without hand info
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return None
+
+        if notation in self._VS3BET_CONTINUE:
+            # Should always continue (call or 4-bet)
+            return 0 if hero_folded else 1
+        elif notation in self._VS3BET_MARGINAL:
+            # Marginal: either action is defensible
+            return None
+        else:
+            # Trash hand vs 3-bet: should fold
+            return 1 if hero_folded else 0
+
+    def _eval_squeeze(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate squeeze execution based on position and hand ranges.
+
+        Based on RegLife 'SQUEEZE' PDF:
+        - Correct (1): Hand in squeeze range for position.
+        - Partial (None): Marginal hand (one tier outside range).
+        - Incorrect (0): Hand clearly too weak to squeeze.
+        """
+        hero_cards = hand.get('hero_cards')
+        hero_pos = (hand.get('hero_position') or '').upper()
+
+        if not hero_cards:
+            return 1  # squeezed without visible cards, assume correct
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return 1  # can't parse hand
+
+        hand_tier = self._squeeze_hand_tier(notation)
+        pos_tier = self._SQUEEZE_POS_MAX_TIER.get(hero_pos, 1)
+
+        if hand_tier <= pos_tier:
+            return 1  # hand is in squeeze range for position
+        elif hand_tier == pos_tier + 1:
+            return None  # marginal squeeze
+        else:
+            return 0  # hand too weak to squeeze
 
     def _eval_bb_preflop(self, hand: dict, pf: dict) -> Optional[int]:
         """Evaluate BB preflop play vs a single raise.

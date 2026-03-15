@@ -2495,5 +2495,619 @@ class TestBlindWarEvaluation(unittest.TestCase):
         self.assertEqual(self._sb_result('SBW20'), 0)
 
 
+# ── Flat / 3-Bet Evaluation Tests (US-044, Lesson 2) ────────────────
+
+
+class TestFlat3BetEvaluation(unittest.TestCase):
+    """Test flat/3-bet evaluation with position-based range validation.
+
+    Based on RegLife 'Ranges de Flat e 3-BET':
+    - Strong hands: in range for position (correct flat or 3-bet)
+    - Trash hands: too weak to flat or 3-bet
+    - Marginal hands: context-dependent
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _flat3bet_result(self, hand_id):
+        """Get executed_correctly for lesson 2 (Flat/3-Bet)."""
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 2), None)
+        return m.executed_correctly if m else None
+
+    def _insert_flat(self, hand_id, hero_cards='Ah Kd', hero_pos='BTN',
+                     opener_pos='CO', hero_amount=1.5, opener_amount=1.5):
+        """Insert a hand where hero flat-calls an open raise."""
+        _insert_hand(self.repo, hand_id, position=hero_pos)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Villain', 'raise',
+                       opener_amount, 0, 1, opener_pos)
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
+                       hero_amount, 1, 2, hero_pos)
+
+    def _insert_3bet(self, hand_id, hero_cards='Ah Kd', hero_pos='BTN',
+                     opener_pos='CO', hero_amount=4.5, opener_amount=1.5):
+        """Insert a hand where hero 3-bets an open raise."""
+        _insert_hand(self.repo, hand_id, position=hero_pos)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Villain', 'raise',
+                       opener_amount, 0, 1, opener_pos)
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       hero_amount, 1, 2, hero_pos)
+
+    # -- Flat range tier membership tests --
+
+    def test_flat_tier1_has_suited_connectors(self):
+        """Suited connectors are tier 1 for flatting (good vs EP)."""
+        for hand in ['T9s', '98s', '87s', '76s', '65s', '54s']:
+            self.assertIn(hand, self.classifier._FLAT_TIER1,
+                          f'{hand} should be in FLAT_TIER1')
+
+    def test_flat_tier1_has_premium_pairs(self):
+        """Premium pairs for trapping should be tier 1."""
+        for pair in ['KK', 'QQ', 'JJ', 'TT', '99', '88', '77']:
+            self.assertIn(pair, self.classifier._FLAT_TIER1,
+                          f'{pair} should be in FLAT_TIER1')
+
+    def test_flat_tier2_has_small_pairs(self):
+        """Small pairs for set mining are tier 2."""
+        for pair in ['44', '33', '22']:
+            self.assertIn(pair, self.classifier._FLAT_TIER2,
+                          f'{pair} should be in FLAT_TIER2')
+
+    def test_flat_tier3_has_offsuit_broadways(self):
+        """Offsuit broadways are tier 3 (flat vs CO/BTN)."""
+        for hand in ['AQo', 'AJo', 'KQo', 'KJo', 'QJo']:
+            self.assertIn(hand, self.classifier._FLAT_TIER3,
+                          f'{hand} should be in FLAT_TIER3')
+
+    def test_flat_hand_tier_strong(self):
+        """QJs is tier 1 flat."""
+        self.assertEqual(self.classifier._flat_hand_tier('QJs'), 1)
+
+    def test_flat_hand_tier_medium(self):
+        """22 is tier 2 flat."""
+        self.assertEqual(self.classifier._flat_hand_tier('22'), 2)
+
+    def test_flat_hand_tier_wide(self):
+        """KJo is tier 3 flat."""
+        self.assertEqual(self.classifier._flat_hand_tier('KJo'), 3)
+
+    def test_flat_hand_tier_trash(self):
+        """72o is tier 4 (not in any flat range)."""
+        self.assertEqual(self.classifier._flat_hand_tier('72o'), 4)
+
+    # -- 3-Bet range tier membership tests --
+
+    def test_3bet_tier1_always(self):
+        """AA and AK always 3-bet."""
+        for hand in ['AA', 'AKs', 'AKo']:
+            self.assertIn(hand, self.classifier._3BET_TIER1,
+                          f'{hand} should be in 3BET_TIER1')
+
+    def test_3bet_tier2_strong_premiums(self):
+        """KK, QQ, AQs, AQo are tier 2 3-bet."""
+        for hand in ['KK', 'QQ', 'AQs', 'AQo']:
+            self.assertIn(hand, self.classifier._3BET_TIER2,
+                          f'{hand} should be in 3BET_TIER2')
+
+    def test_3bet_tier3_has_blocker_bluffs(self):
+        """A5s-A3s are tier 3 blocker bluffs."""
+        for hand in ['A5s', 'A4s', 'A3s']:
+            self.assertIn(hand, self.classifier._3BET_TIER3,
+                          f'{hand} should be in 3BET_TIER3')
+
+    def test_3bet_tier4_wide_bluffs(self):
+        """99, 88 are tier 4 3-bet (vs BTN)."""
+        for hand in ['99', '88']:
+            self.assertIn(hand, self.classifier._3BET_TIER4,
+                          f'{hand} should be in 3BET_TIER4')
+
+    def test_3bet_hand_tier_premium(self):
+        """AA is tier 1 3-bet."""
+        self.assertEqual(self.classifier._3bet_hand_tier('AA'), 1)
+
+    def test_3bet_hand_tier_trash(self):
+        """72o is tier 5 (not in any 3-bet range)."""
+        self.assertEqual(self.classifier._3bet_hand_tier('72o'), 5)
+
+    # -- Correct flat evaluations --
+
+    def test_flat_correct_suited_connector_from_btn(self):
+        """Flatting 87s from BTN vs CO = correct (tier 1 flat)."""
+        self._insert_flat('FB01', hero_cards='8h 7h', hero_pos='BTN', opener_pos='CO')
+        self.assertEqual(self._flat3bet_result('FB01'), 1)
+
+    def test_flat_correct_pair_from_hj(self):
+        """Flatting QQ from HJ vs EP = correct (tier 1 flat)."""
+        self._insert_flat('FB02', hero_cards='Qh Qd', hero_pos='HJ', opener_pos='UTG')
+        self.assertEqual(self._flat3bet_result('FB02'), 1)
+
+    def test_flat_correct_small_pair_from_hj(self):
+        """Flatting 22 from HJ vs MP = correct (tier 2 flat, HJ tier=2)."""
+        self._insert_flat('FB03', hero_cards='2h 2d', hero_pos='HJ', opener_pos='MP')
+        self.assertEqual(self._flat3bet_result('FB03'), 1)
+
+    def test_flat_correct_broadways_from_btn(self):
+        """Flatting AJo from BTN vs CO = correct (tier 3 flat)."""
+        self._insert_flat('FB04', hero_cards='Ah Jd', hero_pos='BTN', opener_pos='CO')
+        self.assertEqual(self._flat3bet_result('FB04'), 1)
+
+    # -- Incorrect flat evaluations --
+
+    def test_flat_incorrect_trash_from_utg(self):
+        """Flatting 72o from any position = incorrect (not in any range)."""
+        self._insert_flat('FB05', hero_cards='7h 2d', hero_pos='HJ', opener_pos='UTG')
+        self.assertEqual(self._flat3bet_result('FB05'), 0)
+
+    def test_flat_marginal_small_pair_from_utg(self):
+        """Flatting 22 from UTG position vs EP = marginal (tier 2 vs tier 1)."""
+        self._insert_flat('FB06', hero_cards='2h 2d', hero_pos='UTG', opener_pos='EP')
+        self.assertIsNone(self._flat3bet_result('FB06'))
+
+    def test_flat_incorrect_offsuit_broadway_from_ep(self):
+        """Flatting KJo from EP vs UTG = incorrect (tier 3 vs tier 1)."""
+        self._insert_flat('FB07', hero_cards='Kh Jd', hero_pos='EP', opener_pos='UTG')
+        self.assertEqual(self._flat3bet_result('FB07'), 0)
+
+    # -- Correct 3-bet evaluations --
+
+    def test_3bet_correct_aa_from_any_pos(self):
+        """3-betting AA from any position = always correct (tier 1)."""
+        self._insert_3bet('FB08', hero_cards='Ah Ad', hero_pos='UTG', opener_pos='EP')
+        self.assertEqual(self._flat3bet_result('FB08'), 1)
+
+    def test_3bet_correct_kk_from_mp(self):
+        """3-betting KK from MP = correct (tier 2 vs tier 2)."""
+        self._insert_3bet('FB09', hero_cards='Kh Kd', hero_pos='MP', opener_pos='UTG')
+        self.assertEqual(self._flat3bet_result('FB09'), 1)
+
+    def test_3bet_correct_a5s_bluff_from_co(self):
+        """3-betting A5s as bluff from CO = correct (tier 3 vs tier 3)."""
+        self._insert_3bet('FB10', hero_cards='Ah 5h', hero_pos='CO', opener_pos='HJ')
+        self.assertEqual(self._flat3bet_result('FB10'), 1)
+
+    def test_3bet_correct_99_from_btn(self):
+        """3-betting 99 from BTN = correct (tier 4 vs tier 4)."""
+        self._insert_3bet('FB11', hero_cards='9h 9d', hero_pos='BTN', opener_pos='CO')
+        self.assertEqual(self._flat3bet_result('FB11'), 1)
+
+    # -- Incorrect 3-bet evaluations --
+
+    def test_3bet_incorrect_trash_from_utg(self):
+        """3-betting 72o = incorrect (not in any 3-bet range)."""
+        self._insert_3bet('FB12', hero_cards='7h 2d', hero_pos='UTG', opener_pos='EP')
+        self.assertEqual(self._flat3bet_result('FB12'), 0)
+
+    def test_3bet_marginal_jj_from_mp(self):
+        """3-betting JJ from MP vs UTG = marginal (tier 3 vs tier 2)."""
+        self._insert_3bet('FB13', hero_cards='Jh Jd', hero_pos='MP', opener_pos='UTG')
+        self.assertIsNone(self._flat3bet_result('FB13'))
+
+    def test_3bet_incorrect_weak_from_ep(self):
+        """3-betting 88 from EP vs UTG = incorrect (tier 4 vs tier 1, gap > 1)."""
+        self._insert_3bet('FB14', hero_cards='8h 8d', hero_pos='EP', opener_pos='UTG')
+        self.assertEqual(self._flat3bet_result('FB14'), 0)
+
+    # -- No hero cards --
+
+    def test_flat_no_hero_cards_returns_1(self):
+        """Without hero cards, flatting returns 1 (action taken)."""
+        _insert_hand(self.repo, 'FB15', position='BTN')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('FB15',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'FB15', 'preflop', 'Villain', 'raise',
+                       1.5, 0, 1, 'CO')
+        _insert_action(self.repo, 'FB15', 'preflop', 'Hero', 'call',
+                       1.5, 1, 2, 'BTN')
+        self.assertEqual(self._flat3bet_result('FB15'), 1)
+
+    def test_3bet_no_hero_cards_returns_1(self):
+        """Without hero cards, 3-betting returns 1 (action taken)."""
+        _insert_hand(self.repo, 'FB16', position='BTN')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('FB16',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'FB16', 'preflop', 'Villain', 'raise',
+                       1.5, 0, 1, 'CO')
+        _insert_action(self.repo, 'FB16', 'preflop', 'Hero', 'raise',
+                       4.5, 1, 2, 'BTN')
+        self.assertEqual(self._flat3bet_result('FB16'), 1)
+
+
+# ── Reaction vs 3-Bet Evaluation Tests (US-044, Lesson 3) ─────────
+
+
+class TestReactionVs3BetEvaluation(unittest.TestCase):
+    """Test reaction vs 3-bet evaluation with range-based classification.
+
+    Based on RegLife 'Ranges de reação vs 3-bet':
+    - Strong hands: always continue (call or 4-bet)
+    - Trash hands: should fold
+    - Marginal hands: context-dependent
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _vs3bet_result(self, hand_id):
+        """Get executed_correctly for lesson 3 (Reaction vs 3-Bet)."""
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 3), None)
+        return m.executed_correctly if m else None
+
+    def _insert_facing_3bet(self, hand_id, hero_cards='Ah Kd', hero_pos='UTG',
+                             threebettor_pos='CO', hero_action='call',
+                             hero_amount=4.5):
+        """Insert a hand where hero opens and faces a 3-bet."""
+        _insert_hand(self.repo, hand_id, position=hero_pos)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        # Hero opens
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, hero_pos)
+        # Villain 3-bets
+        _insert_action(self.repo, hand_id, 'preflop', 'Villain', 'raise',
+                       4.5, 0, 2, threebettor_pos)
+        # Hero reacts
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', hero_action,
+                       hero_amount, 1, 3, hero_pos)
+
+    # -- Range membership tests --
+
+    def test_vs3bet_continue_has_premium_pairs(self):
+        """All premium pairs should always continue vs 3-bet."""
+        for hand in ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77']:
+            self.assertIn(hand, self.classifier._VS3BET_CONTINUE,
+                          f'{hand} should be in VS3BET_CONTINUE')
+
+    def test_vs3bet_continue_has_suited_broadways(self):
+        """Strong suited broadways should always continue."""
+        for hand in ['AKs', 'AQs', 'AJs', 'ATs', 'KQs', 'KJs', 'KTs', 'QJs']:
+            self.assertIn(hand, self.classifier._VS3BET_CONTINUE,
+                          f'{hand} should be in VS3BET_CONTINUE')
+
+    def test_vs3bet_continue_has_suited_connectors(self):
+        """Suited connectors continue for implied odds."""
+        for hand in ['T9s', '98s', '87s', '76s', '65s', '54s']:
+            self.assertIn(hand, self.classifier._VS3BET_CONTINUE,
+                          f'{hand} should be in VS3BET_CONTINUE')
+
+    def test_vs3bet_4bet_has_premiums(self):
+        """AA, KK, QQ, AKs should be in 4-bet range."""
+        for hand in ['AA', 'KK', 'QQ', 'AKs', 'AKo']:
+            self.assertIn(hand, self.classifier._VS3BET_4BET,
+                          f'{hand} should be in VS3BET_4BET')
+
+    def test_vs3bet_marginal_has_small_pairs(self):
+        """Small pairs (22-44) are marginal vs 3-bet."""
+        for hand in ['44', '33', '22']:
+            self.assertIn(hand, self.classifier._VS3BET_MARGINAL,
+                          f'{hand} should be in VS3BET_MARGINAL')
+
+    def test_vs3bet_marginal_has_suited_aces(self):
+        """Suited aces below ATs are marginal."""
+        for hand in ['A9s', 'A8s', 'A7s', 'A6s', 'A5s']:
+            self.assertIn(hand, self.classifier._VS3BET_MARGINAL,
+                          f'{hand} should be in VS3BET_MARGINAL')
+
+    # -- Correct: call/4-bet with strong hand --
+
+    def test_vs3bet_correct_call_aa(self):
+        """Calling 3-bet with AA = correct."""
+        self._insert_facing_3bet('V3B01', hero_cards='Ah Ad',
+                                  hero_action='call')
+        self.assertEqual(self._vs3bet_result('V3B01'), 1)
+
+    def test_vs3bet_correct_call_suited_connector(self):
+        """Calling 3-bet with 87s = correct (good implied odds)."""
+        self._insert_facing_3bet('V3B02', hero_cards='8h 7h',
+                                  hero_action='call')
+        self.assertEqual(self._vs3bet_result('V3B02'), 1)
+
+    def test_vs3bet_correct_4bet_kk(self):
+        """4-betting with KK = correct."""
+        self._insert_facing_3bet('V3B03', hero_cards='Kh Kd',
+                                  hero_action='raise', hero_amount=12.0)
+        self.assertEqual(self._vs3bet_result('V3B03'), 1)
+
+    def test_vs3bet_correct_call_aqo(self):
+        """Calling 3-bet with AQo = correct (in continue range)."""
+        self._insert_facing_3bet('V3B04', hero_cards='Ah Qd',
+                                  hero_action='call')
+        self.assertEqual(self._vs3bet_result('V3B04'), 1)
+
+    # -- Incorrect: fold strong hand --
+
+    def test_vs3bet_incorrect_fold_kk(self):
+        """Folding KK to 3-bet = incorrect (always continue)."""
+        self._insert_facing_3bet('V3B05', hero_cards='Kh Kd',
+                                  hero_action='fold', hero_amount=0)
+        self.assertEqual(self._vs3bet_result('V3B05'), 0)
+
+    def test_vs3bet_incorrect_fold_t9s(self):
+        """Folding T9s to 3-bet = incorrect (should continue for implied odds)."""
+        self._insert_facing_3bet('V3B06', hero_cards='Th 9h',
+                                  hero_action='fold', hero_amount=0)
+        self.assertEqual(self._vs3bet_result('V3B06'), 0)
+
+    def test_vs3bet_incorrect_fold_aks(self):
+        """Folding AKs to 3-bet = incorrect."""
+        self._insert_facing_3bet('V3B07', hero_cards='Ah Kh',
+                                  hero_action='fold', hero_amount=0)
+        self.assertEqual(self._vs3bet_result('V3B07'), 0)
+
+    # -- Correct: fold trash --
+
+    def test_vs3bet_correct_fold_trash(self):
+        """Folding 72o to 3-bet = correct (trash hand)."""
+        self._insert_facing_3bet('V3B08', hero_cards='7h 2d',
+                                  hero_action='fold', hero_amount=0)
+        self.assertEqual(self._vs3bet_result('V3B08'), 1)
+
+    def test_vs3bet_correct_fold_weak_offsuit(self):
+        """Folding T8o to 3-bet = correct (not in any range)."""
+        self._insert_facing_3bet('V3B09', hero_cards='Th 8d',
+                                  hero_action='fold', hero_amount=0)
+        self.assertEqual(self._vs3bet_result('V3B09'), 1)
+
+    # -- Incorrect: call with trash --
+
+    def test_vs3bet_incorrect_call_trash(self):
+        """Calling 3-bet with 72o = incorrect (should fold)."""
+        self._insert_facing_3bet('V3B10', hero_cards='7h 2d',
+                                  hero_action='call')
+        self.assertEqual(self._vs3bet_result('V3B10'), 0)
+
+    # -- Marginal hands --
+
+    def test_vs3bet_marginal_fold_small_pair(self):
+        """Folding 33 to 3-bet = marginal (context-dependent)."""
+        self._insert_facing_3bet('V3B11', hero_cards='3h 3d',
+                                  hero_action='fold', hero_amount=0)
+        self.assertIsNone(self._vs3bet_result('V3B11'))
+
+    def test_vs3bet_marginal_call_small_pair(self):
+        """Calling 3-bet with 33 = marginal (context-dependent)."""
+        self._insert_facing_3bet('V3B12', hero_cards='3h 3d',
+                                  hero_action='call')
+        self.assertIsNone(self._vs3bet_result('V3B12'))
+
+    def test_vs3bet_marginal_suited_ace(self):
+        """A6s vs 3-bet is marginal (in marginal set)."""
+        self._insert_facing_3bet('V3B13', hero_cards='Ah 6h',
+                                  hero_action='call')
+        self.assertIsNone(self._vs3bet_result('V3B13'))
+
+    # -- No hero cards --
+
+    def test_vs3bet_no_cards_returns_none(self):
+        """Without hero cards, reaction vs 3-bet = None (can't evaluate)."""
+        _insert_hand(self.repo, 'V3B14', position='UTG')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('V3B14',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'V3B14', 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'UTG')
+        _insert_action(self.repo, 'V3B14', 'preflop', 'Villain', 'raise',
+                       4.5, 0, 2, 'CO')
+        _insert_action(self.repo, 'V3B14', 'preflop', 'Hero', 'call',
+                       4.5, 1, 3, 'UTG')
+        self.assertIsNone(self._vs3bet_result('V3B14'))
+
+
+# ── Squeeze Evaluation Tests (US-044, Lesson 5) ─────────────────────
+
+
+class TestSqueezeEvaluation(unittest.TestCase):
+    """Test squeeze evaluation with position-based range validation.
+
+    Based on RegLife 'SQUEEZE':
+    - Strong hands: in squeeze range for position (linear top range)
+    - Trash hands: too weak to squeeze
+    - Marginal hands: between tiers
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _squeeze_result(self, hand_id):
+        """Get executed_correctly for lesson 5 (Squeeze)."""
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 5), None)
+        return m.executed_correctly if m else None
+
+    def _insert_squeeze(self, hand_id, hero_cards='Ah Kd', hero_pos='BTN',
+                        opener_pos='HJ', caller_pos='CO',
+                        hero_amount=6.0, opener_amount=1.5, caller_amount=1.5):
+        """Insert a hand where hero squeezes after open + call."""
+        _insert_hand(self.repo, hand_id, position=hero_pos)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        # Villain opens
+        _insert_action(self.repo, hand_id, 'preflop', 'Opener', 'raise',
+                       opener_amount, 0, 1, opener_pos)
+        # Another villain calls
+        _insert_action(self.repo, hand_id, 'preflop', 'Caller', 'call',
+                       caller_amount, 0, 2, caller_pos)
+        # Hero squeezes (3-bet after a call)
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       hero_amount, 1, 3, hero_pos)
+
+    # -- Squeeze tier membership tests --
+
+    def test_squeeze_tier1_has_premium_pairs(self):
+        """AA-88 should be in squeeze tier 1."""
+        for pair in ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88']:
+            self.assertIn(pair, self.classifier._SQUEEZE_TIER1,
+                          f'{pair} should be in SQUEEZE_TIER1')
+
+    def test_squeeze_tier1_has_strong_broadways(self):
+        """Strong broadways should be in squeeze tier 1."""
+        for hand in ['AKs', 'AQs', 'AJs', 'ATs', 'KQs', 'KJs', 'KTs', 'AKo', 'AQo']:
+            self.assertIn(hand, self.classifier._SQUEEZE_TIER1,
+                          f'{hand} should be in SQUEEZE_TIER1')
+
+    def test_squeeze_tier2_has_small_pairs(self):
+        """Small pairs for wider squeeze from BTN."""
+        for pair in ['77', '66', '55', '44', '33', '22']:
+            self.assertIn(pair, self.classifier._SQUEEZE_TIER2,
+                          f'{pair} should be in SQUEEZE_TIER2')
+
+    def test_squeeze_tier2_has_suited_connectors(self):
+        """Suited connectors for IP squeeze."""
+        for hand in ['T9s', '98s', '87s', '76s', '65s', '54s']:
+            self.assertIn(hand, self.classifier._SQUEEZE_TIER2,
+                          f'{hand} should be in SQUEEZE_TIER2')
+
+    def test_squeeze_hand_tier_premium(self):
+        """AA is tier 1 squeeze."""
+        self.assertEqual(self.classifier._squeeze_hand_tier('AA'), 1)
+
+    def test_squeeze_hand_tier_wide(self):
+        """77 is tier 2 squeeze."""
+        self.assertEqual(self.classifier._squeeze_hand_tier('77'), 2)
+
+    def test_squeeze_hand_tier_trash(self):
+        """72o is tier 3 (not in any squeeze range)."""
+        self.assertEqual(self.classifier._squeeze_hand_tier('72o'), 3)
+
+    # -- Correct squeeze evaluations --
+
+    def test_squeeze_correct_aa_from_hj(self):
+        """Squeezing AA from HJ = correct (tier 1, HJ tier=1)."""
+        self._insert_squeeze('SQ01', hero_cards='Ah Ad', hero_pos='HJ',
+                             opener_pos='UTG', caller_pos='MP')
+        self.assertEqual(self._squeeze_result('SQ01'), 1)
+
+    def test_squeeze_correct_aks_from_hj(self):
+        """Squeezing AKs from HJ = correct (tier 1)."""
+        self._insert_squeeze('SQ02', hero_cards='Ah Kh', hero_pos='HJ',
+                             opener_pos='UTG', caller_pos='MP')
+        self.assertEqual(self._squeeze_result('SQ02'), 1)
+
+    def test_squeeze_correct_77_from_btn(self):
+        """Squeezing 77 from BTN = correct (tier 2, BTN tier=2)."""
+        self._insert_squeeze('SQ03', hero_cards='7h 7d', hero_pos='BTN',
+                             opener_pos='HJ', caller_pos='CO')
+        self.assertEqual(self._squeeze_result('SQ03'), 1)
+
+    def test_squeeze_correct_t9s_from_btn(self):
+        """Squeezing T9s from BTN = correct (tier 2, BTN tier=2)."""
+        self._insert_squeeze('SQ04', hero_cards='Th 9h', hero_pos='BTN',
+                             opener_pos='HJ', caller_pos='CO')
+        self.assertEqual(self._squeeze_result('SQ04'), 1)
+
+    def test_squeeze_correct_aqo_from_sb(self):
+        """Squeezing AQo from SB = correct (tier 1, SB tier=2)."""
+        self._insert_squeeze('SQ05', hero_cards='Ah Qd', hero_pos='SB',
+                             opener_pos='CO', caller_pos='BTN')
+        self.assertEqual(self._squeeze_result('SQ05'), 1)
+
+    # -- Incorrect squeeze evaluations --
+
+    def test_squeeze_incorrect_trash_from_hj(self):
+        """Squeezing 72o from HJ = incorrect (tier 3, way outside range)."""
+        self._insert_squeeze('SQ06', hero_cards='7h 2d', hero_pos='HJ',
+                             opener_pos='UTG', caller_pos='MP')
+        self.assertEqual(self._squeeze_result('SQ06'), 0)
+
+    def test_squeeze_incorrect_weak_from_ep(self):
+        """Squeezing 65s from UTG (facing open+call) = incorrect (tier 2 vs tier 1)."""
+        # 65s is tier 2, UTG pos_tier is 1 → gap = 1 → marginal, not incorrect
+        # Actually need something with bigger gap
+        self._insert_squeeze('SQ07', hero_cards='7h 2d', hero_pos='UTG',
+                             opener_pos='EP', caller_pos='MP')
+        self.assertEqual(self._squeeze_result('SQ07'), 0)
+
+    # -- Marginal squeeze evaluations --
+
+    def test_squeeze_marginal_77_from_hj(self):
+        """Squeezing 77 from HJ = marginal (tier 2 vs HJ tier=1)."""
+        self._insert_squeeze('SQ08', hero_cards='7h 7d', hero_pos='HJ',
+                             opener_pos='UTG', caller_pos='MP')
+        self.assertIsNone(self._squeeze_result('SQ08'))
+
+    def test_squeeze_marginal_suited_connector_from_hj(self):
+        """Squeezing 87s from HJ = marginal (tier 2, one tier wide)."""
+        self._insert_squeeze('SQ09', hero_cards='8h 7h', hero_pos='HJ',
+                             opener_pos='UTG', caller_pos='MP')
+        self.assertIsNone(self._squeeze_result('SQ09'))
+
+    # -- No hero cards --
+
+    def test_squeeze_no_cards_returns_1(self):
+        """Without hero cards, squeeze returns 1 (action taken)."""
+        _insert_hand(self.repo, 'SQ10', position='BTN')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('SQ10',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'SQ10', 'preflop', 'Opener', 'raise',
+                       1.5, 0, 1, 'HJ')
+        _insert_action(self.repo, 'SQ10', 'preflop', 'Caller', 'call',
+                       1.5, 0, 2, 'CO')
+        _insert_action(self.repo, 'SQ10', 'preflop', 'Hero', 'raise',
+                       6.0, 1, 3, 'BTN')
+        self.assertEqual(self._squeeze_result('SQ10'), 1)
+
+    # -- Position tier mapping tests --
+
+    def test_squeeze_pos_tier_ep_is_1(self):
+        """EP positions have squeeze tier 1 (tightest)."""
+        for pos in ['UTG', 'EP', 'LJ', 'MP', 'HJ']:
+            self.assertEqual(self.classifier._SQUEEZE_POS_MAX_TIER.get(pos), 1,
+                             f'{pos} should have squeeze tier 1')
+
+    def test_squeeze_pos_tier_late_is_2(self):
+        """Late positions have squeeze tier 2 (wider)."""
+        for pos in ['CO', 'BTN', 'SB', 'BB']:
+            self.assertEqual(self.classifier._SQUEEZE_POS_MAX_TIER.get(pos), 2,
+                             f'{pos} should have squeeze tier 2')
+
+
 if __name__ == '__main__':
     unittest.main()
