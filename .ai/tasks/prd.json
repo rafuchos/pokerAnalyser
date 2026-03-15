@@ -682,7 +682,8 @@
         "src/db/seed_lessons.py",
         "main.py",
         "tests/test_lessons.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-039",
@@ -757,7 +758,9 @@
         "Testes com mãos reais cobrindo cada tipo de detection"
       ],
       "estimated_points": 21,
-      "dependencies": ["US-038"],
+      "dependencies": [
+        "US-038"
+      ],
       "files_affected": [
         "src/analyzers/lesson_classifier.py",
         "src/analytics_pipeline.py",
@@ -789,8 +792,13 @@
         "  - Incorreto: abriu de posição muito tight com mão muito fraca, ou foldou mão forte em spot de open"
       ],
       "estimated_points": 5,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-041",
@@ -814,8 +822,13 @@
         "  - Incorreto: defendeu com mão fraca/dominada ou foldou mão forte nesse spot"
       ],
       "estimated_points": 5,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-042",
@@ -839,8 +852,13 @@
         "  - Incorreto: over-foldou ou over-chamou fora do range"
       ],
       "estimated_points": 5,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-043",
@@ -865,8 +883,13 @@
         "  - BB defendeu/3betou adequadamente vs range do SB?"
       ],
       "estimated_points": 5,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-044",
@@ -891,8 +914,13 @@
         "STREET: preflop"
       ],
       "estimated_points": 8,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-045",
@@ -916,8 +944,13 @@
         "STREET: preflop"
       ],
       "estimated_points": 5,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-046",
@@ -945,8 +978,13 @@
         "  - BB vs CBet: resposta correta (call com equity, raise com nutted/bluff, fold sem equity)?"
       ],
       "estimated_points": 8,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-047",
@@ -971,8 +1009,13 @@
         "STREET: flop"
       ],
       "estimated_points": 8,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-048",
@@ -998,8 +1041,13 @@
         "  - Delayed: board turn favorece aposta delayed? Vilão mostrou fraqueza?"
       ],
       "estimated_points": 5,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-049",
@@ -1023,8 +1071,13 @@
         "  - Incorreto: triple barrel com mão marginal ou desistiu com mão forte"
       ],
       "estimated_points": 5,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-050",
@@ -1051,8 +1104,13 @@
         "STREET: multi-street (aplica em flop+turn+river conforme situação)"
       ],
       "estimated_points": 8,
-      "dependencies": ["US-039"],
-      "files_affected": ["src/analyzers/lesson_classifier.py", "src/db/seed_lessons.py"]
+      "dependencies": [
+        "US-039"
+      ],
+      "files_affected": [
+        "src/analyzers/lesson_classifier.py",
+        "src/db/seed_lessons.py"
+      ]
     },
     {
       "id": "US-051",
@@ -1088,7 +1146,9 @@
         "   - 'Você precisa revisar: [aula X] — acertou apenas 35% em 50 mãos'"
       ],
       "estimated_points": 13,
-      "dependencies": ["US-039"],
+      "dependencies": [
+        "US-039"
+      ],
       "files_affected": [
         "src/web/routes/cash.py",
         "src/web/routes/tournament.py",
@@ -1156,7 +1216,10 @@
         "Comparação vs média global com indicador visual"
       ],
       "estimated_points": 8,
-      "dependencies": ["US-051", "US-034"],
+      "dependencies": [
+        "US-051",
+        "US-034"
+      ],
       "files_affected": [
         "src/web/templates/cash/session_day.html",
         "src/web/templates/tournament/session_day.html",
