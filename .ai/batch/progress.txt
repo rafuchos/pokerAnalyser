@@ -484,3 +484,14 @@ US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sess
 
 === US-046 completed at 2026-03-15T06:37:20.395Z ===
 - All quality gates passed
+
+=== US-047 completed at 2026-03-15 ===
+- Lesson 20 (Pós-Flop IP vs CBet BTN): _eval_ip_vs_cbet() with board texture + hand strength evaluation
+- Lesson 19 (Enfrentando Check-Raise): _eval_facing_checkraise() replacing previous None stub
+- Lesson 23 (3-Betted Pots Pós-Flop): _eval_3bet_pot_postflop() with PFA vs caller distinction
+- Pattern: IP defense evaluation considers folding made hands as error, air as correct fold
+- Pattern: Check-raise evaluation correctly identifies air-fold as correct, strong-fold as incorrect
+- Pattern: 3-bet pot eval distinguishes PFA (should c-bet) from caller (should fold air)
+- 701 lines of new tests across 3 test classes (TestIPvsCBetEvaluation, TestFacingCheckRaiseEvaluation, Test3BetPotPostflopEvaluation)
+- All 463 classifier tests passing; 1876/1877 total (1 pre-existing unrelated failure)
+- All quality gates passed

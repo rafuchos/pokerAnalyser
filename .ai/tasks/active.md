@@ -109,6 +109,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-044: Lesson: Ranges de Flat/3-Bet + Reação vs 3-Bet + Squeeze (2026-03-15)
 - [x] US-045: Lesson: Open Shove cEV 10BB + Bounty Ranges (2026-03-15)
 - [x] US-046: Lesson: CBet Flop (IP + OOP) + BB vs CBet OOP (2026-03-15)
+- [x] US-047: Lesson: Pós-Flop IP vs CBet (BTN) + 3Bet Pots Postflop + Check-Raise (2026-03-15)
 
 ---
 
