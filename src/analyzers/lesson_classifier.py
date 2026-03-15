@@ -1,0 +1,578 @@
+"""Lesson Classifier Engine: classifies poker hands into RegLife lessons.
+
+Each hand can match multiple lessons across different streets.
+Detection rules are based on action patterns, positions, and game context.
+"""
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional
+
+from src.db.repository import Repository
+
+
+@dataclass
+class LessonMatch:
+    """A single hand-to-lesson classification result."""
+    hand_id: str
+    lesson_id: int
+    street: Optional[str] = None  # preflop, flop, turn, river, or None
+    executed_correctly: Optional[int] = None  # 1=correct, 0=incorrect, None=unknown
+    confidence: float = 1.0
+    notes: str = ''
+
+
+class LessonClassifier:
+    """Classifies poker hands into RegLife study lessons.
+
+    Uses action patterns, position, stack depth, and game context
+    to detect which lesson(s) apply to each hand.
+    """
+
+    # Position groups
+    STEAL_POSITIONS = {'CO', 'BTN', 'SB'}
+    EARLY_POSITIONS = {'UTG', 'UTG+1', 'EP', 'LJ'}
+    MIDDLE_POSITIONS = {'MP', 'HJ'}
+
+    def __init__(self, repo: Repository):
+        self.repo = repo
+        self._lessons = {}  # lesson_id -> lesson dict
+        self._load_lessons()
+
+    def _load_lessons(self):
+        """Load lesson catalog keyed by sort_order (which equals lesson_id)."""
+        for lesson in self.repo.get_lessons():
+            self._lessons[lesson['lesson_id']] = lesson
+
+    def _lesson_id_by_sort(self, sort_order: int) -> Optional[int]:
+        """Get lesson_id for a given sort_order."""
+        for lid, lesson in self._lessons.items():
+            if lesson['sort_order'] == sort_order:
+                return lid
+        return None
+
+    def classify_hand(self, hand: dict, actions: list[dict]) -> list[LessonMatch]:
+        """Classify a single hand into matching lessons.
+
+        Args:
+            hand: dict with hand_id, hero_position, hero_cards, etc.
+            actions: list of action dicts for this hand, ordered by street/sequence.
+
+        Returns:
+            list of LessonMatch objects.
+        """
+        matches = []
+        hand_id = hand['hand_id']
+
+        # Group actions by street
+        by_street = defaultdict(list)
+        for a in actions:
+            by_street[a['street']].append(a)
+
+        preflop = by_street.get('preflop', [])
+        flop_actions = by_street.get('flop', [])
+        turn_actions = by_street.get('turn', [])
+        river_actions = by_street.get('river', [])
+
+        hero_pos = (hand.get('hero_position') or '').upper()
+        hero_stack_bb = self._stack_in_bb(hand)
+        is_tournament = hand.get('game_type') == 'tournament'
+        has_flop = bool(hand.get('board_flop'))
+        has_turn = bool(hand.get('board_turn'))
+        has_river = bool(hand.get('board_river'))
+
+        # Preflop analysis
+        pf = self._analyze_preflop(preflop, hero_pos)
+
+        # --- Preflop Lessons ---
+
+        # 1: RFI (Raise First In)
+        if pf['hero_is_rfi']:
+            m = self._match(hand_id, 1, 'preflop')
+            m.executed_correctly = self._eval_rfi(hand, pf)
+            matches.append(m)
+
+        # 2: Flat / 3-Bet
+        if pf['hero_flats'] or pf['hero_3bets']:
+            m = self._match(hand_id, 2, 'preflop')
+            m.executed_correctly = self._eval_flat_3bet(hand, pf)
+            matches.append(m)
+
+        # 3: Reaction vs 3-Bet
+        if pf['hero_faces_3bet']:
+            m = self._match(hand_id, 3, 'preflop')
+            m.executed_correctly = self._eval_reaction_vs_3bet(hand, pf)
+            matches.append(m)
+
+        # 4: Open Shove cEV 10BB
+        if pf['hero_open_shoves'] and hero_stack_bb is not None and hero_stack_bb <= 12:
+            m = self._match(hand_id, 4, 'preflop')
+            m.executed_correctly = 1 if hero_stack_bb <= 10 else None
+            matches.append(m)
+
+        # 5: Squeeze
+        if pf['hero_squeezes']:
+            m = self._match(hand_id, 5, 'preflop')
+            m.executed_correctly = 1  # executed squeeze
+            matches.append(m)
+
+        # 6: BB Pré-Flop
+        if hero_pos == 'BB' and preflop:
+            m = self._match(hand_id, 6, 'preflop')
+            m.executed_correctly = self._eval_bb_preflop(hand, pf)
+            matches.append(m)
+
+        # 7: Blind War SB vs BB
+        if hero_pos == 'SB' and pf['is_blind_war']:
+            m = self._match(hand_id, 7, 'preflop')
+            m.executed_correctly = self._eval_sb_vs_bb(hand, pf)
+            matches.append(m)
+
+        # 8: Multiway BB
+        if hero_pos == 'BB' and pf['is_multiway'] and not pf['hero_folds_preflop']:
+            m = self._match(hand_id, 8, 'preflop')
+            m.executed_correctly = None  # complex evaluation
+            matches.append(m)
+
+        # 9: Blind War BB vs SB
+        if hero_pos == 'BB' and pf['is_blind_war_bb_vs_sb']:
+            m = self._match(hand_id, 9, 'preflop')
+            m.executed_correctly = self._eval_bb_vs_sb(hand, pf)
+            matches.append(m)
+
+        # --- Postflop Lessons ---
+        if has_flop:
+            pf_agg = pf['hero_is_preflop_aggressor']
+
+            # 10: Introdução ao Pós-Flop
+            m = self._match(hand_id, 10, 'flop')
+            m.executed_correctly = 1 if hand.get('net', 0) >= 0 else 0
+            m.confidence = 0.7
+            matches.append(m)
+
+            # 11: Introdução ao MDA
+            if has_turn or has_river:
+                m = self._match(hand_id, 11, 'flop')
+                m.confidence = 0.6
+                matches.append(m)
+
+            # 12: Pós-Flop Avançado
+            if has_turn and has_river:
+                m = self._match(hand_id, 12, 'flop')
+                m.confidence = 0.5
+                matches.append(m)
+
+            # Postflop action analysis
+            flop_a = self._analyze_street_actions(flop_actions)
+            turn_a = self._analyze_street_actions(turn_actions)
+            river_a = self._analyze_street_actions(river_actions)
+
+            hero_ip = self._is_hero_ip(hero_pos, preflop)
+
+            # 13: C-Bet Flop IP
+            if pf_agg and flop_a['hero_bets'] and hero_ip:
+                m = self._match(hand_id, 13, 'flop')
+                m.executed_correctly = self._eval_cbet(flop_a)
+                matches.append(m)
+
+            # 14: C-Bet OOP
+            if pf_agg and flop_a['hero_bets'] and not hero_ip:
+                m = self._match(hand_id, 14, 'flop')
+                m.executed_correctly = self._eval_cbet(flop_a)
+                matches.append(m)
+
+            # 15: C-Bet Turn
+            if pf_agg and has_turn and turn_a['hero_bets']:
+                m = self._match(hand_id, 15, 'turn')
+                m.executed_correctly = self._eval_cbet(turn_a)
+                matches.append(m)
+
+            # 16: C-Bet River
+            if pf_agg and has_river and river_a['hero_bets']:
+                m = self._match(hand_id, 16, 'river')
+                m.executed_correctly = self._eval_cbet(river_a)
+                matches.append(m)
+
+            # 17: Delayed C-Bet
+            if pf_agg and flop_a['hero_checks'] and has_turn and turn_a['hero_bets']:
+                m = self._match(hand_id, 17, 'turn')
+                m.executed_correctly = 1  # executed delayed cbet
+                matches.append(m)
+
+            # 18: BB vs C-Bet OOP
+            if hero_pos == 'BB' and not hero_ip and flop_a['villain_bets_first']:
+                m = self._match(hand_id, 18, 'flop')
+                m.executed_correctly = self._eval_facing_cbet(flop_a)
+                matches.append(m)
+
+            # 19: Enfrentando Check-Raise
+            if flop_a['hero_faces_checkraise'] or turn_a.get('hero_faces_checkraise'):
+                street = 'flop' if flop_a['hero_faces_checkraise'] else 'turn'
+                m = self._match(hand_id, 19, street)
+                m.executed_correctly = None  # complex evaluation
+                matches.append(m)
+
+            # 20: Pós-Flop IP enfrentando C-Bet BTN
+            if hero_ip and flop_a['villain_bets_first']:
+                m = self._match(hand_id, 20, 'flop')
+                m.executed_correctly = self._eval_facing_cbet(flop_a)
+                matches.append(m)
+
+            # 21: Bet vs Missed Bet
+            if self._detect_bet_vs_missed(flop_a, turn_a, pf_agg):
+                street = 'turn' if turn_a.get('hero_bets') else 'flop'
+                m = self._match(hand_id, 21, street)
+                m.executed_correctly = 1  # exploited missed bet
+                matches.append(m)
+
+            # 22: Probe do BB
+            if hero_pos == 'BB' and not pf_agg and has_turn:
+                if flop_a.get('villain_checks_back', False) and turn_a['hero_bets']:
+                    m = self._match(hand_id, 22, 'turn')
+                    m.executed_correctly = 1
+                    matches.append(m)
+
+            # 23: 3-Betted Pots Pós-Flop
+            if pf['is_3bet_pot']:
+                m = self._match(hand_id, 23, 'flop')
+                m.executed_correctly = 1 if hand.get('net', 0) >= 0 else 0
+                matches.append(m)
+
+        # --- Torneios Lessons ---
+        if is_tournament and hand.get('tournament_id'):
+            t_info = self.repo.get_tournament_info(hand['tournament_id'])
+            is_bounty = t_info and t_info.get('is_bounty')
+
+            # 24: Intro Torneios Bounty
+            if is_bounty:
+                m = self._match(hand_id, 24, 'preflop')
+                m.confidence = 0.8
+                matches.append(m)
+
+            # 25: Bounty Ranges Práticos
+            if is_bounty and preflop:
+                m = self._match(hand_id, 25, 'preflop')
+                m.confidence = 0.8
+                matches.append(m)
+
+        return matches
+
+    def classify_all(self) -> dict:
+        """Classify all hands in the database.
+
+        Returns:
+            dict with keys: total_hands, classified_hands, total_links,
+            lessons_matched (count of distinct lessons with matches).
+        """
+        hands = self.repo.get_all_hands_for_classification()
+        all_actions = self.repo.get_all_actions_for_classification()
+
+        # Group actions by hand_id
+        actions_by_hand = defaultdict(list)
+        for action in all_actions:
+            actions_by_hand[action['hand_id']].append(action)
+
+        # Clear existing classifications
+        self.repo.clear_hand_lessons()
+
+        all_links = []
+        classified_hands = set()
+        matched_lessons = set()
+
+        for hand in hands:
+            hand_actions = actions_by_hand.get(hand['hand_id'], [])
+            if not hand_actions:
+                continue
+
+            matches = self.classify_hand(hand, hand_actions)
+            for m in matches:
+                lid = self._resolve_lesson_id(m.lesson_id)
+                if lid is None:
+                    continue
+                all_links.append((
+                    m.hand_id, lid, m.street,
+                    m.executed_correctly, m.confidence, m.notes,
+                ))
+                classified_hands.add(m.hand_id)
+                matched_lessons.add(lid)
+
+        inserted = 0
+        if all_links:
+            inserted = self.repo.bulk_link_hand_lessons(all_links)
+
+        return {
+            'total_hands': len(hands),
+            'classified_hands': len(classified_hands),
+            'total_links': inserted,
+            'lessons_matched': len(matched_lessons),
+        }
+
+    # ── Helper: create LessonMatch by sort_order ─────────────────────
+
+    def _match(self, hand_id: str, sort_order: int,
+               street: Optional[str] = None) -> LessonMatch:
+        """Create a LessonMatch using sort_order as a proxy for lesson_id."""
+        return LessonMatch(
+            hand_id=hand_id,
+            lesson_id=sort_order,  # resolved later via _resolve_lesson_id
+            street=street,
+        )
+
+    def _resolve_lesson_id(self, sort_order: int) -> Optional[int]:
+        """Resolve sort_order to actual lesson_id."""
+        lid = self._lesson_id_by_sort(sort_order)
+        return lid
+
+    # ── Preflop Analysis ─────────────────────────────────────────────
+
+    def _analyze_preflop(self, actions: list[dict], hero_pos: str) -> dict:
+        """Analyze preflop action sequence to detect patterns."""
+        result = {
+            'hero_is_rfi': False,
+            'hero_flats': False,
+            'hero_3bets': False,
+            'hero_faces_3bet': False,
+            'hero_open_shoves': False,
+            'hero_squeezes': False,
+            'hero_folds_preflop': False,
+            'hero_is_preflop_aggressor': False,
+            'is_blind_war': False,
+            'is_blind_war_bb_vs_sb': False,
+            'is_multiway': False,
+            'is_3bet_pot': False,
+            'hero_action': None,
+            'open_raiser_pos': None,
+            'callers_before_hero': 0,
+        }
+
+        if not actions:
+            return result
+
+        raises = []
+        calls_before_hero = 0
+        hero_acted = False
+        first_raise_seen = False
+        second_raise_seen = False
+        open_raiser_pos = None
+        players_in = set()
+        hero_last_action = None
+
+        for a in actions:
+            player = a.get('player', '')
+            action = a.get('action_type', '').lower()
+            is_hero = a.get('is_hero', 0)
+
+            if action in ('fold',):
+                continue
+
+            if action in ('call', 'raise', 'bet', 'all-in'):
+                players_in.add(player)
+
+            if action in ('raise', 'bet', 'all-in') and not first_raise_seen:
+                first_raise_seen = True
+                open_raiser_pos = a.get('position', '')
+                if is_hero:
+                    result['hero_is_rfi'] = True
+                    result['hero_is_preflop_aggressor'] = True
+                    if action == 'all-in':
+                        result['hero_open_shoves'] = True
+                raises.append(a)
+            elif action in ('raise', 'all-in') and first_raise_seen and not second_raise_seen:
+                second_raise_seen = True
+                result['is_3bet_pot'] = True
+                if is_hero:
+                    if calls_before_hero > 0:
+                        result['hero_squeezes'] = True
+                    else:
+                        result['hero_3bets'] = True
+                    result['hero_is_preflop_aggressor'] = True
+                raises.append(a)
+            elif action in ('raise', 'all-in') and second_raise_seen:
+                if is_hero:
+                    result['hero_is_preflop_aggressor'] = True
+                raises.append(a)
+
+            if action == 'call' and not is_hero and first_raise_seen:
+                if not hero_acted:
+                    calls_before_hero += 1
+
+            if is_hero:
+                hero_acted = True
+                hero_last_action = action
+                if action == 'fold':
+                    result['hero_folds_preflop'] = True
+                elif action == 'call' and first_raise_seen:
+                    result['hero_flats'] = True
+                    result['callers_before_hero'] = calls_before_hero
+
+            # Hero faces 3-bet: hero opened, then someone re-raised
+            if is_hero and result['hero_is_rfi'] and second_raise_seen and not result['hero_3bets']:
+                result['hero_faces_3bet'] = True
+
+        result['hero_action'] = hero_last_action
+        result['open_raiser_pos'] = open_raiser_pos
+
+        # Blind war: folds to SB, SB raises, only BB left
+        if open_raiser_pos and open_raiser_pos.upper() == 'SB':
+            non_blind_actors = [a for a in actions
+                                if a.get('position', '').upper() not in ('SB', 'BB', '')
+                                and a.get('action_type', '').lower() != 'fold']
+            if not non_blind_actors:
+                result['is_blind_war'] = True
+                if hero_pos == 'BB':
+                    result['is_blind_war_bb_vs_sb'] = True
+
+        # Multiway: 3+ players in the pot
+        if len(players_in) >= 3:
+            result['is_multiway'] = True
+
+        return result
+
+    # ── Street Action Analysis ───────────────────────────────────────
+
+    def _analyze_street_actions(self, actions: list[dict]) -> dict:
+        """Analyze actions on a single postflop street."""
+        result = {
+            'hero_bets': False,
+            'hero_checks': False,
+            'hero_raises': False,
+            'hero_calls': False,
+            'hero_folds': False,
+            'villain_bets_first': False,
+            'villain_checks_back': False,
+            'hero_faces_checkraise': False,
+            'hero_bet_amount': 0,
+        }
+
+        if not actions:
+            return result
+
+        first_bet_seen = False
+        hero_bet_before_raise = False
+
+        for a in actions:
+            action = a.get('action_type', '').lower()
+            is_hero = a.get('is_hero', 0)
+
+            if is_hero:
+                if action in ('bet', 'raise', 'all-in'):
+                    if action == 'bet' or (action in ('raise', 'all-in') and not first_bet_seen):
+                        result['hero_bets'] = True
+                        result['hero_bet_amount'] = a.get('amount', 0)
+                        hero_bet_before_raise = True
+                    if action in ('raise', 'all-in'):
+                        result['hero_raises'] = True
+                elif action == 'check':
+                    result['hero_checks'] = True
+                elif action == 'call':
+                    result['hero_calls'] = True
+                elif action == 'fold':
+                    result['hero_folds'] = True
+            else:
+                if action in ('bet', 'raise', 'all-in'):
+                    if not first_bet_seen and not result['hero_bets']:
+                        result['villain_bets_first'] = True
+                    # Check-raise detection: hero bet, then villain raises
+                    if hero_bet_before_raise and action in ('raise', 'all-in'):
+                        result['hero_faces_checkraise'] = True
+                    first_bet_seen = True
+                elif action == 'check' and not result['hero_bets'] and not first_bet_seen:
+                    # Villain checks (potential check-back)
+                    pass
+
+        # Villain checks back: no bets at all on street, and hero checked
+        if not first_bet_seen and not result['hero_bets'] and result['hero_checks']:
+            result['villain_checks_back'] = True
+        # Also: hero is OOP, checks, villain checks behind
+        if result['hero_checks'] and not result['hero_bets'] and not first_bet_seen:
+            result['villain_checks_back'] = True
+
+        return result
+
+    # ── Position helpers ─────────────────────────────────────────────
+
+    def _is_hero_ip(self, hero_pos: str, preflop_actions: list[dict]) -> bool:
+        """Determine if hero is in position (acts last postflop)."""
+        if hero_pos in ('BTN', 'CO'):
+            return True
+        if hero_pos in ('SB', 'BB'):
+            return False
+        # In multiway, approximate based on position
+        return hero_pos in ('BTN', 'CO', 'HJ')
+
+    def _stack_in_bb(self, hand: dict) -> Optional[float]:
+        """Calculate hero stack in BB."""
+        stack = hand.get('hero_stack')
+        bb = hand.get('blinds_bb')
+        if stack and bb and bb > 0:
+            return stack / bb
+        return None
+
+    # ── Execution Evaluation ─────────────────────────────────────────
+
+    def _eval_rfi(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate RFI execution. Basic: did hero raise from a valid position?"""
+        # RFI from any position is basically correct if hero opens
+        return 1
+
+    def _eval_flat_3bet(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate flat/3-bet execution."""
+        # Basic: did hero make the action? (advanced evaluation needs range analysis)
+        return 1 if pf['hero_3bets'] or pf['hero_flats'] else None
+
+    def _eval_reaction_vs_3bet(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate reaction to 3-bet. Did hero fold/call/4-bet appropriately?"""
+        # Basic rule: not folding everything is at least a decision
+        if pf.get('hero_folds_preflop'):
+            return None  # fold is sometimes correct
+        return 1  # continued action
+
+    def _eval_bb_preflop(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate BB play preflop."""
+        if pf.get('hero_folds_preflop'):
+            return None
+        return 1
+
+    def _eval_sb_vs_bb(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate SB steal attempt."""
+        if pf.get('hero_is_rfi'):
+            return 1  # opened from SB
+        return 0  # limped or folded
+
+    def _eval_bb_vs_sb(self, hand: dict, pf: dict) -> Optional[int]:
+        """Evaluate BB defense vs SB steal."""
+        if pf.get('hero_folds_preflop'):
+            return None  # fold may be correct
+        return 1  # defended
+
+    def _eval_cbet(self, street_analysis: dict) -> Optional[int]:
+        """Evaluate c-bet execution."""
+        return 1 if street_analysis['hero_bets'] else 0
+
+    def _eval_facing_cbet(self, street_analysis: dict) -> Optional[int]:
+        """Evaluate response to c-bet."""
+        if street_analysis.get('hero_folds'):
+            return None  # fold may be correct
+        if street_analysis.get('hero_raises'):
+            return 1  # raised = aggressive response
+        if street_analysis.get('hero_calls'):
+            return 1  # called = defended
+        return None
+
+    # ── Advanced Detection ───────────────────────────────────────────
+
+    def _detect_bet_vs_missed(self, flop_a: dict, turn_a: dict,
+                              hero_is_pfa: bool) -> bool:
+        """Detect Bet vs Missed Bet pattern.
+
+        Villain was aggressor (or had initiative), checks, hero bets.
+        """
+        if not hero_is_pfa:
+            # Hero is not PFA, villain checked, hero bets = exploitation
+            if flop_a.get('villain_checks_back') and turn_a.get('hero_bets'):
+                return True
+            # Villain bet flop but checked turn, hero bets turn
+            if flop_a.get('villain_bets_first') and turn_a.get('hero_bets') and not turn_a.get('villain_bets_first'):
+                return True
+        return False

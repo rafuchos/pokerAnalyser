@@ -61,7 +61,8 @@ class TestLessonSchema(unittest.TestCase):
         conn.row_factory = sqlite3.Row
         init_db(conn)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(hand_lessons)").fetchall()}
-        expected = {'id', 'hand_id', 'lesson_id', 'notes', 'created_at'}
+        expected = {'id', 'hand_id', 'lesson_id', 'street',
+                    'executed_correctly', 'confidence', 'notes', 'created_at'}
         self.assertEqual(expected, cols)
         conn.close()
 

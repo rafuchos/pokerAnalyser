@@ -467,6 +467,16 @@ def run_analysis(poker_db_path: str = 'poker.db',
         result['tournament_processed'] = _persist_tournament_analysis(
             analytics, repo, year) or False
 
+    # Lesson Classification
+    try:
+        from src.analyzers.lesson_classifier import LessonClassifier
+        classifier = LessonClassifier(repo)
+        classify_result = classifier.classify_all()
+        result['classify_links'] = classify_result.get('total_links', 0)
+        result['classify_lessons'] = classify_result.get('lessons_matched', 0)
+    except Exception:
+        pass
+
     # Update metadata
     analytics.set_meta('source_hash', source_hash)
     analytics.set_meta('last_run', datetime.now().isoformat())

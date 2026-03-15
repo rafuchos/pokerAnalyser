@@ -1,0 +1,35 @@
+{
+  "id": "US-039",
+  "title": "Lesson Classifier Engine: Motor de Classificação Mão → Aula",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Read all 25 RegLife PDFs in /classes/ to extract exact detection rules, ranges, sizings, and evaluation criteria per lesson",
+    "Extend hand_lessons schema if needed to support street, executed_correctly, and confidence fields (or encode in notes JSON)",
+    "Create LessonMatch dataclass and LessonClassifier class in src/analyzers/lesson_classifier.py with classify_hand() method",
+    "Implement preflop detection methods: RFI, 3-Bet, Squeeze, Open Shove, Blind War, BB Defense, Reaction to 3-Bet (7 lessons)",
+    "Implement postflop detection methods: CBet IP/OOP, Facing CBet, Check-Raise, Delayed CBet, Probe, Bet vs Missed CBet, 3-Bet Pot Postflop (14 lessons)",
+    "Implement execution evaluation rules per lesson based on PDF-extracted criteria (correct/partial/incorrect)",
+    "Add bulk classify pipeline method that processes all hands and persists results to hand_lessons table",
+    "Add CLI command 'python main.py classify' with options for specific hands/lessons/force-reclassify",
+    "Integrate classification step into src/analytics_pipeline.py",
+    "Create comprehensive tests in tests/test_lesson_classifier.py with real hand data covering each detection type",
+    "Validate acceptance criteria: at least 15 of 25 lessons classified, multi-lesson per hand, executed_correctly evaluation"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "tests/test_lesson_classifier.py",
+    "main.py",
+    "src/analytics_pipeline.py",
+    "src/db/repository.py",
+    "src/db/schema.py",
+    "src/db/seed_lessons.py"
+  ],
+  "created_at": "2026-03-15T04:30:00.334Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-039"
+}

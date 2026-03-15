@@ -784,12 +784,16 @@ class Repository:
         return [dict(r) for r in rows]
 
     def link_hand_to_lesson(self, hand_id: str, lesson_id: int,
-                            notes: str = None) -> int:
+                            notes: str = None, street: str = None,
+                            executed_correctly: int = None,
+                            confidence: float = 1.0) -> int:
         """Link a hand to a lesson. Returns the hand_lessons row ID."""
         cursor = self.conn.execute(
-            "INSERT INTO hand_lessons (hand_id, lesson_id, notes, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (hand_id, lesson_id, notes, datetime.now().isoformat())
+            "INSERT INTO hand_lessons (hand_id, lesson_id, street, "
+            "executed_correctly, confidence, notes, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (hand_id, lesson_id, street, executed_correctly, confidence,
+             notes, datetime.now().isoformat())
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -832,6 +836,63 @@ class Repository:
             (lesson_id,)
         ).fetchone()
         return row['cnt']
+
+    def bulk_link_hand_lessons(self, links: list[tuple]) -> int:
+        """Bulk insert hand-lesson links.
+
+        Each tuple: (hand_id, lesson_id, street, executed_correctly,
+                      confidence, notes).
+        Returns the number of rows inserted.
+        """
+        now = datetime.now().isoformat()
+        rows = [(h, l, s, e, c, n, now) for h, l, s, e, c, n in links]
+        self.conn.executemany(
+            "INSERT INTO hand_lessons (hand_id, lesson_id, street, "
+            "executed_correctly, confidence, notes, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        self.conn.commit()
+        return len(rows)
+
+    def clear_hand_lessons(self) -> int:
+        """Delete all hand-lesson links. Returns count deleted."""
+        cursor = self.conn.execute("DELETE FROM hand_lessons")
+        self.conn.commit()
+        return cursor.rowcount
+
+    def get_all_hands_for_classification(self) -> list[dict]:
+        """Get all hands with board info for classification."""
+        rows = self.conn.execute("""
+            SELECT hand_id, game_type, hero_cards, hero_position,
+                   blinds_sb, blinds_bb, hero_stack, num_players,
+                   board_flop, board_turn, board_river,
+                   has_allin, allin_street, tournament_id, net
+            FROM hands
+            ORDER BY date
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_all_actions_for_classification(self) -> list[dict]:
+        """Get all actions for all hands, ordered for grouping by hand."""
+        rows = self.conn.execute("""
+            SELECT hand_id, street, player, action_type, amount,
+                   is_hero, sequence_order, position
+            FROM hand_actions
+            ORDER BY hand_id,
+                CASE street WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2
+                WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END,
+                sequence_order
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tournament_info(self, tournament_id: str) -> Optional[dict]:
+        """Get tournament info by ID."""
+        row = self.conn.execute(
+            "SELECT * FROM tournaments WHERE tournament_id = ?",
+            (tournament_id,)
+        ).fetchone()
+        return dict(row) if row else None
 
     def seed_lessons_if_empty(self) -> int:
         """Seed lessons table with RegLife catalog if empty.

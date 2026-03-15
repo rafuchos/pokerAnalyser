@@ -120,6 +120,9 @@ CREATE TABLE IF NOT EXISTS hand_lessons (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     hand_id TEXT NOT NULL,
     lesson_id INTEGER NOT NULL,
+    street TEXT,
+    executed_correctly INTEGER,
+    confidence REAL DEFAULT 1.0,
     notes TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY (hand_id) REFERENCES hands(hand_id),
@@ -214,6 +217,9 @@ def _run_migrations(conn):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 hand_id TEXT NOT NULL,
                 lesson_id INTEGER NOT NULL,
+                street TEXT,
+                executed_correctly INTEGER,
+                confidence REAL DEFAULT 1.0,
                 notes TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (hand_id) REFERENCES hands(hand_id),
@@ -224,3 +230,17 @@ def _run_migrations(conn):
             CREATE INDEX IF NOT EXISTS idx_lessons_category ON lessons(category);
         """)
         conn.commit()
+
+    # US-039: Add street, executed_correctly, confidence to hand_lessons
+    existing_tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if 'hand_lessons' in existing_tables:
+        hl_cols = {row[1] for row in conn.execute(
+            "PRAGMA table_info(hand_lessons)"
+        ).fetchall()}
+        if 'street' not in hl_cols:
+            conn.execute("ALTER TABLE hand_lessons ADD COLUMN street TEXT")
+            conn.execute("ALTER TABLE hand_lessons ADD COLUMN executed_correctly INTEGER")
+            conn.execute("ALTER TABLE hand_lessons ADD COLUMN confidence REAL DEFAULT 1.0")
+            conn.commit()
