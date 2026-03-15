@@ -103,6 +103,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-038: Lesson Tracker Foundation: Schema, Models e Catálogo de Aulas RegLife (2026-03-15)
 - [x] US-039: Lesson Classifier Engine: Motor de Classificação Mão → Aula (2026-03-15)
 - [x] US-040: Lesson: Ranges de RFI em cEV (2026-03-15)
+- [x] US-041: Lesson: Defesa Multiway do Big Blind Pre-Flop (2026-03-15)
 
 ---
 
