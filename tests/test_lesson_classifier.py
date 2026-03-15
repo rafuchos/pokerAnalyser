@@ -3620,5 +3620,578 @@ class TestBountyEvaluation(unittest.TestCase):
         self.assertIn(24, ids)
 
 
+# ── Board Analysis Helpers Tests (US-046) ────────────────────────────
+
+
+class TestBoardAnalysisHelpers(unittest.TestCase):
+    """Test _parse_cards, _board_texture, _hand_connects_board."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    # -- _parse_cards --
+
+    def test_parse_cards_basic(self):
+        result = LessonClassifier._parse_cards('Ah Kd 2c')
+        self.assertEqual(result, [('A', 'h'), ('K', 'd'), ('2', 'c')])
+
+    def test_parse_cards_empty(self):
+        self.assertEqual(LessonClassifier._parse_cards(''), [])
+        self.assertEqual(LessonClassifier._parse_cards(None), [])
+
+    def test_parse_cards_two_cards(self):
+        result = LessonClassifier._parse_cards('Ts Jh')
+        self.assertEqual(result, [('T', 's'), ('J', 'h')])
+
+    # -- _board_texture --
+
+    def test_texture_dry_rainbow_disconnected(self):
+        """Rainbow + disconnected = dry (e.g. K72 rainbow)."""
+        self.assertEqual(LessonClassifier._board_texture('Kh 7d 2c'), 'dry')
+
+    def test_texture_dry_rainbow_spread(self):
+        """A82 rainbow = dry."""
+        self.assertEqual(LessonClassifier._board_texture('Ah 8d 2c'), 'dry')
+
+    def test_texture_wet_suited_connected(self):
+        """Two suited + connected = wet (e.g. 9h 8h 7c)."""
+        self.assertEqual(LessonClassifier._board_texture('9h 8h 7c'), 'wet')
+
+    def test_texture_wet_monotone(self):
+        """Monotone = wet (all same suit counts as 2+ suited + connected)."""
+        result = LessonClassifier._board_texture('Ah Kh Qh')
+        # Monotone: 3 same suit (≥2), span=2 (A=12, K=11, Q=10) ≤ 4
+        self.assertEqual(result, 'wet')
+
+    def test_texture_neutral_suited_only(self):
+        """Two suited but disconnected = neutral."""
+        self.assertEqual(LessonClassifier._board_texture('Ah 7h 2c'), 'neutral')
+
+    def test_texture_neutral_connected_only(self):
+        """Connected but rainbow = neutral."""
+        self.assertEqual(LessonClassifier._board_texture('9h 8d 7c'), 'neutral')
+
+    def test_texture_incomplete_board(self):
+        """Less than 3 cards = neutral fallback."""
+        self.assertEqual(LessonClassifier._board_texture('Ah Kd'), 'neutral')
+
+    # -- _hand_connects_board --
+
+    def test_connects_set(self):
+        """Pocket pair hitting the board = strong (set)."""
+        result = LessonClassifier._hand_connects_board('Kh Kd', 'Ks 7d 2c')
+        self.assertEqual(result, 'strong')
+
+    def test_connects_overpair(self):
+        """Pocket pair above all board cards = strong."""
+        result = LessonClassifier._hand_connects_board('Ah Ad', '9h 7d 2c')
+        self.assertEqual(result, 'strong')
+
+    def test_connects_underpair(self):
+        """Pocket pair below board top card = medium."""
+        result = LessonClassifier._hand_connects_board('5h 5d', 'Ah 7d 2c')
+        self.assertEqual(result, 'medium')
+
+    def test_connects_two_pair(self):
+        """Both hero cards hit board = strong."""
+        result = LessonClassifier._hand_connects_board('Ah 7d', 'As 7c 2h')
+        self.assertEqual(result, 'strong')
+
+    def test_connects_top_pair_good_kicker(self):
+        """Top pair + J+ kicker = strong."""
+        result = LessonClassifier._hand_connects_board('Ah Kd', 'As 7c 2h')
+        self.assertEqual(result, 'strong')
+
+    def test_connects_top_pair_weak_kicker(self):
+        """Top pair + weak kicker = medium."""
+        result = LessonClassifier._hand_connects_board('Ah 3d', 'As 7c 2h')
+        self.assertEqual(result, 'medium')
+
+    def test_connects_middle_pair(self):
+        """Hitting middle card = medium."""
+        result = LessonClassifier._hand_connects_board('7h 3d', 'Ah 7c 2s')
+        self.assertEqual(result, 'medium')
+
+    def test_connects_flush_draw(self):
+        """4 cards same suit = draw."""
+        result = LessonClassifier._hand_connects_board('Qh 9h', 'Ah 7h 2c')
+        self.assertEqual(result, 'draw')
+
+    def test_connects_oesd(self):
+        """Open-ended straight draw = draw."""
+        result = LessonClassifier._hand_connects_board('Jh Td', '9c 8h 2s')
+        self.assertEqual(result, 'draw')
+
+    def test_connects_weak(self):
+        """No pair, no draw = weak."""
+        result = LessonClassifier._hand_connects_board('Qh Jd', '8c 5h 2s')
+        self.assertEqual(result, 'weak')
+
+    def test_connects_no_cards(self):
+        """Missing cards returns None."""
+        self.assertIsNone(LessonClassifier._hand_connects_board('', 'Ah Kd 2c'))
+        self.assertIsNone(LessonClassifier._hand_connects_board('Ah Kd', ''))
+
+
+# ── CBet Flop IP Evaluation Tests (US-046) ──────────────────────────
+
+
+class TestCBetFlopIPEvaluation(unittest.TestCase):
+    """Test _eval_cbet_flop_ip and lesson 13 detection+evaluation."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _cbet_ip_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 13), None)
+        return m.executed_correctly if m else None
+
+    def _setup_cbet_ip(self, hand_id, hero_cards='Ah Kd',
+                       board_flop='Ts 7d 2c'):
+        """Set up a c-bet IP scenario: hero opens BTN, villain calls BB."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'BTN')
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       1.5, 0, 2, 'BB')
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, 3, 'BB')
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       2.0, 1, 4, 'BTN')
+
+    # -- Detection --
+
+    def test_detected_as_lesson_13(self):
+        """CBet IP scenario detects lesson 13."""
+        self._setup_cbet_ip('CIP01')
+        matches = self._classify('CIP01')
+        self.assertIn(13, [m.lesson_id for m in matches])
+
+    def test_not_detected_as_lesson_14(self):
+        """CBet IP should not detect lesson 14 (OOP)."""
+        self._setup_cbet_ip('CIP02')
+        matches = self._classify('CIP02')
+        self.assertNotIn(14, [m.lesson_id for m in matches])
+
+    # -- Value hands: correct on any texture --
+
+    def test_strong_hand_dry_board_correct(self):
+        """Top pair good kicker on dry board = correct (1)."""
+        self._setup_cbet_ip('CIP10', hero_cards='Ah Kd',
+                            board_flop='As 7d 2c')
+        self.assertEqual(self._cbet_ip_result('CIP10'), 1)
+
+    def test_strong_hand_wet_board_correct(self):
+        """Set on wet board = correct (1)."""
+        self._setup_cbet_ip('CIP11', hero_cards='9h 9d',
+                            board_flop='9s 8h 7h')
+        self.assertEqual(self._cbet_ip_result('CIP11'), 1)
+
+    def test_medium_hand_neutral_board_correct(self):
+        """Middle pair on neutral board = correct (1)."""
+        self._setup_cbet_ip('CIP12', hero_cards='7h 3d',
+                            board_flop='Ah 7c 2s')
+        self.assertEqual(self._cbet_ip_result('CIP12'), 1)
+
+    def test_draw_wet_board_correct(self):
+        """Flush draw on wet board = correct (semi-bluff)."""
+        self._setup_cbet_ip('CIP13', hero_cards='Qh 9h',
+                            board_flop='Ah 7h 2c')
+        self.assertEqual(self._cbet_ip_result('CIP13'), 1)
+
+    # -- Air on different textures --
+
+    def test_air_dry_board_correct(self):
+        """Air on dry board IP = correct (bluffing dry boards is fine IP)."""
+        self._setup_cbet_ip('CIP20', hero_cards='Qh Jd',
+                            board_flop='8c 5s 2h')
+        self.assertEqual(self._cbet_ip_result('CIP20'), 1)
+
+    def test_air_neutral_board_marginal(self):
+        """Air on neutral board IP = marginal (None)."""
+        self._setup_cbet_ip('CIP21', hero_cards='Qh Jd',
+                            board_flop='Ah 7h 2c')
+        self.assertIsNone(self._cbet_ip_result('CIP21'))
+
+    def test_air_wet_board_incorrect(self):
+        """Air on wet board IP = incorrect (over-bluffing)."""
+        # 3d 2c has no pair/draw connection to 9h 8h 7h
+        self._setup_cbet_ip('CIP22', hero_cards='3d 2c',
+                            board_flop='9h 8h 7h')
+        self.assertEqual(self._cbet_ip_result('CIP22'), 0)
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_assumes_correct(self):
+        """No hero_cards available = assume correct (1)."""
+        _insert_hand(self.repo, 'CIP30', position='BTN',
+                     board_flop='Ah Kd 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('CIP30',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'CIP30', 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'BTN')
+        _insert_action(self.repo, 'CIP30', 'preflop', 'P1', 'call',
+                       1.5, 0, 2, 'BB')
+        _insert_action(self.repo, 'CIP30', 'flop', 'P1', 'check',
+                       0, 0, 3, 'BB')
+        _insert_action(self.repo, 'CIP30', 'flop', 'Hero', 'bet',
+                       2.0, 1, 4, 'BTN')
+        self.assertEqual(self._cbet_ip_result('CIP30'), 1)
+
+    def test_no_board_flop_not_detected(self):
+        """Without board_flop, classify_hand skips postflop analysis."""
+        _insert_hand(self.repo, 'CIP31', position='BTN',
+                     board_flop='Ah Kd 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET board_flop=NULL WHERE hand_id=?", ('CIP31',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'CIP31', 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'BTN')
+        _insert_action(self.repo, 'CIP31', 'preflop', 'P1', 'call',
+                       1.5, 0, 2, 'BB')
+        _insert_action(self.repo, 'CIP31', 'flop', 'P1', 'check',
+                       0, 0, 3, 'BB')
+        _insert_action(self.repo, 'CIP31', 'flop', 'Hero', 'bet',
+                       2.0, 1, 4, 'BTN')
+        # No board_flop → postflop is skipped entirely
+        matches = self._classify('CIP31')
+        self.assertNotIn(13, [m.lesson_id for m in matches])
+
+
+# ── CBet Flop OOP Evaluation Tests (US-046) ─────────────────────────
+
+
+class TestCBetFlopOOPEvaluation(unittest.TestCase):
+    """Test _eval_cbet_flop_oop and lesson 14 detection+evaluation."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _cbet_oop_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 14), None)
+        return m.executed_correctly if m else None
+
+    def _setup_cbet_oop(self, hand_id, hero_cards='Ah Kd',
+                        board_flop='Ts 7d 2c'):
+        """Set up c-bet OOP: hero 3-bets from BB, villain calls BTN."""
+        _insert_hand(self.repo, hand_id, position='BB',
+                     board_flop=board_flop)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                       1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       4.5, 1, 2, 'BB')
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       4.5, 0, 3, 'BTN')
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       3.0, 1, 4, 'BB')
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'call',
+                       3.0, 0, 5, 'BTN')
+
+    # -- Detection --
+
+    def test_detected_as_lesson_14(self):
+        """CBet OOP scenario detects lesson 14."""
+        self._setup_cbet_oop('COP01')
+        matches = self._classify('COP01')
+        self.assertIn(14, [m.lesson_id for m in matches])
+
+    def test_not_detected_as_lesson_13(self):
+        """CBet OOP should not detect lesson 13 (IP)."""
+        self._setup_cbet_oop('COP02')
+        matches = self._classify('COP02')
+        self.assertNotIn(13, [m.lesson_id for m in matches])
+
+    # -- Value hands: correct --
+
+    def test_strong_hand_correct(self):
+        """Overpair OOP = correct (1)."""
+        self._setup_cbet_oop('COP10', hero_cards='Ah Ad',
+                             board_flop='9h 7d 2c')
+        self.assertEqual(self._cbet_oop_result('COP10'), 1)
+
+    def test_medium_hand_correct(self):
+        """Top pair weak kicker OOP = correct (1)."""
+        self._setup_cbet_oop('COP11', hero_cards='Ah 3d',
+                             board_flop='As 7c 2h')
+        self.assertEqual(self._cbet_oop_result('COP11'), 1)
+
+    def test_draw_correct(self):
+        """Flush draw OOP = correct (semi-bluff)."""
+        self._setup_cbet_oop('COP12', hero_cards='Qh 9h',
+                             board_flop='Ah 7h 2c')
+        self.assertEqual(self._cbet_oop_result('COP12'), 1)
+
+    # -- Air on different textures --
+
+    def test_air_dry_board_marginal(self):
+        """Air on dry board OOP = marginal (None)."""
+        self._setup_cbet_oop('COP20', hero_cards='Qh Jd',
+                             board_flop='8c 5s 2h')
+        self.assertIsNone(self._cbet_oop_result('COP20'))
+
+    def test_air_neutral_board_incorrect(self):
+        """Air on neutral board OOP = incorrect (0)."""
+        self._setup_cbet_oop('COP21', hero_cards='Qh Jd',
+                             board_flop='Ah 7h 2c')
+        self.assertEqual(self._cbet_oop_result('COP21'), 0)
+
+    def test_air_wet_board_incorrect(self):
+        """Air on wet board OOP = incorrect (0)."""
+        # 3d 2c has no pair/draw connection to 9h 8h 7h
+        self._setup_cbet_oop('COP22', hero_cards='3d 2c',
+                             board_flop='9h 8h 7h')
+        self.assertEqual(self._cbet_oop_result('COP22'), 0)
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_assumes_correct(self):
+        """No hero_cards = assume correct (1)."""
+        _insert_hand(self.repo, 'COP30', position='BB',
+                     board_flop='Ah Kd 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('COP30',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'COP30', 'preflop', 'P1', 'raise',
+                       1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, 'COP30', 'preflop', 'Hero', 'raise',
+                       4.5, 1, 2, 'BB')
+        _insert_action(self.repo, 'COP30', 'preflop', 'P1', 'call',
+                       4.5, 0, 3, 'BTN')
+        _insert_action(self.repo, 'COP30', 'flop', 'Hero', 'bet',
+                       3.0, 1, 4, 'BB')
+        _insert_action(self.repo, 'COP30', 'flop', 'P1', 'call',
+                       3.0, 0, 5, 'BTN')
+        self.assertEqual(self._cbet_oop_result('COP30'), 1)
+
+
+# ── BB vs CBet OOP Evaluation Tests (US-046) ────────────────────────
+
+
+class TestBBvsCBetOOPEvaluation(unittest.TestCase):
+    """Test _eval_bb_vs_cbet and lesson 18 detection+evaluation."""
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _bb_vs_cbet_result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 18), None)
+        return m.executed_correctly if m else None
+
+    def _setup_bb_vs_cbet(self, hand_id, hero_cards='Ah Kd',
+                          board_flop='Ts 7d 2c', hero_action='call'):
+        """Set up BB vs cbet OOP: villain opens BTN, hero calls BB,
+        villain cbets flop, hero responds."""
+        _insert_hand(self.repo, hand_id, position='BB',
+                     board_flop=board_flop)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                       1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
+                       1.5, 1, 2, 'BB')
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'check',
+                       0, 1, 3, 'BB')
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'bet',
+                       2.0, 0, 4, 'BTN')
+        if hero_action == 'call':
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'call',
+                           2.0, 1, 5, 'BB')
+        elif hero_action == 'raise':
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'raise',
+                           6.0, 1, 5, 'BB')
+        elif hero_action == 'fold':
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'fold',
+                           0, 1, 5, 'BB')
+
+    # -- Detection --
+
+    def test_detected_as_lesson_18(self):
+        """BB facing c-bet OOP scenario detects lesson 18."""
+        self._setup_bb_vs_cbet('BVC01')
+        matches = self._classify('BVC01')
+        self.assertIn(18, [m.lesson_id for m in matches])
+
+    # -- Strong hand: defend correct, fold incorrect --
+
+    def test_strong_hand_call_correct(self):
+        """Strong hand (top pair good kicker) calling = correct (1)."""
+        self._setup_bb_vs_cbet('BVC10', hero_cards='Ah Kd',
+                               board_flop='As 7c 2h', hero_action='call')
+        self.assertEqual(self._bb_vs_cbet_result('BVC10'), 1)
+
+    def test_strong_hand_raise_correct(self):
+        """Strong hand (set) raising = correct (1)."""
+        self._setup_bb_vs_cbet('BVC11', hero_cards='7h 7d',
+                               board_flop='7s 9c 2h', hero_action='raise')
+        self.assertEqual(self._bb_vs_cbet_result('BVC11'), 1)
+
+    def test_strong_hand_fold_incorrect(self):
+        """Strong hand folding to c-bet = incorrect (0)."""
+        self._setup_bb_vs_cbet('BVC12', hero_cards='Ah Kd',
+                               board_flop='As 7c 2h', hero_action='fold')
+        self.assertEqual(self._bb_vs_cbet_result('BVC12'), 0)
+
+    # -- Medium hand: defend correct, fold incorrect --
+
+    def test_medium_hand_call_correct(self):
+        """Medium hand (middle pair) calling = correct (1)."""
+        self._setup_bb_vs_cbet('BVC13', hero_cards='7h 3d',
+                               board_flop='Ah 7c 2s', hero_action='call')
+        self.assertEqual(self._bb_vs_cbet_result('BVC13'), 1)
+
+    def test_medium_hand_fold_incorrect(self):
+        """Medium hand folding = incorrect (0)."""
+        self._setup_bb_vs_cbet('BVC14', hero_cards='7h 3d',
+                               board_flop='Ah 7c 2s', hero_action='fold')
+        self.assertEqual(self._bb_vs_cbet_result('BVC14'), 0)
+
+    # -- Draw: defend correct, fold marginal --
+
+    def test_draw_call_correct(self):
+        """Draw (flush draw) calling = correct (1)."""
+        self._setup_bb_vs_cbet('BVC20', hero_cards='Qh 9h',
+                               board_flop='Ah 7h 2c', hero_action='call')
+        self.assertEqual(self._bb_vs_cbet_result('BVC20'), 1)
+
+    def test_draw_raise_correct(self):
+        """Draw raising (semi-bluff) = correct (1)."""
+        self._setup_bb_vs_cbet('BVC21', hero_cards='Qh 9h',
+                               board_flop='Ah 7h 2c', hero_action='raise')
+        self.assertEqual(self._bb_vs_cbet_result('BVC21'), 1)
+
+    def test_draw_fold_marginal(self):
+        """Draw folding = marginal (None) - sizing dependent."""
+        self._setup_bb_vs_cbet('BVC22', hero_cards='Qh 9h',
+                               board_flop='Ah 7h 2c', hero_action='fold')
+        self.assertIsNone(self._bb_vs_cbet_result('BVC22'))
+
+    # -- Weak/air: fold correct, defend incorrect --
+
+    def test_air_fold_correct(self):
+        """Air folding to c-bet = correct (1)."""
+        self._setup_bb_vs_cbet('BVC30', hero_cards='Qh Jd',
+                               board_flop='8c 5s 2h', hero_action='fold')
+        self.assertEqual(self._bb_vs_cbet_result('BVC30'), 1)
+
+    def test_air_call_incorrect(self):
+        """Air calling c-bet = incorrect (0)."""
+        self._setup_bb_vs_cbet('BVC31', hero_cards='Qh Jd',
+                               board_flop='8c 5s 2h', hero_action='call')
+        self.assertEqual(self._bb_vs_cbet_result('BVC31'), 0)
+
+    def test_air_raise_incorrect(self):
+        """Air raising c-bet = incorrect (0)."""
+        self._setup_bb_vs_cbet('BVC32', hero_cards='Qh Jd',
+                               board_flop='8c 5s 2h', hero_action='raise')
+        self.assertEqual(self._bb_vs_cbet_result('BVC32'), 0)
+
+    # -- Edge cases --
+
+    def test_no_hero_cards_fold_marginal(self):
+        """No hero_cards + fold = marginal (None)."""
+        _insert_hand(self.repo, 'BVC40', position='BB',
+                     board_flop='Ah Kd 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('BVC40',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'BVC40', 'preflop', 'P1', 'raise',
+                       1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, 'BVC40', 'preflop', 'Hero', 'call',
+                       1.5, 1, 2, 'BB')
+        _insert_action(self.repo, 'BVC40', 'flop', 'Hero', 'check',
+                       0, 1, 3, 'BB')
+        _insert_action(self.repo, 'BVC40', 'flop', 'P1', 'bet',
+                       2.0, 0, 4, 'BTN')
+        _insert_action(self.repo, 'BVC40', 'flop', 'Hero', 'fold',
+                       0, 1, 5, 'BB')
+        self.assertIsNone(self._bb_vs_cbet_result('BVC40'))
+
+    def test_no_hero_cards_call_correct(self):
+        """No hero_cards + call = correct (1)."""
+        _insert_hand(self.repo, 'BVC41', position='BB',
+                     board_flop='Ah Kd 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('BVC41',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'BVC41', 'preflop', 'P1', 'raise',
+                       1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, 'BVC41', 'preflop', 'Hero', 'call',
+                       1.5, 1, 2, 'BB')
+        _insert_action(self.repo, 'BVC41', 'flop', 'Hero', 'check',
+                       0, 1, 3, 'BB')
+        _insert_action(self.repo, 'BVC41', 'flop', 'P1', 'bet',
+                       2.0, 0, 4, 'BTN')
+        _insert_action(self.repo, 'BVC41', 'flop', 'Hero', 'call',
+                       2.0, 1, 5, 'BB')
+        self.assertEqual(self._bb_vs_cbet_result('BVC41'), 1)
+
+    def test_street_is_flop(self):
+        """Lesson 18 match should have street='flop'."""
+        self._setup_bb_vs_cbet('BVC50', hero_cards='Ah Kd',
+                               board_flop='As 7c 2h')
+        matches = self._classify('BVC50')
+        m = next((m for m in matches if m.lesson_id == 18), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.street, 'flop')
+
+
 if __name__ == '__main__':
     unittest.main()

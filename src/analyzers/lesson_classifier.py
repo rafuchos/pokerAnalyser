@@ -660,13 +660,13 @@ class LessonClassifier:
             # 13: C-Bet Flop IP
             if pf_agg and flop_a['hero_bets'] and hero_ip:
                 m = self._match(hand_id, 13, 'flop')
-                m.executed_correctly = self._eval_cbet(flop_a)
+                m.executed_correctly = self._eval_cbet_flop_ip(hand, flop_a)
                 matches.append(m)
 
             # 14: C-Bet OOP
             if pf_agg and flop_a['hero_bets'] and not hero_ip:
                 m = self._match(hand_id, 14, 'flop')
-                m.executed_correctly = self._eval_cbet(flop_a)
+                m.executed_correctly = self._eval_cbet_flop_oop(hand, flop_a)
                 matches.append(m)
 
             # 15: C-Bet Turn
@@ -690,7 +690,7 @@ class LessonClassifier:
             # 18: BB vs C-Bet OOP
             if hero_pos == 'BB' and not hero_ip and flop_a['villain_bets_first']:
                 m = self._match(hand_id, 18, 'flop')
-                m.executed_correctly = self._eval_facing_cbet(flop_a)
+                m.executed_correctly = self._eval_bb_vs_cbet(hand, flop_a)
                 matches.append(m)
 
             # 19: Enfrentando Check-Raise
@@ -1483,6 +1483,231 @@ class LessonClassifier:
         if street_analysis.get('hero_calls'):
             return 1  # called = defended
         return None
+
+    # ── Board Analysis Helpers ────────────────────────────────────────
+
+    @classmethod
+    def _parse_cards(cls, cards_str: str) -> list[tuple[str, str]]:
+        """Parse 'Ah Kd 2c' → [('A','h'), ('K','d'), ('2','c')]."""
+        result: list[tuple[str, str]] = []
+        if not cards_str:
+            return result
+        for token in cards_str.split():
+            if len(token) >= 2:
+                rank = token[0].upper()
+                suit = token[1].lower()
+                if rank in cls._RANK_ORDER and suit in 'hdcs':
+                    result.append((rank, suit))
+        return result
+
+    @classmethod
+    def _board_texture(cls, board_flop: str) -> str:
+        """Classify flop texture as 'dry', 'neutral', or 'wet'.
+
+        Wet:     2+ same suit AND highly connected (span ≤ 4), or monotone.
+        Neutral: 2+ same suit OR highly connected (but not both).
+        Dry:     rainbow and disconnected.
+        """
+        cards = cls._parse_cards(board_flop)
+        if len(cards) < 3:
+            return 'neutral'
+
+        suits = [c[1] for c in cards]
+        ranks = [c[0] for c in cards]
+
+        suit_counts: dict[str, int] = {}
+        for s in suits:
+            suit_counts[s] = suit_counts.get(s, 0) + 1
+        two_suited = any(v >= 2 for v in suit_counts.values())
+
+        rank_idxs = sorted(
+            cls._RANK_ORDER.index(r) for r in ranks if r in cls._RANK_ORDER
+        )
+        if len(rank_idxs) < 2:
+            return 'neutral'
+        span = rank_idxs[-1] - rank_idxs[0]
+        highly_connected = span <= 4
+
+        if two_suited and highly_connected:
+            return 'wet'
+        if two_suited or highly_connected:
+            return 'neutral'
+        return 'dry'
+
+    @classmethod
+    def _hand_connects_board(cls, hero_cards: str,
+                             board_flop: str) -> Optional[str]:
+        """Evaluate how hero's hole cards connect with the flop.
+
+        Returns:
+            'strong': top pair + J+ kicker, two pair, overpair, set/trips
+            'medium': top pair weak kicker, middle/bottom pair, underpair
+            'draw':   flush draw (4-flush) or open-ended straight draw
+            'weak':   overcards or no significant equity
+            None:     cannot evaluate (missing cards)
+        """
+        hero = cls._parse_cards(hero_cards)
+        board = cls._parse_cards(board_flop)
+
+        if len(hero) < 2 or len(board) < 3:
+            return None
+
+        h_ranks = [c[0] for c in hero]
+        h_suits = [c[1] for c in hero]
+        b_ranks = [c[0] for c in board]
+        b_suits = [c[1] for c in board]
+        ro = cls._RANK_ORDER
+
+        is_pocket_pair = h_ranks[0] == h_ranks[1]
+
+        # Set: pocket pair + matching board card
+        if is_pocket_pair and h_ranks[0] in b_ranks:
+            return 'strong'
+
+        b_rank_idxs = sorted(
+            [ro.index(r) for r in b_ranks if r in ro], reverse=True
+        )
+
+        # Overpair / underpair
+        if is_pocket_pair:
+            h_idx = ro.index(h_ranks[0]) if h_ranks[0] in ro else -1
+            if b_rank_idxs and h_idx > b_rank_idxs[0]:
+                return 'strong'  # overpair
+            return 'medium'  # underpair
+
+        # Two pair: both hero cards hit different board ranks
+        hits = [r for r in h_ranks if r in b_ranks]
+        if len(hits) >= 2:
+            return 'strong'
+
+        if len(hits) == 1:
+            hit_rank = hits[0]
+            hit_idx = ro.index(hit_rank) if hit_rank in ro else -1
+            other_h = [r for r in h_ranks if r != hit_rank]
+            if hit_idx == b_rank_idxs[0]:  # top pair
+                if other_h and ro.index(other_h[0]) >= ro.index('J'):
+                    return 'strong'  # top pair + J+ kicker
+                return 'medium'  # top pair weak kicker
+            return 'medium'  # middle or bottom pair
+
+        # No made pair — check draws
+        suit_cnt: dict[str, int] = {}
+        for s in h_suits + b_suits:
+            suit_cnt[s] = suit_cnt.get(s, 0) + 1
+        if any(v >= 4 for v in suit_cnt.values()):
+            return 'draw'  # flush draw (4-flush among 5 cards)
+
+        # Open-ended straight draw: 4 cards in a 5-rank window
+        all_idxs = sorted(set(
+            ro.index(r) for r in h_ranks + b_ranks if r in ro
+        ))
+        for i in range(len(all_idxs)):
+            window = [x for x in all_idxs
+                      if all_idxs[i] <= x <= all_idxs[i] + 4]
+            if len(window) >= 4:
+                return 'draw'
+
+        return 'weak'
+
+    def _eval_cbet_flop_ip(self, hand: dict,
+                           flop_a: dict) -> Optional[int]:  # noqa: ARG002
+        """Evaluate c-bet flop IP execution.
+
+        Based on RegLife 'CBet Flop IP':
+        - IP bets frequently: value and bluffs on dry boards are correct.
+        - On wet boards, bluffing without equity is a mistake.
+        - Correct (1): value/draw, or air on dry board.
+        - Partial (None): air on neutral board (marginal bluff).
+        - Incorrect (0): air on wet board (over-bluffing without equity).
+        """
+        board_flop = hand.get('board_flop')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            return 1  # cannot evaluate, assume correct
+
+        texture = self._board_texture(board_flop)
+        strength = self._hand_connects_board(hero_cards, board_flop)
+
+        if strength is None:
+            return 1
+
+        if strength in ('strong', 'medium', 'draw'):
+            return 1  # value or semi-bluff: correct regardless of texture
+
+        # strength == 'weak' (air)
+        if texture == 'dry':
+            return 1   # bluffing dry boards IP is fine
+        if texture == 'neutral':
+            return None  # marginal
+        return 0  # air on wet board: over-bluffing
+
+    def _eval_cbet_flop_oop(self, hand: dict,
+                            flop_a: dict) -> Optional[int]:  # noqa: ARG002
+        """Evaluate c-bet flop OOP execution.
+
+        Based on RegLife 'CBet Flop OOP':
+        - OOP cbets with value hands and semi-bluffs: correct.
+        - OOP bluffing air is generally a mistake (vulnerable position).
+        - Correct (1): value or draw.
+        - Partial (None): air on dry board (occasionally correct OOP).
+        - Incorrect (0): air on wet or neutral board.
+        """
+        board_flop = hand.get('board_flop')
+        hero_cards = hand.get('hero_cards')
+
+        if not hero_cards or not board_flop:
+            return 1  # cannot evaluate, assume correct
+
+        texture = self._board_texture(board_flop)
+        strength = self._hand_connects_board(hero_cards, board_flop)
+
+        if strength is None:
+            return 1
+
+        if strength in ('strong', 'medium', 'draw'):
+            return 1  # value or semi-bluff OOP: correct
+
+        # strength == 'weak' (air)
+        if texture == 'dry':
+            return None  # marginally acceptable OOP on dry boards
+        return 0  # air OOP on wet/neutral: incorrect
+
+    def _eval_bb_vs_cbet(self, hand: dict, flop_a: dict) -> Optional[int]:
+        """Evaluate BB response to a flop c-bet (OOP).
+
+        Based on RegLife 'BB vs CBet OOP':
+        - Defend (call/raise) with made hands and draws: correct.
+        - Fold with made hands or draws: incorrect.
+        - Fold with air: correct.
+        - Call/raise with air: incorrect.
+        - Draws: folding is marginal (depends on sizing/odds).
+        """
+        board_flop = hand.get('board_flop')
+        hero_cards = hand.get('hero_cards')
+
+        hero_folds = flop_a.get('hero_folds', False)
+
+        if not hero_cards or not board_flop:
+            if hero_folds:
+                return None  # fold may be correct, cannot evaluate
+            return 1
+
+        strength = self._hand_connects_board(hero_cards, board_flop)
+
+        if strength is None:
+            return None if hero_folds else 1
+
+        if strength in ('strong', 'medium'):
+            return 0 if hero_folds else 1  # should defend made hands
+
+        if strength == 'draw':
+            if hero_folds:
+                return None  # folding a draw is sizing-dependent
+            return 1  # defending draws is correct
+
+        # strength == 'weak' (air)
+        return 1 if hero_folds else 0
 
     # ── Advanced Detection ───────────────────────────────────────────
 

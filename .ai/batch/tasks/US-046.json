@@ -1,0 +1,32 @@
+{
+  "id": "US-046",
+  "title": "Lesson: CBet Flop (IP + OOP) + BB vs CBet OOP",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Read PDFs for CBet IP, CBet OOP, and BB vs CBet OOP to extract hand ranges, frequencies, and sizing standards",
+    "Add board texture categorization constants and helper method (_categorize_board_texture) to lesson_classifier.py",
+    "Add _CBET_IP_RANGES, _CBET_OOP_RANGES, and _BB_VS_CBET_DEFENSE_RANGES hand tier constants to lesson_classifier.py",
+    "Implement _eval_cbet_ip() method with texture-based frequency and sizing evaluation",
+    "Implement _eval_cbet_oop() method with OOP-specific adjustments",
+    "Implement _eval_bb_vs_cbet() method with equity-based response evaluation",
+    "Update classify_hand() detection blocks for lessons 13, 14, 18 to use new specific eval methods",
+    "Write 30+ comprehensive tests covering all CBet IP, OOP, and BB defense scenarios",
+    "Run quality gates (typecheck, lint, tests)",
+    "Update prd.json status and commit"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "tests/test_lesson_classifier.py",
+    ".ai/tasks/prd.json"
+  ],
+  "created_at": "2026-03-15T06:18:11.767Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-046",
+  "replanned_at": "2026-03-15T06:28:43.293Z",
+  "replan_reason": "timeout after 630s (medium → high)"
+}
