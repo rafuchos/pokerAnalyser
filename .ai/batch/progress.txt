@@ -514,3 +514,6 @@ US-034 (2026-03-11): Session Day Drill-Down: Página de Stats Detalhada por Sess
 - Pattern: Moved flop_a/turn_a/river_a analysis before lessons 11/12 in classify_hand() so eval methods have context
 - Lesson: Straight-danger case unreachable for 'incorrect' probe/MDA eval - board itself creates the 4-card window, so hero is always classified 'draw'
 - Lesson: Flush-based 'dangerous' turns work for incorrect eval (board has 3 of suit, hero 0 = combined 3 < 4 needed for flush draw)
+
+=== US-050 completed at 2026-03-15T07:53:21.255Z ===
+- All quality gates passed
