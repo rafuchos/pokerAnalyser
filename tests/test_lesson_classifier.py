@@ -2105,5 +2105,395 @@ class TestBBPreflopEvaluation(unittest.TestCase):
         self.assertEqual(self._bb_result('BBPF91'), 0)
 
 
+# ── Blind War Evaluation Tests (US-043) ──────────────────────────────
+
+
+class TestBlindWarEvaluation(unittest.TestCase):
+    """Test blind war evaluation for lessons 7 (SB vs BB) and 9 (BB vs SB).
+
+    Based on RegLife 'O Conceito de Blind War - SB vs BB' and 'Blind War BB vs SB':
+    - SB should raise wide in blind war, never limp.
+    - BB defends wider vs SB than vs any other position.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _sb_result(self, hand_id):
+        """Get executed_correctly for lesson 7 (SB vs BB Blind War)."""
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 7), None)
+        return m.executed_correctly if m else None
+
+    def _bb_result(self, hand_id):
+        """Get executed_correctly for lesson 9 (BB vs SB Blind War)."""
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 9), None)
+        return m.executed_correctly if m else None
+
+    def _insert_sb_war(self, hand_id, hero_cards='Ah Kd', hero_action='raise',
+                       hero_amount=1.5):
+        """Insert a blind war hand where Hero is SB raising."""
+        _insert_hand(self.repo, hand_id, position='SB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        # Others fold before SB
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, hand_id, 'preflop', 'P2', 'fold', 0, 0, 2, 'MP')
+        _insert_action(self.repo, hand_id, 'preflop', 'P3', 'fold', 0, 0, 3, 'CO')
+        _insert_action(self.repo, hand_id, 'preflop', 'P4', 'fold', 0, 0, 4, 'BTN')
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', hero_action,
+                       hero_amount, 1, 5, 'SB')
+        _insert_action(self.repo, hand_id, 'preflop', 'P5', 'call', 1.5, 0, 6, 'BB')
+
+    def _insert_bb_war(self, hand_id, hero_cards='Ah Kd', hero_action='call',
+                       hero_amount=1.5):
+        """Insert a blind war hand where Hero is BB facing SB steal."""
+        _insert_hand(self.repo, hand_id, position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        # Others fold before SB
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, hand_id, 'preflop', 'P2', 'fold', 0, 0, 2, 'MP')
+        _insert_action(self.repo, hand_id, 'preflop', 'P3', 'fold', 0, 0, 3, 'CO')
+        _insert_action(self.repo, hand_id, 'preflop', 'P4', 'fold', 0, 0, 4, 'BTN')
+        _insert_action(self.repo, hand_id, 'preflop', 'P5', 'raise', 1.5, 0, 5, 'SB')
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', hero_action,
+                       hero_amount, 1, 6, 'BB')
+
+    # ── Data set membership tests ────────────────────────────────────
+
+    def test_sb_war_extra_exists(self):
+        """_SB_WAR_EXTRA data set should be populated."""
+        self.assertGreater(len(self.classifier._SB_WAR_EXTRA), 0)
+
+    def test_sb_war_extra_contains_weak_offsuit(self):
+        """_SB_WAR_EXTRA includes hands beyond BTN range for SB steal."""
+        for hand in ['Q5o', 'J6o', 'T6o', '96o', '85o', '74o', '73o', '72o']:
+            self.assertIn(hand, self.classifier._SB_WAR_EXTRA,
+                          f'{hand} should be in _SB_WAR_EXTRA')
+
+    def test_bw_bb_defend_exists(self):
+        """_BW_BB_DEFEND data set should be populated."""
+        self.assertGreater(len(self.classifier._BW_BB_DEFEND), 0)
+
+    def test_bw_bb_defend_covers_all_pairs(self):
+        """All pairs should be in _BW_BB_DEFEND (never fold a pair in blind war)."""
+        for pair in ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77',
+                     '66', '55', '44', '33', '22']:
+            self.assertIn(pair, self.classifier._BW_BB_DEFEND,
+                          f'{pair} should be in _BW_BB_DEFEND')
+
+    def test_bw_bb_defend_covers_all_suited_aces(self):
+        """All suited aces in _BW_BB_DEFEND (flush equity vs wide SB range)."""
+        for hand in ['AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s',
+                     'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s']:
+            self.assertIn(hand, self.classifier._BW_BB_DEFEND,
+                          f'{hand} should be in _BW_BB_DEFEND')
+
+    def test_bw_bb_defend_covers_all_offsuit_aces(self):
+        """All offsuit aces should be in _BW_BB_DEFEND."""
+        for hand in ['AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'A8o',
+                     'A7o', 'A6o', 'A5o', 'A4o', 'A3o', 'A2o']:
+            self.assertIn(hand, self.classifier._BW_BB_DEFEND,
+                          f'{hand} should be in _BW_BB_DEFEND')
+
+    def test_bw_bb_defend_covers_weak_suited_hands(self):
+        """Weak suited hands should be in _BW_BB_DEFEND (suit value in BW)."""
+        for hand in ['72s', '32s', 'J2s', 'T2s', '62s']:
+            self.assertIn(hand, self.classifier._BW_BB_DEFEND,
+                          f'{hand} should be in _BW_BB_DEFEND')
+
+    def test_bw_bb_marginal_exists(self):
+        """_BW_BB_MARGINAL data set should be populated."""
+        self.assertGreater(len(self.classifier._BW_BB_MARGINAL), 0)
+
+    def test_bw_bb_marginal_contains_weak_offsuit(self):
+        """_BW_BB_MARGINAL includes borderline offsuit hands."""
+        for hand in ['K5o', 'Q5o', 'J7o', 'T7o', '96o', '85o', '74o', '72o', '32o']:
+            self.assertIn(hand, self.classifier._BW_BB_MARGINAL,
+                          f'{hand} should be in _BW_BB_MARGINAL')
+
+    def test_no_overlap_between_defend_and_marginal(self):
+        """_BW_BB_DEFEND and _BW_BB_MARGINAL must not share any hands."""
+        overlap = self.classifier._BW_BB_DEFEND & self.classifier._BW_BB_MARGINAL
+        self.assertEqual(overlap, set(),
+                         f'Overlap between DEFEND and MARGINAL: {overlap}')
+
+    # ── Lesson 7: SB vs BB evaluation tests ─────────────────────────
+
+    def test_sb_raises_tier1_hand_correct(self):
+        """SB raising with AA (Tier 1) in blind war = correct."""
+        self._insert_sb_war('SBW01', hero_cards='Ah Ad')
+        self.assertEqual(self._sb_result('SBW01'), 1)
+
+    def test_sb_raises_tier2_hand_correct(self):
+        """SB raising with AJo (Tier 2 area) in blind war = correct."""
+        self._insert_sb_war('SBW02', hero_cards='Ah Jd')
+        self.assertEqual(self._sb_result('SBW02'), 1)
+
+    def test_sb_raises_tier3_hand_correct(self):
+        """SB raising with A8o (Tier 3) in blind war = correct."""
+        self._insert_sb_war('SBW03', hero_cards='Ah 8d')
+        self.assertEqual(self._sb_result('SBW03'), 1)
+
+    def test_sb_raises_tier4_hand_correct(self):
+        """SB raising with T9o (Tier 4, BTN range) in blind war = correct."""
+        self._insert_sb_war('SBW04', hero_cards='Th 9d')
+        self.assertEqual(self._sb_result('SBW04'), 1)
+
+    def test_sb_raises_sb_extra_q5o_correct(self):
+        """SB raising Q5o (in _SB_WAR_EXTRA) = correct steal."""
+        self._insert_sb_war('SBW05', hero_cards='Qh 5d')
+        self.assertEqual(self._sb_result('SBW05'), 1)
+
+    def test_sb_raises_sb_extra_j6o_correct(self):
+        """SB raising J6o (in _SB_WAR_EXTRA) = correct steal."""
+        self._insert_sb_war('SBW06', hero_cards='Jh 6d')
+        self.assertEqual(self._sb_result('SBW06'), 1)
+
+    def test_sb_raises_sb_extra_72o_correct(self):
+        """SB raising 72o (in _SB_WAR_EXTRA) = correct steal."""
+        self._insert_sb_war('SBW07', hero_cards='7h 2d')
+        self.assertEqual(self._sb_result('SBW07'), 1)
+
+    def test_sb_raises_clear_trash_incorrect(self):
+        """SB raising 32o (clear trash, not in any range) = incorrect."""
+        self._insert_sb_war('SBW08', hero_cards='3h 2d')
+        self.assertEqual(self._sb_result('SBW08'), 0)
+
+    def test_sb_raises_42o_incorrect(self):
+        """SB raising 42o (clear trash) = incorrect."""
+        self._insert_sb_war('SBW09', hero_cards='4h 2d')
+        self.assertEqual(self._sb_result('SBW09'), 0)
+
+    def test_sb_raises_no_cards_correct(self):
+        """SB raising without hero cards recorded = correct (can't evaluate)."""
+        _insert_hand(self.repo, 'SBW10', position='SB')
+        # hero_cards defaults to 'Ah Kd' from _make_hand; override with NULL
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('SBW10',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'SBW10', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'SBW10', 'preflop', 'P2', 'fold', 0, 0, 2, 'BTN')
+        _insert_action(self.repo, 'SBW10', 'preflop', 'Hero', 'raise', 1.5, 1, 3, 'SB')
+        _insert_action(self.repo, 'SBW10', 'preflop', 'P3', 'call', 1.5, 0, 4, 'BB')
+        self.assertEqual(self._sb_result('SBW10'), 1)
+
+    def test_sb_war_fires_for_sb_position(self):
+        """Lesson 7 fires when hero is SB and raises in blind war."""
+        self._insert_sb_war('SBW11', hero_cards='Ah Kd')
+        matches = self._classify('SBW11')
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(7, ids)
+
+    def test_sb_war_does_not_fire_for_btn(self):
+        """Lesson 7 should not fire when hero is BTN (not SB)."""
+        _insert_hand(self.repo, 'SBW12', position='BTN')
+        _insert_action(self.repo, 'SBW12', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
+        matches = self._classify('SBW12')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(7, ids)
+
+    def test_sb_war_does_not_fire_when_not_blind_war(self):
+        """Lesson 7 should not fire when other players are in the pot."""
+        _insert_hand(self.repo, 'SBW13', position='SB')
+        _insert_action(self.repo, 'SBW13', 'preflop', 'P1', 'raise', 1.5, 0, 1, 'UTG')
+        _insert_action(self.repo, 'SBW13', 'preflop', 'Hero', 'call', 1.5, 1, 2, 'SB')
+        matches = self._classify('SBW13')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(7, ids)
+
+    def test_sb_raises_suited_hand_tier4_correct(self):
+        """SB raising with J7s (suited, in tier 4 via BTN range) = correct."""
+        # J7s is not in tier 1-4... let me check. Actually let me use a clearly suited hand.
+        # KQs is tier 1, clearly correct.
+        self._insert_sb_war('SBW14', hero_cards='Kh Qh')
+        self.assertEqual(self._sb_result('SBW14'), 1)
+
+    def test_sb_raises_96o_correct(self):
+        """SB raising 96o (in _SB_WAR_EXTRA) = correct steal."""
+        self._insert_sb_war('SBW15', hero_cards='9h 6d')
+        self.assertEqual(self._sb_result('SBW15'), 1)
+
+    # ── Lesson 9: BB vs SB evaluation tests ─────────────────────────
+
+    def test_bb_defends_premium_pair_correct(self):
+        """BB calling AA vs SB steal = correct."""
+        self._insert_bb_war('BBW01', hero_cards='Ah Ad')
+        self.assertEqual(self._bb_result('BBW01'), 1)
+
+    def test_bb_folds_premium_pair_incorrect(self):
+        """BB folding AA vs SB steal = incorrect (should always defend)."""
+        self._insert_bb_war('BBW02', hero_cards='Ah Ad', hero_action='fold',
+                            hero_amount=0)
+        self.assertEqual(self._bb_result('BBW02'), 0)
+
+    def test_bb_defends_suited_connector_correct(self):
+        """BB calling 98s vs SB steal = correct (suited hand, always defend)."""
+        self._insert_bb_war('BBW03', hero_cards='9h 8h')
+        self.assertEqual(self._bb_result('BBW03'), 1)
+
+    def test_bb_folds_suited_connector_incorrect(self):
+        """BB folding 87s vs SB steal = incorrect (suited hand should defend)."""
+        self._insert_bb_war('BBW04', hero_cards='8h 7h', hero_action='fold',
+                            hero_amount=0)
+        self.assertEqual(self._bb_result('BBW04'), 0)
+
+    def test_bb_defends_offsuit_ace_correct(self):
+        """BB calling A5o vs SB steal = correct (all Ax defend in blind war)."""
+        self._insert_bb_war('BBW05', hero_cards='Ah 5d')
+        self.assertEqual(self._bb_result('BBW05'), 1)
+
+    def test_bb_folds_offsuit_ace_incorrect(self):
+        """BB folding A2o vs SB steal = incorrect (Ax should defend in blind war)."""
+        self._insert_bb_war('BBW06', hero_cards='Ah 2d', hero_action='fold',
+                            hero_amount=0)
+        self.assertEqual(self._bb_result('BBW06'), 0)
+
+    def test_bb_defends_offsuit_broadway_correct(self):
+        """BB calling KJo vs SB steal = correct."""
+        self._insert_bb_war('BBW07', hero_cards='Kh Jd')
+        self.assertEqual(self._bb_result('BBW07'), 1)
+
+    def test_bb_defends_marginal_hand_unknown(self):
+        """BB calling Q5o (marginal) vs SB steal = None (borderline)."""
+        self._insert_bb_war('BBW08', hero_cards='Qh 5d')
+        self.assertIsNone(self._bb_result('BBW08'))
+
+    def test_bb_folds_marginal_hand_unknown(self):
+        """BB folding T6o (marginal) vs SB steal = None (borderline)."""
+        self._insert_bb_war('BBW09', hero_cards='Th 6d', hero_action='fold',
+                            hero_amount=0)
+        self.assertIsNone(self._bb_result('BBW09'))
+
+    def test_bb_defends_marginal_72o_unknown(self):
+        """BB calling 72o (marginal in blind war) = None."""
+        self._insert_bb_war('BBW10', hero_cards='7h 2d')
+        self.assertIsNone(self._bb_result('BBW10'))
+
+    def test_bb_no_hero_cards_unknown(self):
+        """BB with no hero cards recorded = None (can't evaluate)."""
+        _insert_hand(self.repo, 'BBW11', position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('BBW11',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'BBW11', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'BBW11', 'preflop', 'P2', 'fold', 0, 0, 2, 'BTN')
+        _insert_action(self.repo, 'BBW11', 'preflop', 'P3', 'raise', 1.5, 0, 3, 'SB')
+        _insert_action(self.repo, 'BBW11', 'preflop', 'Hero', 'call', 1.5, 1, 4, 'BB')
+        self.assertIsNone(self._bb_result('BBW11'))
+
+    def test_bb_war_fires_for_bb_position(self):
+        """Lesson 9 fires when hero is BB facing SB steal."""
+        self._insert_bb_war('BBW12', hero_cards='Kh Qd')
+        matches = self._classify('BBW12')
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(9, ids)
+
+    def test_bb_war_does_not_fire_for_sb(self):
+        """Lesson 9 should not fire when hero is SB (not BB)."""
+        self._insert_sb_war('BBW13', hero_cards='Ah Kd')
+        matches = self._classify('BBW13')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(9, ids)
+
+    def test_bb_war_does_not_fire_when_not_blind_war(self):
+        """Lesson 9 should not fire when opener is not SB (UTG open vs BB)."""
+        _insert_hand(self.repo, 'BBW14', position='BB')
+        _insert_action(self.repo, 'BBW14', 'preflop', 'P1', 'raise', 1.5, 0, 1, 'UTG')
+        _insert_action(self.repo, 'BBW14', 'preflop', 'Hero', 'call', 1.5, 1, 2, 'BB')
+        matches = self._classify('BBW14')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(9, ids)
+
+    def test_bb_3bets_strong_hand_correct(self):
+        """BB 3-betting AA vs SB steal = correct (aggressive defense is also correct)."""
+        _insert_hand(self.repo, 'BBW15', position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", ('Ah Ad', 'BBW15'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'BBW15', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'BBW15', 'preflop', 'P2', 'fold', 0, 0, 2, 'BTN')
+        _insert_action(self.repo, 'BBW15', 'preflop', 'P3', 'raise', 1.5, 0, 3, 'SB')
+        _insert_action(self.repo, 'BBW15', 'preflop', 'Hero', 'raise', 5.0, 1, 4, 'BB')
+        self.assertEqual(self._bb_result('BBW15'), 1)
+
+    def test_bb_war_also_fires_lesson_6(self):
+        """In a blind war, BB hands also trigger lesson 6 (BB Pre-Flop)."""
+        self._insert_bb_war('BBW16', hero_cards='Ah Kd')
+        matches = self._classify('BBW16')
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(6, ids)  # BB Pre-Flop lesson
+        self.assertIn(9, ids)  # BB vs SB Blind War lesson
+
+    def test_sb_war_also_fires_lesson_1(self):
+        """SB raising in blind war also triggers lesson 1 (RFI)."""
+        self._insert_sb_war('SBW16', hero_cards='Ah Kd')
+        matches = self._classify('SBW16')
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(1, ids)   # RFI lesson
+        self.assertIn(7, ids)   # SB vs BB Blind War lesson
+
+    def test_bb_defends_low_pair_correct(self):
+        """BB calling 22 vs SB steal = correct (all pairs defend in blind war)."""
+        self._insert_bb_war('BBW17', hero_cards='2h 2d')
+        self.assertEqual(self._bb_result('BBW17'), 1)
+
+    def test_bb_folds_low_pair_incorrect(self):
+        """BB folding 22 vs SB steal = incorrect (pairs should defend)."""
+        self._insert_bb_war('BBW18', hero_cards='2h 2d', hero_action='fold',
+                            hero_amount=0)
+        self.assertEqual(self._bb_result('BBW18'), 0)
+
+    def test_bb_defends_kqo_correct(self):
+        """BB calling KQo vs SB steal = correct (strong offsuit broadways defend)."""
+        self._insert_bb_war('BBW19', hero_cards='Kh Qd')
+        self.assertEqual(self._bb_result('BBW19'), 1)
+
+    def test_bb_defends_76o_correct(self):
+        """BB calling 76o vs SB steal = correct (connected hand worth defending)."""
+        self._insert_bb_war('BBW20', hero_cards='7h 6d')
+        self.assertEqual(self._bb_result('BBW20'), 1)
+
+    def test_sb_raises_t6o_correct(self):
+        """SB raising T6o (in _SB_WAR_EXTRA) = correct steal."""
+        self._insert_sb_war('SBW17', hero_cards='Th 6d')
+        self.assertEqual(self._sb_result('SBW17'), 1)
+
+    def test_sb_raises_93o_correct(self):
+        """SB raising 93o (in _SB_WAR_EXTRA) = correct steal."""
+        self._insert_sb_war('SBW18', hero_cards='9h 3d')
+        self.assertEqual(self._sb_result('SBW18'), 1)
+
+    def test_sb_raises_53o_correct(self):
+        """SB raising 53o (in _SB_WAR_EXTRA) = correct steal."""
+        self._insert_sb_war('SBW19', hero_cards='5h 3d')
+        self.assertEqual(self._sb_result('SBW19'), 1)
+
+    def test_sb_raises_62o_incorrect_if_not_in_range(self):
+        """SB raising 62o - not in any range - should be incorrect."""
+        # 62o is not in tier 1-4 and not in _SB_WAR_EXTRA
+        self.assertNotIn('62o', self.classifier._SB_WAR_EXTRA)
+        rfi_tier = self.classifier._rfi_hand_tier('62o')
+        self.assertGreater(rfi_tier, 4, '62o should not be in RFI tier 1-4')
+        self._insert_sb_war('SBW20', hero_cards='6h 2d')
+        self.assertEqual(self._sb_result('SBW20'), 0)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -203,6 +203,73 @@ class LessonClassifier:
         'BTN': 4, 'SB': 4,
     }
 
+    # ── SB vs BB Blind War Data (from RegLife 'O Conceito de Blind War - SB vs BB') ──
+    # Additional hands SB can profitably steal with vs sole BB opponent.
+    # SB opens ~60% in blind war: all RFI Tier 1-4 (BTN range, ~54%) + these extras.
+    _SB_WAR_EXTRA = {
+        # Weak Q-high offsuit (below Q6o which is already in BTN Tier 4)
+        'Q5o', 'Q4o', 'Q3o', 'Q2o',
+        # Weak J-high offsuit (below J7o)
+        'J6o', 'J5o', 'J4o', 'J3o', 'J2o',
+        # Weak T-high offsuit (below T7o)
+        'T6o', 'T5o', 'T4o', 'T3o', 'T2o',
+        # 9-x offsuit (96o and below not in BTN range)
+        '96o', '95o', '94o', '93o', '92o',
+        # 8-x offsuit (below 86o)
+        '85o', '84o', '83o', '82o',
+        # 7-x offsuit (below 75o)
+        '74o', '73o', '72o',
+        # Low connected offsuit
+        '63o', '53o',
+    }
+
+    # ── BB vs SB Blind War Data (from RegLife 'Blind War BB vs SB') ──
+    # BB defense ranges in a blind war vs SB steal.
+    # BB defends ~65% due to positional advantage (BB is IP vs SB postflop)
+    # and SB's wide range (making BB's relative hand strength better).
+    _BW_BB_DEFEND = {
+        # All pairs: always defend in blind war
+        'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33', '22',
+        # All suited aces (flush equity + pair outs always valuable)
+        'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+        # All other suited hands (flush draws are powerful in HU pots)
+        'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s', 'K2s',
+        'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s', 'Q5s', 'Q4s', 'Q3s', 'Q2s',
+        'JTs', 'J9s', 'J8s', 'J7s', 'J6s', 'J5s', 'J4s', 'J3s', 'J2s',
+        'T9s', 'T8s', 'T7s', 'T6s', 'T5s', 'T4s', 'T3s', 'T2s',
+        '98s', '97s', '96s', '95s', '94s', '93s', '92s',
+        '87s', '86s', '85s', '84s', '83s', '82s',
+        '76s', '75s', '74s', '73s', '72s',
+        '65s', '64s', '63s', '62s',
+        '54s', '53s', '52s',
+        '43s', '42s', '32s',
+        # All offsuit aces (always defend vs wide SB range)
+        'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'A8o', 'A7o', 'A6o', 'A5o', 'A4o', 'A3o', 'A2o',
+        # Offsuit broadways and connected hands (profitable vs SB's wide range)
+        'KQo', 'KJo', 'KTo', 'K9o', 'K8o', 'K7o',
+        'QJo', 'QTo', 'Q9o', 'Q8o',
+        'JTo', 'J9o', 'J8o',
+        'T9o', 'T8o',
+        '98o', '97o',
+        '87o', '86o',
+        '76o', '75o',
+        '65o', '64o',
+        '54o',
+    }
+    # Marginal hands - either action (call or fold) can be correct vs SB steal
+    _BW_BB_MARGINAL = {
+        'K6o', 'K5o', 'K4o', 'K3o', 'K2o',
+        'Q7o', 'Q6o', 'Q5o', 'Q4o', 'Q3o', 'Q2o',
+        'J7o', 'J6o', 'J5o', 'J4o', 'J3o', 'J2o',
+        'T7o', 'T6o', 'T5o', 'T4o', 'T3o', 'T2o',
+        '96o', '95o', '94o', '93o', '92o',
+        '85o', '84o', '83o', '82o',
+        '74o', '73o', '72o',
+        '63o', '62o',
+        '53o', '52o',
+        '43o', '42o', '32o',
+    }
+
     def __init__(self, repo: Repository):
         self.repo = repo
         self._lessons = {}  # lesson_id -> lesson dict
@@ -839,16 +906,64 @@ class LessonClassifier:
             return 1 if hero_folded else 0
 
     def _eval_sb_vs_bb(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate SB steal attempt."""
-        if pf.get('hero_is_rfi'):
-            return 1  # opened from SB
-        return 0  # limped or folded
+        """Evaluate SB steal attempt in a blind war.
+
+        Based on RegLife 'O Conceito de Blind War - SB vs BB':
+        - SB should raise (never limp) with a wide range when only BB remains.
+        - Correct (1): Raised with hand in SB steal range (RFI Tier 1-4 plus SB extras).
+        - Partial (None): Raised with a borderline hand outside known ranges.
+        - Incorrect (0): Raised with clear trash below the SB steal range.
+        """
+        # Detection requires SB to have raised (is_blind_war flag), so hero_is_rfi is True.
+        hero_cards = hand.get('hero_cards')
+        if not hero_cards:
+            return 1  # raised without visible cards - execution assumed correct
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return 1  # raised, can't evaluate hand quality
+
+        # Hand in standard BTN/SB RFI range (Tier 1-4): correct steal
+        rfi_tier = self._rfi_hand_tier(notation)
+        if rfi_tier <= 4:
+            return 1
+
+        # Hand in SB-specific steal extras (beyond BTN range): correct steal
+        if notation in self._SB_WAR_EXTRA:
+            return 1
+
+        # Everything else is clear trash from SB perspective: raising is incorrect
+        return 0
 
     def _eval_bb_vs_sb(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate BB defense vs SB steal."""
-        if pf.get('hero_folds_preflop'):
-            return None  # fold may be correct
-        return 1  # defended
+        """Evaluate BB defense in a blind war vs SB steal.
+
+        Based on RegLife 'Blind War BB vs SB':
+        - BB defends wider vs SB than vs any other position because:
+          SB's range is wide, BB has positional advantage postflop, pot odds are good.
+        - Correct (1): Defended with a clear defend hand, or folded clear trash.
+        - Partial (None): Marginal hand (sizing/read dependent).
+        - Incorrect (0): Folded a clearly defensible hand, or defended with trash.
+        """
+        hero_cards = hand.get('hero_cards')
+        hero_folded = pf.get('hero_folds_preflop', False)
+
+        if not hero_cards:
+            return None  # cannot evaluate without hand information
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return None
+
+        if notation in self._BW_BB_DEFEND:
+            # Strong enough hand to defend vs wide SB range
+            return 0 if hero_folded else 1
+        elif notation in self._BW_BB_MARGINAL:
+            # Borderline hand: fold or call both reasonable
+            return None
+        else:
+            # Clear trash: folding is correct, defending is incorrect
+            return 1 if hero_folded else 0
 
     def _eval_multiway_bb(self, hand: dict, pf: dict) -> Optional[int]:
         """Evaluate BB defense in multiway preflop situation.

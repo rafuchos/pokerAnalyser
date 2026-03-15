@@ -1,0 +1,32 @@
+{
+  "id": "US-043",
+  "title": "Lesson: Blind War SB vs BB + BB vs SB",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "Read 2 PDFs (RegLife-OConceitodeBlindWar-SBvsBB, RegLife-BLINDWARBBVSSB) to extract SB open ranges, BB defense/3-bet ranges, sizings, and adjustments",
+    "Add SB blind war hand range constants (tiered) and BB blind war defense range constants to lesson_classifier.py",
+    "Enhance _eval_sb_vs_bb() to validate SB open hand against blind war range tiers and sizing",
+    "Enhance _eval_bb_vs_sb() to validate BB defense/3-bet response against hand strength vs SB range",
+    "Verify lesson seed entries for lessons 7 and 9 in seed_lessons.py are correct",
+    "Add/update unit tests in test_lesson_classifier.py for blind war scenarios",
+    "Run quality gates (typecheck, lint, tests, build)",
+    "Update prd.json status and batch tracking files"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "src/db/seed_lessons.py",
+    "tests/test_lesson_classifier.py",
+    ".ai/tasks/prd.json",
+    ".ai/batch/progress.txt"
+  ],
+  "created_at": "2026-03-15T05:38:24.269Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-043",
+  "replanned_at": "2026-03-15T05:48:54.779Z",
+  "replan_reason": "timeout after 630s (medium → high)"
+}
