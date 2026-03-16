@@ -72,7 +72,7 @@ class TestLessonSchema(unittest.TestCase):
         init_db(conn)
         init_db(conn)  # Should not raise
         count = conn.execute("SELECT COUNT(*) as cnt FROM lessons").fetchone()['cnt']
-        self.assertEqual(count, 25)
+        self.assertEqual(count, 23)
         conn.close()
 
 
@@ -87,17 +87,17 @@ class TestSeedLessons(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def test_seed_data_has_25_lessons(self):
-        self.assertEqual(len(REGLIFE_LESSONS), 25)
+    def test_seed_data_has_23_lessons(self):
+        self.assertEqual(len(REGLIFE_LESSONS), 23)
 
-    def test_seed_inserts_25_lessons(self):
+    def test_seed_inserts_23_lessons(self):
         # init_db already seeds, so clear and re-seed manually
         self.conn.execute("DELETE FROM lessons")
         self.conn.commit()
         count = seed_lessons(self.conn)
-        self.assertEqual(count, 25)
+        self.assertEqual(count, 23)
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM lessons").fetchone()
-        self.assertEqual(row['cnt'], 25)
+        self.assertEqual(row['cnt'], 23)
 
     def test_seed_is_idempotent(self):
         # Already seeded by init_db
@@ -153,7 +153,7 @@ class TestSeedLessons(unittest.TestCase):
         row = self.conn.execute(
             "SELECT COUNT(*) as cnt FROM lessons WHERE category = 'Postflop'"
         ).fetchone()
-        self.assertEqual(row['cnt'], 14)
+        self.assertEqual(row['cnt'], 12)
 
     def test_torneios_lesson_count(self):
         row = self.conn.execute(
@@ -176,9 +176,9 @@ class TestLessonRepository(unittest.TestCase):
 
     def test_get_lessons(self):
         lessons = self.repo.get_lessons()
-        self.assertEqual(len(lessons), 25)
+        self.assertEqual(len(lessons), 23)
         self.assertEqual(lessons[0]['sort_order'], 1)
-        self.assertEqual(lessons[-1]['sort_order'], 25)
+        self.assertEqual(lessons[-1]['sort_order'], 23)
 
     def test_get_lesson_by_id(self):
         lesson = self.repo.get_lesson_by_id(1)
@@ -191,7 +191,7 @@ class TestLessonRepository(unittest.TestCase):
 
     def test_get_lessons_with_hand_count_no_links(self):
         lessons = self.repo.get_lessons_with_hand_count()
-        self.assertEqual(len(lessons), 25)
+        self.assertEqual(len(lessons), 23)
         for lesson in lessons:
             self.assertEqual(lesson['hand_count'], 0)
 
@@ -292,7 +292,7 @@ class TestLessonRepository(unittest.TestCase):
         self.conn.execute("DELETE FROM lessons")
         self.conn.commit()
         count = self.repo.seed_lessons_if_empty()
-        self.assertEqual(count, 25)
+        self.assertEqual(count, 23)
 
     def test_multiple_hands_same_lesson(self):
         for i in range(5):
@@ -309,14 +309,14 @@ class TestLessonRepository(unittest.TestCase):
         self.repo.insert_hand(hand)
         self.repo.link_hand_to_lesson('ONEHAND', 1)
         self.repo.link_hand_to_lesson('ONEHAND', 10)
-        self.repo.link_hand_to_lesson('ONEHAND', 25)
+        self.repo.link_hand_to_lesson('ONEHAND', 23)
 
         lessons = self.repo.get_lessons_for_hand('ONEHAND')
         self.assertEqual(len(lessons), 3)
         ids = [l['lesson_id'] for l in lessons]
         self.assertIn(1, ids)
         self.assertIn(10, ids)
-        self.assertIn(25, ids)
+        self.assertIn(23, ids)
 
 
 class TestLessonsMigration(unittest.TestCase):
@@ -430,7 +430,7 @@ class TestLessonsMigration(unittest.TestCase):
 
         # Should also seed
         count = conn.execute("SELECT COUNT(*) as cnt FROM lessons").fetchone()['cnt']
-        self.assertEqual(count, 25)
+        self.assertEqual(count, 23)
         conn.close()
 
 
@@ -454,7 +454,7 @@ class TestLessonsCLI(unittest.TestCase):
         self.assertIn('Preflop', result.stdout)
         self.assertIn('Postflop', result.stdout)
         self.assertIn('Torneios', result.stdout)
-        self.assertIn('25 aulas', result.stdout)
+        self.assertIn('23 aulas', result.stdout)
 
     def test_lessons_shows_all_lessons(self):
         result = subprocess.run(

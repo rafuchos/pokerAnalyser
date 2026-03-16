@@ -479,6 +479,8 @@
             <span class="badge badge-warning">Aprendendo</span>
             {% elif lesson.get('mastery') == 'needs_work' %}
             <span class="badge badge-danger">Precisa Trabalho</span>
+            {% elif lesson.get('mastery') == 'insufficient_data' %}
+            <span class="badge" style="background: rgba(136,136,136,0.2); color: #999;">Poucos Dados</span>
             {% endif %}
             {% if lesson.get('hands') %}
             <button class="filter-btn" data-toggle="accordion" data-target="lac-hands-{{ lesson['lesson_id'] }}">Ver mãos ({{ lesson['hands']|length }})</button>

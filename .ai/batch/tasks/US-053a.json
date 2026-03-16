@@ -1,0 +1,33 @@
+{
+  "id": "US-053a",
+  "title": "Foundation: Guards, Mastery fix, Notes infra, remover MDA",
+  "status": "completed",
+  "estimated_time_seconds": 1800,
+  "timeout_seconds": 1890,
+  "plan": [
+    "Remove lessons 10 (Introdução ao Pós-Flop) and 11 (Introdução ao MDA) from src/db/seed_lessons.py and renumber remaining lessons",
+    "Add guard in lesson_classifier.py classify_hand() to block all-in preflop hands from entering postflop lessons (verify/strengthen existing guard)",
+    "Add guard in lesson_classifier.py to block hands without hero postflop action from entering postflop lessons",
+    "Update all _eval_ methods to consistently return (int|None, str) tuples and ensure notes string is always populated with Portuguese explanation",
+    "Verify notes field flows through LessonMatch → bulk_link_hand_lessons → hand_lessons table (infra already exists, ensure it's wired correctly)",
+    "Remove _eval_mda method and any lesson 10/11 classifier logic from lesson_classifier.py",
+    "Add 'insufficient_data' mastery level in src/web/data.py, rendering as 'Poucos Dados'",
+    "Update lesson ID references throughout classifier (postflop lessons shift down by 2 after removal)",
+    "Update tests/test_lesson_classifier.py: remove lesson 10/11 tests, renumber, add guard tests, add mastery test, add notes test"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "src/db/seed_lessons.py",
+    "src/web/data.py",
+    "tests/test_lesson_classifier.py",
+    "src/db/repository.py"
+  ],
+  "created_at": "2026-03-16T00:22:51.616Z",
+  "completed_at": "2026-03-16T00:57:53.375Z",
+  "failure_reason": null,
+  "branch": "feat/US-053a",
+  "replanned_at": "2026-03-16T00:38:37.074Z",
+  "replan_reason": "timeout after 945s (high → high)"
+}

@@ -10,7 +10,7 @@
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-label">Aulas com Dados</div>
-        <div class="stat-value neutral">{{ data.get('lesson_with_data', 0) }} / {{ data.get('lesson_total', 25) }}</div>
+        <div class="stat-value neutral">{{ data.get('lesson_with_data', 0) }} / {{ data.get('lesson_total', 23) }}</div>
     </div>
     <div class="stat-card">
         <div class="stat-label">Maos Classificadas</div>
@@ -149,6 +149,8 @@
                     <span class="badge badge-warning">Aprendendo</span>
                     {% elif m == 'needs_work' %}
                     <span class="badge badge-danger">Precisa Trabalho</span>
+                    {% elif m == 'insufficient_data' %}
+                    <span class="badge" style="background: rgba(136,136,136,0.2); color: #999;">Poucos Dados</span>
                     {% else %}
                     <span class="badge">Sem Dados</span>
                     {% endif %}

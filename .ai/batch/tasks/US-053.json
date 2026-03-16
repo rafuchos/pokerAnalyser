@@ -1,0 +1,34 @@
+{
+  "id": "US-053",
+  "title": "Umbrella: Rewrite Lesson Classifier baseado nos PDFs RegLife",
+  "status": "completed",
+  "estimated_time_seconds": 1800,
+  "timeout_seconds": 1890,
+  "plan": [
+    "US-053a: Foundation — Add postflop guards (block all-in preflop hands from postflop lessons), change _eval methods to return (Optional[int], str) tuples with PT-BR notes, add 'insufficient_data' mastery status, remove Lessons 10 & 11 from classifier, update templates for new mastery badge",
+    "US-053b: Rewrite Preflop Lessons 1-4 — Read PDFs for RFI, Flat/3Bet, Reação vs 3Bet, Open Shove; extract exact ranges by position/stack; rewrite _eval_rfi, _eval_flat_3bet, _eval_vs3bet, _eval_open_shove with PDF-accurate criteria and PT-BR notes",
+    "US-053c: Rewrite Preflop Lessons 5-9 — Read PDFs for Squeeze, BB Defense, Blind War SB vs BB, Multiway BB, BB vs SB; extract ranges and criteria; rewrite _eval_squeeze, _eval_bb_defense, _eval_blind_war_sb, _eval_multiway_bb, _eval_blind_war_bb with notes",
+    "US-053d: Rewrite Postflop Lessons 13-17 — Read PDFs for CBet Flop IP/OOP, CBet Turn, CBet River, Delayed CBet; extract board texture rules, sizing guidelines, frequencies; rewrite all cbet eval methods with guards and notes",
+    "US-053e: Rewrite Postflop Lessons 18-22 — Read PDFs for BB vs CBet, Check-Raise, IP vs CBet, Bet vs Missed, Probe; extract defense frequencies, ranges; rewrite eval methods with postflop guards and notes",
+    "US-053f: Rewrite Advanced Lessons 12, 23-25 — Read PDFs for Pós-Flop Avançado, 3Bet Pots Postflop, Bounty Intro, Bounty Ranges; implement or mark NOT_CLASSIFIABLE; add notes",
+    "Validation: Run classifier against eu.db (40 hands), verify unknown rate < 15% per lesson, verify 100% notes coverage, sanity-check results"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "src/analytics_pipeline.py",
+    "src/web/templates/cash/lessons.html",
+    "src/web/templates/tournament/lessons.html",
+    "src/web/templates/cash/session_day.html",
+    "src/web/templates/tournament/session_day.html",
+    "tests/test_lesson_classifier.py",
+    "src/db/seed_lessons.py"
+  ],
+  "created_at": "2026-03-15T23:59:28.583Z",
+  "completed_at": "2026-03-16T00:21:07.639Z",
+  "failure_reason": null,
+  "branch": "feat/US-053",
+  "replanned_at": "2026-03-16T00:15:14.107Z",
+  "replan_reason": "timeout after 945s (high → high)"
+}
