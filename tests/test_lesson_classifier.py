@@ -7435,5 +7435,278 @@ class TestUS053cAula7SBBlindWarStack(unittest.TestCase):
         self.assertEqual(score, 0, f"SB shove 32o at 15bb should be incorrect: {note}")
 
 
+class TestUS053cUnknownRateBelow15Percent(unittest.TestCase):
+    """Verify Unknown (executed_correctly=None) rate < 15% per aula (5-9).
+
+    Acceptance criteria: Unknown < 15% em cada aula.
+    Uses representative hands for each lesson scenario.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+        self._seq = 0
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _next_id(self, prefix):
+        self._seq += 1
+        return f'{prefix}{self._seq:03d}'
+
+    def _insert_squeeze_hand(self, hero_cards, hero_pos='BTN',
+                              opener_pos='HJ', caller_pos='CO'):
+        hid = self._next_id('UR5')
+        _insert_hand(self.repo, hid, position=hero_pos)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hid))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hid, 'preflop', 'Opener', 'raise',
+                       1.5, 0, 1, opener_pos)
+        _insert_action(self.repo, hid, 'preflop', 'Caller', 'call',
+                       1.5, 0, 2, caller_pos)
+        _insert_action(self.repo, hid, 'preflop', 'Hero', 'raise',
+                       6.0, 1, 3, hero_pos)
+        return hid
+
+    def _insert_bb_defense_hand(self, hero_cards, raiser_pos='BTN',
+                                 hero_stack=50.0, blinds_bb=0.50, fold=False):
+        hid = self._next_id('UR6')
+        _insert_hand(self.repo, hid, position='BB',
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hid))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hid, 'preflop', 'Villain', 'raise',
+                       1.5, 0, 1, raiser_pos)
+        if fold:
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'fold',
+                           0, 1, 2, 'BB')
+        else:
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'call',
+                           1.5, 1, 2, 'BB')
+        return hid
+
+    def _insert_sb_bw_hand(self, hero_cards, hero_stack=50.0,
+                            blinds_bb=0.50, action='raise'):
+        hid = self._next_id('UR7')
+        _insert_hand(self.repo, hid, position='SB',
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hid))
+        self.repo.conn.commit()
+        if action == 'limp':
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'call',
+                           blinds_bb, 1, 1, 'SB')
+        elif action == 'shove':
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'all-in',
+                           hero_stack, 1, 1, 'SB')
+            _insert_action(self.repo, hid, 'preflop', 'BB', 'fold',
+                           0, 0, 2, 'BB')
+        else:
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'raise',
+                           1.5, 1, 1, 'SB')
+            _insert_action(self.repo, hid, 'preflop', 'BB', 'fold',
+                           0, 0, 2, 'BB')
+        return hid
+
+    def _insert_multiway_bb_hand(self, hero_cards, fold=False):
+        hid = self._next_id('UR8')
+        _insert_hand(self.repo, hid, position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hid))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hid, 'preflop', 'V1', 'raise',
+                       1.5, 0, 1, 'HJ')
+        _insert_action(self.repo, hid, 'preflop', 'V2', 'call',
+                       1.5, 0, 2, 'CO')
+        _insert_action(self.repo, hid, 'preflop', 'V3', 'call',
+                       1.5, 0, 3, 'BTN')
+        if fold:
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'fold',
+                           0, 1, 4, 'BB')
+        else:
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'call',
+                           1.5, 1, 4, 'BB')
+        return hid
+
+    def _insert_bb_vs_sb_hand(self, hero_cards, fold=False):
+        hid = self._next_id('UR9')
+        _insert_hand(self.repo, hid, position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hid))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hid, 'preflop', 'Villain', 'raise',
+                       1.5, 0, 1, 'SB')
+        if fold:
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'fold',
+                           0, 1, 2, 'BB')
+        else:
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'call',
+                           1.5, 1, 2, 'BB')
+        return hid
+
+    def _unknown_rate(self, hand_ids, lesson_id):
+        """Calculate % of hands with executed_correctly=None for a lesson."""
+        total = 0
+        unknown = 0
+        for hid in hand_ids:
+            hand = _get_hand_dict(self.repo, hid)
+            actions = self.repo.get_hand_actions(hid)
+            matches = self.classifier.classify_hand(hand, actions)
+            m = next((m for m in matches if m.lesson_id == lesson_id), None)
+            if m is not None:
+                total += 1
+                if m.executed_correctly is None:
+                    unknown += 1
+        if total == 0:
+            return 0.0
+        return unknown / total
+
+    def test_aula5_squeeze_unknown_below_15pct(self):
+        """Squeeze: unknown rate < 15% with representative hands."""
+        hands = []
+        # Tier 1 hands from various positions (clearly correct)
+        for cards, pos in [('Ah Ad', 'BTN'), ('Kh Kd', 'HJ'),
+                           ('Ah Kh', 'CO'), ('Qh Qd', 'SB'),
+                           ('Jh Jd', 'BTN'), ('Ah Qh', 'HJ'),
+                           ('Kh Qh', 'CO'), ('Th Th', 'BTN')]:
+            hands.append(self._insert_squeeze_hand(cards, hero_pos=pos))
+        # Tier 2 hands from late pos (correct)
+        for cards, pos in [('7h 7d', 'BTN'), ('Th 9h', 'CO'),
+                           ('8h 7h', 'BTN'), ('6h 5h', 'SB')]:
+            hands.append(self._insert_squeeze_hand(cards, hero_pos=pos))
+        # Out of range hands (incorrect — not marginal)
+        for cards, pos in [('7h 2d', 'BTN'), ('3h 2d', 'HJ'),
+                           ('4h 2d', 'CO'), ('8h 3d', 'SB'),
+                           ('9h 2d', 'BTN'), ('5h 2d', 'HJ')]:
+            hands.append(self._insert_squeeze_hand(cards, hero_pos=pos))
+        # Marginal: tier 2 from EP (1-2 hands)
+        for cards, pos in [('7h 7d', 'HJ'), ('6h 5h', 'MP')]:
+            hands.append(self._insert_squeeze_hand(cards, hero_pos=pos,
+                                                    opener_pos='UTG',
+                                                    caller_pos='EP'))
+        rate = self._unknown_rate(hands, lesson_id=5)
+        self.assertLess(rate, 0.15,
+                        f"Aula 5 unknown rate {rate:.1%} >= 15%")
+
+    def test_aula6_bb_defense_unknown_below_15pct(self):
+        """BB defense: unknown rate < 15% mixing positions and stacks."""
+        hands = []
+        # Strong hands defending vs various raisers (correct)
+        for cards, rpos in [('Ah Kd', 'UTG'), ('Kh Kd', 'HJ'),
+                            ('Qh Qd', 'CO'), ('Ah Qh', 'BTN'),
+                            ('Th 9h', 'BTN'), ('9h 8h', 'CO')]:
+            hands.append(self._insert_bb_defense_hand(cards, raiser_pos=rpos))
+        # Weak hands folding (correct)
+        for cards, rpos in [('7h 2d', 'UTG'), ('4h 3d', 'HJ'),
+                            ('9h 3d', 'CO'), ('8h 2d', 'UTG'),
+                            ('5h 2d', 'HJ'), ('3h 2d', 'CO')]:
+            hands.append(self._insert_bb_defense_hand(
+                cards, raiser_pos=rpos, fold=True))
+        # Medium hands vs BTN at 100bb (correct defend, tier 3-4)
+        for cards in ['Ah 9d', 'Qh Jd', 'Th 9d', '8h 7d']:
+            hands.append(self._insert_bb_defense_hand(cards, raiser_pos='BTN'))
+        # Short stack (15bb) defense
+        for cards in ['Ah Kd', 'Qh Qd']:
+            hands.append(self._insert_bb_defense_hand(
+                cards, raiser_pos='BTN', hero_stack=7.5, blinds_bb=0.50))
+        # Short stack folds (correct)
+        for cards in ['5h 4d', '7h 3d']:
+            hands.append(self._insert_bb_defense_hand(
+                cards, raiser_pos='UTG', hero_stack=7.5, blinds_bb=0.50,
+                fold=True))
+        rate = self._unknown_rate(hands, lesson_id=6)
+        self.assertLess(rate, 0.15,
+                        f"Aula 6 unknown rate {rate:.1%} >= 15%")
+
+    def test_aula7_sb_blind_war_unknown_below_15pct(self):
+        """SB blind war: unknown rate < 15% across stack depths."""
+        hands = []
+        # 15bb: shove/raise correct, clear decisions
+        for cards in ['Ah Ad', 'Kh Qd', 'Th Td', 'Ah 5h']:
+            hands.append(self._insert_sb_bw_hand(
+                cards, hero_stack=7.5, blinds_bb=0.50, action='shove'))
+        hands.append(self._insert_sb_bw_hand(
+            '3h 2d', hero_stack=7.5, blinds_bb=0.50, action='shove'))  # incorrect
+        # 30bb: raise correct
+        for cards in ['Ah Kd', 'Qh Jh', 'Th 9h', '8h 7h']:
+            hands.append(self._insert_sb_bw_hand(
+                cards, hero_stack=15.0, blinds_bb=0.50, action='raise'))
+        # 50bb+: raise correct
+        for cards in ['Kh Qd', 'Jh Td', '9h 8h', '7h 6h']:
+            hands.append(self._insert_sb_bw_hand(
+                cards, hero_stack=50.0, blinds_bb=0.50, action='raise'))
+        # Out of range raise (incorrect)
+        for cards in ['3h 2d', '4h 2d']:
+            hands.append(self._insert_sb_bw_hand(
+                cards, hero_stack=25.0, blinds_bb=0.50, action='raise'))
+        # Deep limp speculative (correct)
+        for cards in ['5h 4h', '6h 5h', '8h 5d']:
+            hands.append(self._insert_sb_bw_hand(
+                cards, hero_stack=50.0, blinds_bb=0.50, action='limp'))
+        rate = self._unknown_rate(hands, lesson_id=7)
+        self.assertLess(rate, 0.15,
+                        f"Aula 7 unknown rate {rate:.1%} >= 15%")
+
+    def test_aula8_multiway_bb_unknown_below_15pct(self):
+        """Multiway BB: unknown rate < 15% with representative hands."""
+        hands = []
+        # Strong defend hands (correct)
+        for cards in ['Ah Kh', 'Qh Qd', '7h 7d', 'Th 9h', '8h 7h',
+                      '6h 5h', 'Ah 2h', 'Kh Jh', 'Jh Td']:
+            hands.append(self._insert_multiway_bb_hand(cards))
+        # Weak hands folding (correct)
+        for cards in ['7h 2d', '8h 3d', '9h 2d', '4h 2d', '5h 2d',
+                      '6h 2d', 'Th 2d', 'Jh 2d']:
+            hands.append(self._insert_multiway_bb_hand(cards, fold=True))
+        # Clear offsuit broadways defending (correct)
+        for cards in ['Ah Kd', 'Ah Qd', 'Kh Qd']:
+            hands.append(self._insert_multiway_bb_hand(cards))
+        rate = self._unknown_rate(hands, lesson_id=8)
+        self.assertLess(rate, 0.15,
+                        f"Aula 8 unknown rate {rate:.1%} >= 15%")
+
+    def test_aula9_bb_vs_sb_unknown_below_15pct(self):
+        """BB vs SB blind war: unknown rate < 15% with representative hands.
+
+        In blind war BB vs SB, every offsuit hand is either in _BW_BB_DEFEND
+        or _BW_BB_MARGINAL (no true trash), so realistic distribution uses
+        mostly DEFEND hands and at most 2 MARGINAL hands.
+        """
+        hands = []
+        # Strong defend (correct — clearly in range)
+        for cards in ['Ah Kd', 'Qh Qd', '7h 7d', 'Ah 5h', '9h 8h',
+                      'Kh Jd', 'Th 9d', 'Jh Td', '6h 5h', 'Ah 2h']:
+            hands.append(self._insert_bb_vs_sb_hand(cards))
+        # Defend hands that hero folds (incorrect — in range but folded)
+        for cards in ['Kh 8d', 'Qh 9d', 'Jh 9d', '8h 7d', 'Ah 6d',
+                      'Kh 7d']:
+            hands.append(self._insert_bb_vs_sb_hand(cards, fold=True))
+        # Marginal hands (at most 2 — these return None)
+        for cards in ['Kh 3d', 'Qh 2d']:
+            hands.append(self._insert_bb_vs_sb_hand(cards))
+        # More defend hands
+        for cards in ['Th 8d', '9h 7d']:
+            hands.append(self._insert_bb_vs_sb_hand(cards))
+        rate = self._unknown_rate(hands, lesson_id=9)
+        self.assertLess(rate, 0.15,
+                        f"Aula 9 unknown rate {rate:.1%} >= 15%")
+
+    def test_squeeze_trash_from_btn_is_incorrect(self):
+        """72o squeeze from BTN must be incorrect, not marginal."""
+        hid = self._insert_squeeze_hand('7h 2d', hero_pos='BTN')
+        hand = _get_hand_dict(self.repo, hid)
+        actions = self.repo.get_hand_actions(hid)
+        matches = self.classifier.classify_hand(hand, actions)
+        m = next((m for m in matches if m.lesson_id == 5), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 0,
+                         f"72o from BTN should be incorrect, not marginal: {m.notes}")
+
+
 if __name__ == '__main__':
     unittest.main()

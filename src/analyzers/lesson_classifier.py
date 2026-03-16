@@ -1556,7 +1556,7 @@ class LessonClassifier:
                 f"Squeeze correto: {notation} no range do {hero_pos} ({cenario}) "
                 f"(tier {hand_tier} <= {pos_tier}){sizing_note}"
             ))
-        elif hand_tier == pos_tier + 1:
+        elif hand_tier == pos_tier + 1 and hand_tier <= 2:
             return (None, (
                 f"Squeeze marginal: {notation} 1 tier acima do range do {hero_pos} "
                 f"({cenario}){sizing_note}"
