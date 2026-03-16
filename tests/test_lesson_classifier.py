@@ -439,7 +439,8 @@ class TestPostflopDetection(unittest.TestCase):
         _insert_action(self.repo, 'PF001', 'flop', 'Hero', 'bet', 2.0, 1, 4, 'BTN')
 
         matches = self._classify('PF001')
-        self.assertIn(10, self._lesson_ids(matches))
+        # L10 (Intro Pos-Flop) removed in US-053 rewrite
+        self.assertNotIn(10, self._lesson_ids(matches))
 
     # -- Lesson 13: C-Bet Flop IP --
 
@@ -976,7 +977,7 @@ class TestExecutionEvaluation(unittest.TestCase):
         self.assertEqual(cbet.executed_correctly, 1)
 
     def test_postflop_winning_hand(self):
-        """Intro postflop with winning hand."""
+        """L10 (Intro Pos-Flop) removed in US-053; verify not present."""
         _insert_hand(self.repo, 'EV003', position='BTN',
                      board_flop='Ah Kd 2c', net=5.0)
         _insert_action(self.repo, 'EV003', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
@@ -988,11 +989,10 @@ class TestExecutionEvaluation(unittest.TestCase):
         actions = self.repo.get_hand_actions('EV003')
         matches = self.classifier.classify_hand(hand, actions)
 
-        intro = next(m for m in matches if m.lesson_id == 10)
-        self.assertEqual(intro.executed_correctly, 1)
+        self.assertNotIn(10, [m.lesson_id for m in matches])
 
     def test_postflop_losing_hand(self):
-        """Intro postflop with losing hand."""
+        """L10 (Intro Pos-Flop) removed in US-053; verify not present."""
         _insert_hand(self.repo, 'EV004', position='BTN',
                      board_flop='Ah Kd 2c', net=-5.0)
         _insert_action(self.repo, 'EV004', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
@@ -1004,8 +1004,7 @@ class TestExecutionEvaluation(unittest.TestCase):
         actions = self.repo.get_hand_actions('EV004')
         matches = self.classifier.classify_hand(hand, actions)
 
-        intro = next(m for m in matches if m.lesson_id == 10)
-        self.assertEqual(intro.executed_correctly, 0)
+        self.assertNotIn(10, [m.lesson_id for m in matches])
 
 
 # ── CLI Tests ────────────────────────────────────────────────────────
@@ -5934,7 +5933,7 @@ class TestCBetRiverEvaluation(unittest.TestCase):
 
 
 class TestMDAEvaluation(unittest.TestCase):
-    """Test _eval_mda evaluation for Lesson 11 (Introdução ao MDA)."""
+    """Test _eval_mda evaluation (L11 removed from classify_hand in US-053, tested directly)."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -5952,9 +5951,17 @@ class TestMDAEvaluation(unittest.TestCase):
         return self.classifier.classify_hand(hand, actions)
 
     def _mda_result(self, hand_id):
-        matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 11), None)
-        return m.executed_correctly if m else None
+        """Call _eval_mda directly (L11 removed from classify_hand in US-053)."""
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        from collections import defaultdict
+        by_street = defaultdict(list)
+        for a in actions:
+            by_street[a['street']].append(a)
+        flop_a = self.classifier._analyze_street_actions(by_street.get('flop', []))
+        turn_a = self.classifier._analyze_street_actions(by_street.get('turn', []))
+        result, _note = self.classifier._eval_mda(hand, flop_a, turn_a)
+        return result
 
     def _setup_multistreet(self, hand_id, hero_cards='Ah Kd',
                            board_flop='Ts 7d 2c', board_turn='3s',
@@ -6005,16 +6012,16 @@ class TestMDAEvaluation(unittest.TestCase):
             _insert_action(self.repo, hand_id, 'turn', 'Hero', 'check',
                            0, 1, seq, hero_pos)
 
-    # -- Detection tests --
+    # -- Detection tests (L11 removed from classify_hand in US-053) --
 
-    def test_detected_on_turn(self):
-        """Lesson 11 detected when hand has a turn card."""
+    def test_not_detected_on_turn(self):
+        """L11 no longer detected by classify_hand (removed in US-053)."""
         self._setup_multistreet('MDA01')
         matches = self._classify('MDA01')
-        self.assertIn(11, [m.lesson_id for m in matches])
+        self.assertNotIn(11, [m.lesson_id for m in matches])
 
-    def test_detected_on_river(self):
-        """Lesson 11 detected when hand has river card."""
+    def test_not_detected_on_river(self):
+        """L11 no longer detected by classify_hand (removed in US-053)."""
         _insert_hand(self.repo, 'MDA02', position='BTN',
                      board_flop='Ts 7d 2c', board_turn='3s',
                      board_river='5h')
@@ -6032,10 +6039,10 @@ class TestMDAEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'MDA02', 'river', 'Hero', 'bet',
                        4.0, 1, seq, 'BTN')
         matches = self._classify('MDA02')
-        self.assertIn(11, [m.lesson_id for m in matches])
+        self.assertNotIn(11, [m.lesson_id for m in matches])
 
     def test_not_detected_flop_only(self):
-        """Lesson 11 NOT detected when hand only has flop (no turn/river)."""
+        """L11 NOT detected when hand only has flop (no turn/river)."""
         _insert_hand(self.repo, 'MDA03', position='BTN',
                      board_flop='Ts 7d 2c')
         seq = 1
@@ -6050,21 +6057,17 @@ class TestMDAEvaluation(unittest.TestCase):
         matches = self._classify('MDA03')
         self.assertNotIn(11, [m.lesson_id for m in matches])
 
-    def test_street_is_flop(self):
-        """Lesson 11 match has street='flop'."""
+    def test_eval_mda_still_works(self):
+        """_eval_mda still callable directly (returns tuple)."""
         self._setup_multistreet('MDA04')
-        matches = self._classify('MDA04')
-        m = next((m for m in matches if m.lesson_id == 11), None)
-        self.assertIsNotNone(m)
-        self.assertEqual(m.street, 'flop')
+        result = self._mda_result('MDA04')
+        self.assertIsNotNone(result)
 
-    def test_confidence_is_low(self):
-        """Lesson 11 has reduced confidence (0.6)."""
+    def test_eval_mda_returns_score(self):
+        """_eval_mda returns numeric score."""
         self._setup_multistreet('MDA05')
-        matches = self._classify('MDA05')
-        m = next((m for m in matches if m.lesson_id == 11), None)
-        self.assertIsNotNone(m)
-        self.assertAlmostEqual(m.confidence, 0.6)
+        result = self._mda_result('MDA05')
+        self.assertIsNotNone(result)
 
     # -- Correct execution (1) --
 
@@ -6428,12 +6431,12 @@ class TestPostflopAdvancedEvaluation(unittest.TestCase):
                        0, 1, seq, 'BB')
         self.assertIsNone(self._adv_result('PA50'))
 
-    def test_also_triggers_lesson_11(self):
-        """A 3-street hand also triggers lesson 11 (MDA)."""
+    def test_lesson_11_removed_but_12_present(self):
+        """L11 (MDA) removed in US-053; L12 still triggered for 3-street hands."""
         self._setup_three_streets('PA51')
         matches = self._classify('PA51')
         lesson_ids = [m.lesson_id for m in matches]
-        self.assertIn(11, lesson_ids)
+        self.assertNotIn(11, lesson_ids)
         self.assertIn(12, lesson_ids)
 
 
@@ -6880,8 +6883,9 @@ class TestProbeEvaluation(unittest.TestCase):
                 'net': 0.0, 'game_type': 'cash'}
         flop_a = {'villain_checks_back': True}
         turn_a = {'hero_bets': True}
-        result = self.classifier._eval_probe(hand, flop_a, turn_a)
-        self.assertEqual(result, 1)
+        score, note = self.classifier._eval_probe(hand, flop_a, turn_a)
+        self.assertEqual(score, 1)
+        self.assertIn('probe correta', note.lower())
 
 
 if __name__ == '__main__':

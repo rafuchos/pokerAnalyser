@@ -569,6 +569,10 @@ class LessonClassifier:
         has_turn = bool(hand.get('board_turn'))
         has_river = bool(hand.get('board_river'))
 
+        # Postflop guard: hands that went all-in preflop skip postflop lessons
+        preflop_allin = (hand.get('has_allin') and
+                         hand.get('allin_street') == 'preflop')
+
         # Preflop analysis
         pf = self._analyze_preflop(preflop, hero_pos)
 
@@ -577,124 +581,112 @@ class LessonClassifier:
         # 1: RFI (Raise First In)
         if pf['hero_is_rfi']:
             m = self._match(hand_id, 1, 'preflop')
-            m.executed_correctly = self._eval_rfi(hand, pf)
+            m.executed_correctly, m.notes = self._eval_rfi(hand, pf)
             matches.append(m)
 
         # 2: Flat / 3-Bet
         if pf['hero_flats'] or pf['hero_3bets']:
             m = self._match(hand_id, 2, 'preflop')
-            m.executed_correctly = self._eval_flat_3bet(hand, pf)
+            m.executed_correctly, m.notes = self._eval_flat_3bet(hand, pf)
             matches.append(m)
 
         # 3: Reaction vs 3-Bet
         if pf['hero_faces_3bet']:
             m = self._match(hand_id, 3, 'preflop')
-            m.executed_correctly = self._eval_reaction_vs_3bet(hand, pf)
+            m.executed_correctly, m.notes = self._eval_reaction_vs_3bet(hand, pf)
             matches.append(m)
 
         # 4: Open Shove cEV 10BB
         if pf['hero_open_shoves'] and hero_stack_bb is not None and hero_stack_bb <= 12:
             m = self._match(hand_id, 4, 'preflop')
-            m.executed_correctly = self._eval_open_shove(hand, pf)
+            m.executed_correctly, m.notes = self._eval_open_shove(hand, pf)
             matches.append(m)
 
         # 5: Squeeze
         if pf['hero_squeezes']:
             m = self._match(hand_id, 5, 'preflop')
-            m.executed_correctly = self._eval_squeeze(hand, pf)
+            m.executed_correctly, m.notes = self._eval_squeeze(hand, pf)
             matches.append(m)
 
         # 6: BB Pré-Flop
         if hero_pos == 'BB' and preflop:
             m = self._match(hand_id, 6, 'preflop')
-            m.executed_correctly = self._eval_bb_preflop(hand, pf)
+            m.executed_correctly, m.notes = self._eval_bb_preflop(hand, pf)
             matches.append(m)
 
         # 7: Blind War SB vs BB
         if hero_pos == 'SB' and pf['is_blind_war']:
             m = self._match(hand_id, 7, 'preflop')
-            m.executed_correctly = self._eval_sb_vs_bb(hand, pf)
+            m.executed_correctly, m.notes = self._eval_sb_vs_bb(hand, pf)
             matches.append(m)
 
         # 8: Multiway BB (also catches incorrect folds of strong hands)
         if hero_pos == 'BB' and pf['is_multiway']:
             m = self._match(hand_id, 8, 'preflop')
-            m.executed_correctly = self._eval_multiway_bb(hand, pf)
+            m.executed_correctly, m.notes = self._eval_multiway_bb(hand, pf)
             matches.append(m)
 
         # 9: Blind War BB vs SB
         if hero_pos == 'BB' and pf['is_blind_war_bb_vs_sb']:
             m = self._match(hand_id, 9, 'preflop')
-            m.executed_correctly = self._eval_bb_vs_sb(hand, pf)
+            m.executed_correctly, m.notes = self._eval_bb_vs_sb(hand, pf)
             matches.append(m)
 
         # --- Postflop Lessons ---
-        if has_flop:
+        # Guard: skip postflop classification for hands that went all-in preflop
+        if has_flop and not preflop_allin:
             pf_agg = pf['hero_is_preflop_aggressor']
 
-            # 10: Introdução ao Pós-Flop
-            m = self._match(hand_id, 10, 'flop')
-            m.executed_correctly = 1 if hand.get('net', 0) >= 0 else 0
-            m.confidence = 0.7
-            matches.append(m)
-
-            # Postflop action analysis (needed for lessons 11, 12 and later)
+            # Postflop action analysis
             flop_a = self._analyze_street_actions(flop_actions)
             turn_a = self._analyze_street_actions(turn_actions)
             river_a = self._analyze_street_actions(river_actions)
 
             hero_ip = self._is_hero_ip(hero_pos, preflop)
 
-            # 11: Introdução ao MDA
-            if has_turn or has_river:
-                m = self._match(hand_id, 11, 'flop')
-                m.confidence = 0.6
-                m.executed_correctly = self._eval_mda(hand, flop_a, turn_a)
-                matches.append(m)
-
             # 12: Pós-Flop Avançado
             if has_turn and has_river:
                 m = self._match(hand_id, 12, 'flop')
                 m.confidence = 0.5
-                m.executed_correctly = self._eval_postflop_advanced(
+                m.executed_correctly, m.notes = self._eval_postflop_advanced(
                     hand, flop_a, turn_a, river_a)
                 matches.append(m)
 
             # 13: C-Bet Flop IP
             if pf_agg and flop_a['hero_bets'] and hero_ip:
                 m = self._match(hand_id, 13, 'flop')
-                m.executed_correctly = self._eval_cbet_flop_ip(hand, flop_a)
+                m.executed_correctly, m.notes = self._eval_cbet_flop_ip(hand, flop_a)
                 matches.append(m)
 
             # 14: C-Bet OOP
             if pf_agg and flop_a['hero_bets'] and not hero_ip:
                 m = self._match(hand_id, 14, 'flop')
-                m.executed_correctly = self._eval_cbet_flop_oop(hand, flop_a)
+                m.executed_correctly, m.notes = self._eval_cbet_flop_oop(hand, flop_a)
                 matches.append(m)
 
             # 15: C-Bet Turn
             if pf_agg and has_turn and turn_a['hero_bets']:
                 m = self._match(hand_id, 15, 'turn')
-                m.executed_correctly = self._eval_cbet_turn(hand, flop_a, turn_a)
+                m.executed_correctly, m.notes = self._eval_cbet_turn(hand, flop_a, turn_a)
                 matches.append(m)
 
             # 16: C-Bet River
             if pf_agg and has_river and river_a['hero_bets']:
                 m = self._match(hand_id, 16, 'river')
-                m.executed_correctly = self._eval_cbet_river(
+                m.executed_correctly, m.notes = self._eval_cbet_river(
                     hand, flop_a, turn_a, river_a)
                 matches.append(m)
 
             # 17: Delayed C-Bet
             if pf_agg and flop_a['hero_checks'] and has_turn and turn_a['hero_bets']:
                 m = self._match(hand_id, 17, 'turn')
-                m.executed_correctly = self._eval_delayed_cbet(hand, flop_a, turn_a)
+                m.executed_correctly, m.notes = self._eval_delayed_cbet(hand, flop_a, turn_a)
                 matches.append(m)
 
             # 18: BB vs C-Bet OOP
             if hero_pos == 'BB' and not hero_ip and flop_a['villain_bets_first']:
                 m = self._match(hand_id, 18, 'flop')
-                m.executed_correctly = self._eval_bb_vs_cbet(hand, flop_a)
+                m.executed_correctly, m.notes = self._eval_bb_vs_cbet(hand, flop_a)
                 matches.append(m)
 
             # 19: Enfrentando Check-Raise
@@ -702,20 +694,20 @@ class LessonClassifier:
                 street = 'flop' if flop_a['hero_faces_checkraise'] else 'turn'
                 active_a = flop_a if flop_a['hero_faces_checkraise'] else turn_a
                 m = self._match(hand_id, 19, street)
-                m.executed_correctly = self._eval_facing_checkraise(hand, active_a)
+                m.executed_correctly, m.notes = self._eval_facing_checkraise(hand, active_a)
                 matches.append(m)
 
             # 20: Pós-Flop IP enfrentando C-Bet BTN
             if hero_ip and flop_a['villain_bets_first']:
                 m = self._match(hand_id, 20, 'flop')
-                m.executed_correctly = self._eval_ip_vs_cbet(hand, flop_a)
+                m.executed_correctly, m.notes = self._eval_ip_vs_cbet(hand, flop_a)
                 matches.append(m)
 
             # 21: Bet vs Missed Bet
             if self._detect_bet_vs_missed(flop_a, turn_a, pf_agg):
                 street = 'turn' if turn_a.get('hero_bets') else 'flop'
                 m = self._match(hand_id, 21, street)
-                m.executed_correctly = self._eval_bet_vs_missed_bet(
+                m.executed_correctly, m.notes = self._eval_bet_vs_missed_bet(
                     hand, flop_a, turn_a)
                 matches.append(m)
 
@@ -723,14 +715,14 @@ class LessonClassifier:
             if hero_pos == 'BB' and not pf_agg and has_turn:
                 if flop_a.get('villain_checks_back', False) and turn_a['hero_bets']:
                     m = self._match(hand_id, 22, 'turn')
-                    m.executed_correctly = self._eval_probe(
+                    m.executed_correctly, m.notes = self._eval_probe(
                         hand, flop_a, turn_a)
                     matches.append(m)
 
             # 23: 3-Betted Pots Pós-Flop
             if pf['is_3bet_pot']:
                 m = self._match(hand_id, 23, 'flop')
-                m.executed_correctly = self._eval_3bet_pot_postflop(hand, flop_a, pf)
+                m.executed_correctly, m.notes = self._eval_3bet_pot_postflop(hand, flop_a, pf)
                 matches.append(m)
 
         # --- Torneios Lessons ---
@@ -741,13 +733,13 @@ class LessonClassifier:
             # 24: Intro Torneios Bounty
             if is_bounty:
                 m = self._match(hand_id, 24, 'preflop')
-                m.executed_correctly = self._eval_bounty_intro(hand, pf)
+                m.executed_correctly, m.notes = self._eval_bounty_intro(hand, pf)
                 matches.append(m)
 
             # 25: Bounty Ranges Práticos
             if is_bounty and preflop:
                 m = self._match(hand_id, 25, 'preflop')
-                m.executed_correctly = self._eval_bounty_ranges(hand, pf)
+                m.executed_correctly, m.notes = self._eval_bounty_ranges(hand, pf)
                 matches.append(m)
 
         return matches
@@ -1068,19 +1060,17 @@ class LessonClassifier:
             return 4
         return 5
 
-    def _eval_rfi(self, hand: dict, pf: dict) -> Optional[int]:
+    def _eval_rfi(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
         """Evaluate RFI execution based on position, hand strength, and sizing.
 
-        Based on RegLife 'Ranges de RFI em cEV' PDF:
-        - Correct (1): Hand in range for position with standard sizing (2-2.5BB)
-        - Partial (None): In range but wrong sizing, or marginal hand
-        - Incorrect (0): Hand clearly too weak for position
+        Returns (score, note_pt_br).
         """
         hero_pos = (hand.get('hero_position') or '').upper()
         hero_cards = hand.get('hero_cards')
 
         # Check sizing: PDF recommends 2-2.5BB (cEV), cash games use up to 3BB
         sizing_ok = None
+        sizing_bb = None
         raise_amount = pf.get('hero_raise_amount', 0)
         bb = hand.get('blinds_bb')
         if raise_amount and bb and bb > 0:
@@ -1090,29 +1080,28 @@ class LessonClassifier:
         # Without hero cards, evaluate sizing only
         if not hero_cards:
             if sizing_ok is True:
-                return 1
+                return (1, f"RFI do {hero_pos} com sizing adequado ({sizing_bb:.1f}BB)")
             if sizing_ok is False:
-                return None
-            return None
+                return (None, f"RFI do {hero_pos} com sizing fora do padrao ({sizing_bb:.1f}BB)")
+            return (None, f"RFI do {hero_pos} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return 1 if sizing_ok is not False else None
+            if sizing_ok is not False:
+                return (1, f"RFI do {hero_pos} — cartas nao parseadas")
+            return (None, f"RFI do {hero_pos} com sizing inadequado")
 
         hand_tier = self._rfi_hand_tier(notation)
         pos_tier = self._RFI_POS_MAX_TIER.get(hero_pos, 2)
 
         if hand_tier <= pos_tier:
-            # Hand is in range for this position
             if sizing_ok is False:
-                return None  # right hand, wrong sizing
-            return 1
+                return (None, f"RFI com {notation} do {hero_pos}: mao no range (tier {hand_tier}), mas sizing fora ({sizing_bb:.1f}BB)")
+            return (1, f"RFI correto: {notation} no range do {hero_pos} (tier {hand_tier} <= tier {pos_tier})")
         elif hand_tier == pos_tier + 1:
-            # Marginal hand for this position
-            return None
+            return (None, f"RFI marginal: {notation} 1 tier acima do range do {hero_pos} (tier {hand_tier} vs max {pos_tier})")
         else:
-            # Hand clearly too weak for position
-            return 0
+            return (0, f"RFI incorreto: {notation} fora do range do {hero_pos} (tier {hand_tier} > tier {pos_tier})")
 
     def _flat_hand_tier(self, notation: str) -> int:
         """Return flat-call tier (1-4) for a hand notation. Lower = stronger."""
@@ -1164,332 +1153,251 @@ class LessonClassifier:
             return 2
         return 3  # not in any bounty range
 
-    def _eval_flat_3bet(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate flat/3-bet execution based on position and hand ranges.
-
-        Based on RegLife 'Ranges de Flat e 3-BET':
-        - Correct (1): Hand in appropriate flat or 3-bet range for position.
-        - Partial (None): Marginal hand (one tier outside range).
-        - Incorrect (0): Hand clearly too weak to flat or 3-bet.
-        """
+    def _eval_flat_3bet(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate flat/3-bet execution. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         hero_pos = (hand.get('hero_position') or '').upper()
 
         if not hero_cards:
-            return 1  # action taken, can't evaluate hand quality
+            action = '3-bet' if pf['hero_3bets'] else 'flat'
+            return (1, f"{action} do {hero_pos} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return 1  # can't parse hand
+            action = '3-bet' if pf['hero_3bets'] else 'flat'
+            return (1, f"{action} do {hero_pos} — cartas nao parseadas")
 
         if pf['hero_3bets']:
-            # Evaluate 3-bet range
             hand_tier = self._3bet_hand_tier(notation)
             pos_tier = self._3BET_POS_MAX_TIER.get(hero_pos, 2)
             if hand_tier <= pos_tier:
-                return 1  # hand is in 3-bet range for position
+                return (1, f"3-bet correto: {notation} no range de 3-bet do {hero_pos} (tier {hand_tier} <= {pos_tier})")
             elif hand_tier == pos_tier + 1:
-                return None  # marginal 3-bet
+                return (None, f"3-bet marginal: {notation} 1 tier acima do range do {hero_pos}")
             else:
-                return 0  # hand too weak to 3-bet
+                return (0, f"3-bet incorreto: {notation} fora do range de 3-bet do {hero_pos} (tier {hand_tier} > {pos_tier})")
 
         if pf['hero_flats']:
-            # Evaluate flat-call range
             hand_tier = self._flat_hand_tier(notation)
             pos_tier = self._FLAT_POS_MAX_TIER.get(hero_pos, 2)
             if hand_tier <= pos_tier:
-                return 1  # hand is in flat range for position
+                return (1, f"Flat correto: {notation} no range de call do {hero_pos} (tier {hand_tier} <= {pos_tier})")
             elif hand_tier == pos_tier + 1:
-                return None  # marginal flat
+                return (None, f"Flat marginal: {notation} 1 tier acima do range de call do {hero_pos}")
             else:
-                return 0  # hand too weak to flat
+                return (0, f"Flat incorreto: {notation} fora do range de call do {hero_pos} (tier {hand_tier} > {pos_tier})")
 
-        return None
+        return (None, f"{notation} do {hero_pos}: acao ambigua")
 
-    def _eval_reaction_vs_3bet(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate reaction to 3-bet based on hand strength and ranges.
-
-        Based on RegLife 'Ranges de reação vs 3-bet':
-        - Correct (1): Continued with strong hand, folded trash, or 4-bet premium.
-        - Partial (None): Marginal hand where both actions have similar EV.
-        - Incorrect (0): Folded a clearly continuable hand, or called with trash.
-        """
+    def _eval_reaction_vs_3bet(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate reaction to 3-bet. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         hero_folded = pf.get('hero_folds_preflop', False)
+        action_str = 'foldou' if hero_folded else 'continuou'
 
         if not hero_cards:
-            return None  # can't evaluate without hand info
+            return (None, f"Vs 3-bet: {action_str} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return None
+            return (None, f"Vs 3-bet: {action_str} — cartas nao parseadas")
 
         if notation in self._VS3BET_CONTINUE:
-            # Should always continue (call or 4-bet)
-            return 0 if hero_folded else 1
+            if hero_folded:
+                return (0, f"Vs 3-bet incorreto: foldou {notation} que deve sempre continuar")
+            return (1, f"Vs 3-bet correto: continuou com {notation} (range de continue)")
         elif notation in self._VS3BET_MARGINAL:
-            # Marginal: either action is defensible
-            return None
+            return (None, f"Vs 3-bet marginal: {notation} — {action_str}, ambas acoes defensaveis")
         else:
-            # Trash hand vs 3-bet: should fold
-            return 1 if hero_folded else 0
+            if hero_folded:
+                return (1, f"Vs 3-bet correto: foldou {notation} (fora do range de continue)")
+            return (0, f"Vs 3-bet incorreto: continuou com {notation} (deveria foldar)")
 
-    def _eval_squeeze(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate squeeze execution based on position and hand ranges.
-
-        Based on RegLife 'SQUEEZE' PDF:
-        - Correct (1): Hand in squeeze range for position.
-        - Partial (None): Marginal hand (one tier outside range).
-        - Incorrect (0): Hand clearly too weak to squeeze.
-        """
+    def _eval_squeeze(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate squeeze execution. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         hero_pos = (hand.get('hero_position') or '').upper()
 
         if not hero_cards:
-            return 1  # squeezed without visible cards, assume correct
+            return (1, f"Squeeze do {hero_pos} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return 1  # can't parse hand
+            return (1, f"Squeeze do {hero_pos} — cartas nao parseadas")
 
         hand_tier = self._squeeze_hand_tier(notation)
         pos_tier = self._SQUEEZE_POS_MAX_TIER.get(hero_pos, 1)
 
         if hand_tier <= pos_tier:
-            return 1  # hand is in squeeze range for position
+            return (1, f"Squeeze correto: {notation} no range de squeeze do {hero_pos} (tier {hand_tier} <= {pos_tier})")
         elif hand_tier == pos_tier + 1:
-            return None  # marginal squeeze
+            return (None, f"Squeeze marginal: {notation} 1 tier acima do range do {hero_pos}")
         else:
-            return 0  # hand too weak to squeeze
+            return (0, f"Squeeze incorreto: {notation} fora do range de squeeze do {hero_pos} (tier {hand_tier} > {pos_tier})")
 
-    def _eval_open_shove(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate open shove execution based on position and hand strength.
-
-        Based on RegLife 'Ranges de Open Shove cEV 10BB':
-        - Correct (1): Hand in open shove range for position at ≤10BB stack.
-        - Partial (None): Marginal hand (one tier outside range) or 10-12BB stack.
-        - Incorrect (0): Hand clearly too weak for position.
-        """
+    def _eval_open_shove(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate open shove execution. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         hero_pos = (hand.get('hero_position') or '').upper()
         hero_stack_bb = self._stack_in_bb(hand)
+        stack_str = f"{hero_stack_bb:.0f}BB" if hero_stack_bb else "?BB"
 
-        # Stack in marginal range (10-12BB): shoving may be suboptimal vs minraising
         if hero_stack_bb is not None and hero_stack_bb > 10:
-            return None
+            return (None, f"Open shove com {stack_str} do {hero_pos}: entre 10-12BB, considerar minraise")
 
         if not hero_cards:
-            return 1  # can't evaluate hand quality, assume correct
+            return (1, f"Open shove do {hero_pos} com {stack_str} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return 1  # can't parse hand, assume correct
+            return (1, f"Open shove do {hero_pos} com {stack_str} — cartas nao parseadas")
 
         hand_tier = self._open_shove_hand_tier(notation)
         pos_tier = self._OPEN_SHOVE_POS_MAX_TIER.get(hero_pos, 2)
 
         if hand_tier <= pos_tier:
-            return 1  # hand is in open shove range for position
+            return (1, f"Open shove correto: {notation} no range do {hero_pos} com {stack_str} (tier {hand_tier} <= {pos_tier})")
         elif hand_tier == pos_tier + 1:
-            return None  # marginal open shove (one tier outside range)
+            return (None, f"Open shove marginal: {notation} do {hero_pos} com {stack_str} (tier {hand_tier} vs max {pos_tier})")
         else:
-            return 0  # hand too weak to open shove from this position
+            return (0, f"Open shove incorreto: {notation} fora do range do {hero_pos} com {stack_str} (tier {hand_tier} > {pos_tier})")
 
-    def _eval_bounty_intro(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate preflop play in introductory bounty tournament context.
-
-        Based on RegLife 'Introdução aos Torneios Bounty':
-        - This is a conceptual lesson; most situations are context-dependent.
-        - Incorrect (0): folding a premium hand when a bounty is at stake.
-        - Otherwise None: cannot evaluate nuanced bounty decisions without more context.
-        """
+    def _eval_bounty_intro(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate preflop play in bounty tournament. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         hero_folded = pf.get('hero_folds_preflop', False)
 
         if not hero_cards:
-            return None
+            return (None, "Torneio bounty: sem cartas visiveis para avaliar")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return None
+            return (None, "Torneio bounty: cartas nao parseadas")
 
-        # Clear mistake: folding a premium hand when facing a bounty opportunity
         if hero_folded and notation in {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo'}:
-            return 0
+            return (0, f"Bounty incorreto: foldou {notation} premium em spot de bounty")
 
-        return None  # most bounty situations are context-dependent
+        action_str = 'foldou' if hero_folded else 'jogou'
+        return (None, f"Bounty: {action_str} {notation} — decisao depende do contexto")
 
-    def _eval_bounty_ranges(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate preflop ranges in practical bounty tournament play.
-
-        Based on RegLife 'Torneios Bounty - Ranges Práticos':
-        - Correct (1): Hand in bounty-adjusted tier 1 range (clearly profitable).
-        - Partial (None): Marginal hand in bounty tier 2 (context-dependent).
-        - Incorrect (0): Hand too weak even with bounty overlay.
-        """
+    def _eval_bounty_ranges(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate bounty range execution. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards:
-            return None  # can't evaluate without knowing the hand
+            return (None, "Bounty ranges: sem cartas visiveis para avaliar")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return None
+            return (None, "Bounty ranges: cartas nao parseadas")
 
         hand_tier = self._bounty_hand_tier(notation)
         if hand_tier == 1:
-            return 1  # clearly profitable with bounty overlay
+            return (1, f"Bounty correto: {notation} no range tier 1 (lucrativo com overlay)")
         elif hand_tier == 2:
-            return None  # marginal, depends on bounty size and stack depth
+            return (None, f"Bounty marginal: {notation} no tier 2 (depende do tamanho do bounty)")
         else:
-            return 0  # too weak even with bounty overlay
+            return (0, f"Bounty incorreto: {notation} fora do range (tier {hand_tier}, fraco mesmo com overlay)")
 
-    def _eval_bb_preflop(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate BB preflop play vs a single raise.
-
-        Based on RegLife 'Jogando no Big Blind - Pré-Flop':
-        - Correct (1): Defended strong hand for opener position, folded trash,
-          or checked a free flop in a limped pot.
-        - Partial (None): Marginal hand (one tier wider than opener's max tier);
-          correct action depends on sizing and tendencies.
-        - Incorrect (0): Folded a strong BB hand, or called/raised with trash.
-        """
+    def _eval_bb_preflop(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate BB preflop play vs a single raise. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         hero_folded = pf.get('hero_folds_preflop', False)
         open_raiser_pos = (pf.get('open_raiser_pos') or '').upper()
+        action_str = 'foldou' if hero_folded else 'defendeu'
 
-        # Limped pot (no open raise) or BB raised themselves (iso-raise):
-        # checking/raising is standard play → mark as correct.
         if not open_raiser_pos or open_raiser_pos == 'BB':
-            return 1 if not hero_folded else None
+            if not hero_folded:
+                return (1, "BB em limped pot: check/raise e padrao correto")
+            return (None, "BB foldou em limped pot")
 
-        # Cannot evaluate hand quality without hero cards.
         if not hero_cards:
-            return None
+            return (None, f"BB vs raise do {open_raiser_pos}: {action_str} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return None
+            return (None, f"BB vs raise do {open_raiser_pos}: cartas nao parseadas")
 
         hand_tier = self._bb_hand_tier(notation)
         pos_tier = self._BB_POS_DEFEND_TIER.get(open_raiser_pos, 2)
 
         if hand_tier <= pos_tier:
-            # Hand is in range for this opener: should defend.
-            return 0 if hero_folded else 1
+            if hero_folded:
+                return (0, f"BB incorreto: foldou {notation} vs {open_raiser_pos} (tier {hand_tier} <= {pos_tier}, deveria defender)")
+            return (1, f"BB correto: defendeu {notation} vs {open_raiser_pos} (tier {hand_tier} <= {pos_tier})")
         elif hand_tier == pos_tier + 1 and hand_tier <= 4:
-            # Marginal hand (one tier above opener's max, but not trash):
-            # action is context-dependent.
-            return None
+            return (None, f"BB marginal: {notation} vs {open_raiser_pos} — {action_str} (tier {hand_tier} vs max {pos_tier})")
         else:
-            # Hand is too weak to defend vs this opener: should fold.
-            return 1 if hero_folded else 0
+            if hero_folded:
+                return (1, f"BB correto: foldou {notation} vs {open_raiser_pos} (tier {hand_tier} > {pos_tier})")
+            return (0, f"BB incorreto: defendeu {notation} vs {open_raiser_pos} (tier {hand_tier} > {pos_tier}, deveria foldar)")
 
-    def _eval_sb_vs_bb(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate SB steal attempt in a blind war.
-
-        Based on RegLife 'O Conceito de Blind War - SB vs BB':
-        - SB should raise (never limp) with a wide range when only BB remains.
-        - Correct (1): Raised with hand in SB steal range (RFI Tier 1-4 plus SB extras).
-        - Partial (None): Raised with a borderline hand outside known ranges.
-        - Incorrect (0): Raised with clear trash below the SB steal range.
-        """
-        # Detection requires SB to have raised (is_blind_war flag), so hero_is_rfi is True.
+    def _eval_sb_vs_bb(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate SB steal in blind war. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         if not hero_cards:
-            return 1  # raised without visible cards - execution assumed correct
+            return (1, "SB blind war: raise sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return 1  # raised, can't evaluate hand quality
+            return (1, "SB blind war: cartas nao parseadas")
 
-        # Hand in standard BTN/SB RFI range (Tier 1-4): correct steal
         rfi_tier = self._rfi_hand_tier(notation)
         if rfi_tier <= 4:
-            return 1
+            return (1, f"SB blind war correto: {notation} no range de steal (RFI tier {rfi_tier})")
 
-        # Hand in SB-specific steal extras (beyond BTN range): correct steal
         if notation in self._SB_WAR_EXTRA:
-            return 1
+            return (1, f"SB blind war correto: {notation} no range extra de SB war")
 
-        # Everything else is clear trash from SB perspective: raising is incorrect
-        return 0
+        return (0, f"SB blind war incorreto: {notation} fora do range de steal do SB")
 
-    def _eval_bb_vs_sb(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate BB defense in a blind war vs SB steal.
-
-        Based on RegLife 'Blind War BB vs SB':
-        - BB defends wider vs SB than vs any other position because:
-          SB's range is wide, BB has positional advantage postflop, pot odds are good.
-        - Correct (1): Defended with a clear defend hand, or folded clear trash.
-        - Partial (None): Marginal hand (sizing/read dependent).
-        - Incorrect (0): Folded a clearly defensible hand, or defended with trash.
-        """
+    def _eval_bb_vs_sb(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate BB defense in blind war vs SB. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         hero_folded = pf.get('hero_folds_preflop', False)
+        action_str = 'foldou' if hero_folded else 'defendeu'
 
         if not hero_cards:
-            return None  # cannot evaluate without hand information
+            return (None, f"BB vs SB blind war: {action_str} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return None
+            return (None, f"BB vs SB blind war: cartas nao parseadas")
 
         if notation in self._BW_BB_DEFEND:
-            # Strong enough hand to defend vs wide SB range
-            return 0 if hero_folded else 1
+            if hero_folded:
+                return (0, f"BB blind war incorreto: foldou {notation} (range de defesa vs SB)")
+            return (1, f"BB blind war correto: defendeu {notation} vs SB")
         elif notation in self._BW_BB_MARGINAL:
-            # Borderline hand: fold or call both reasonable
-            return None
+            return (None, f"BB blind war marginal: {notation} — {action_str} (depende de sizing/reads)")
         else:
-            # Clear trash: folding is correct, defending is incorrect
-            return 1 if hero_folded else 0
+            if hero_folded:
+                return (1, f"BB blind war correto: foldou {notation} (lixo vs SB)")
+            return (0, f"BB blind war incorreto: defendeu {notation} (fora do range de defesa)")
 
-    def _eval_multiway_bb(self, hand: dict, pf: dict) -> Optional[int]:
-        """Evaluate BB defense in multiway preflop situation.
-
-        Based on RegLife 'Defesa Multiway do Big Blind Pré-Flop':
-        - Correct (1): Defended with strong hand, or folded clear trash
-        - Partial (None): Marginal hand (defense vs fold depends on pot odds/SPR)
-        - Incorrect (0): Folded a strong multiway hand, or called with trash
-        """
+    def _eval_multiway_bb(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate BB defense in multiway pot. Returns (score, note_pt_br)."""
         hero_cards = hand.get('hero_cards')
         hero_folded = pf.get('hero_folds_preflop', False)
+        action_str = 'foldou' if hero_folded else 'defendeu'
 
         if not hero_cards:
-            return None  # cannot evaluate without knowing the hand
+            return (None, f"BB multiway: {action_str} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return None
+            return (None, f"BB multiway: cartas nao parseadas")
 
         if notation in self._MWBB_DEFEND:
-            # Strong multiway hand: folding is a mistake
             if hero_folded:
-                return 0  # incorrect fold
-            return 1  # correct defense
+                return (0, f"BB multiway incorreto: foldou {notation} (range de defesa multiway)")
+            return (1, f"BB multiway correto: defendeu {notation} (forte em pote multiway)")
         elif notation in self._MWBB_MARGINAL:
-            # Marginal hand: either action could be correct
-            return None
+            return (None, f"BB multiway marginal: {notation} — {action_str} (depende de pot odds/SPR)")
         else:
-            # Trash hand: should fold even with good pot odds
             if hero_folded:
-                return 1  # correct fold
-            return 0  # incorrect defense with trash
-
-    def _eval_cbet(self, street_analysis: dict) -> Optional[int]:
-        """Evaluate c-bet execution."""
-        return 1 if street_analysis['hero_bets'] else 0
-
-    def _eval_facing_cbet(self, street_analysis: dict) -> Optional[int]:
-        """Evaluate response to c-bet."""
-        if street_analysis.get('hero_folds'):
-            return None  # fold may be correct
-        if street_analysis.get('hero_raises'):
-            return 1  # raised = aggressive response
-        if street_analysis.get('hero_calls'):
-            return 1  # called = defended
-        return None
+                return (1, f"BB multiway correto: foldou {notation} (fora do range multiway)")
+            return (0, f"BB multiway incorreto: defendeu {notation} (fraco demais para multiway)")
 
     # ── Board Analysis Helpers ────────────────────────────────────────
 
@@ -1617,212 +1525,175 @@ class LessonClassifier:
         return 'weak'
 
     def _eval_cbet_flop_ip(self, hand: dict,
-                           flop_a: dict) -> Optional[int]:  # noqa: ARG002
-        """Evaluate c-bet flop IP execution.
-
-        Based on RegLife 'CBet Flop IP':
-        - IP bets frequently: value and bluffs on dry boards are correct.
-        - On wet boards, bluffing without equity is a mistake.
-        - Correct (1): value/draw, or air on dry board.
-        - Partial (None): air on neutral board (marginal bluff).
-        - Incorrect (0): air on wet board (over-bluffing without equity).
-        """
+                           flop_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
+        """Evaluate c-bet flop IP. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            return 1  # cannot evaluate, assume correct
+            return (1, "CBet IP no flop: sem info para avaliar, assumido correto")
 
         texture = self._board_texture(board_flop)
         strength = self._hand_connects_board(hero_cards, board_flop)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return 1
+            return (1, f"CBet IP no flop com {notation}: forca nao determinada")
 
         if strength in ('strong', 'medium', 'draw'):
-            return 1  # value or semi-bluff: correct regardless of texture
+            return (1, f"CBet IP correto: {notation} ({strength}) em board {texture}")
 
-        # strength == 'weak' (air)
+        # air
         if texture == 'dry':
-            return 1   # bluffing dry boards IP is fine
+            return (1, f"CBet IP correto: {notation} (air) em board dry — blefe valido IP")
         if texture == 'neutral':
-            return None  # marginal
-        return 0  # air on wet board: over-bluffing
+            return (None, f"CBet IP marginal: {notation} (air) em board neutral")
+        return (0, f"CBet IP incorreto: {notation} (air) em board wet — over-bluffing")
 
     def _eval_cbet_flop_oop(self, hand: dict,
-                            flop_a: dict) -> Optional[int]:  # noqa: ARG002
-        """Evaluate c-bet flop OOP execution.
-
-        Based on RegLife 'CBet Flop OOP':
-        - OOP cbets with value hands and semi-bluffs: correct.
-        - OOP bluffing air is generally a mistake (vulnerable position).
-        - Correct (1): value or draw.
-        - Partial (None): air on dry board (occasionally correct OOP).
-        - Incorrect (0): air on wet or neutral board.
-        """
+                            flop_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
+        """Evaluate c-bet flop OOP. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            return 1  # cannot evaluate, assume correct
+            return (1, "CBet OOP no flop: sem info para avaliar, assumido correto")
 
         texture = self._board_texture(board_flop)
         strength = self._hand_connects_board(hero_cards, board_flop)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return 1
+            return (1, f"CBet OOP no flop com {notation}: forca nao determinada")
 
         if strength in ('strong', 'medium', 'draw'):
-            return 1  # value or semi-bluff OOP: correct
+            return (1, f"CBet OOP correto: {notation} ({strength}) em board {texture}")
 
-        # strength == 'weak' (air)
+        # air
         if texture == 'dry':
-            return None  # marginally acceptable OOP on dry boards
-        return 0  # air OOP on wet/neutral: incorrect
+            return (None, f"CBet OOP marginal: {notation} (air) em board dry — aceitavel OOP")
+        return (0, f"CBet OOP incorreto: {notation} (air) em board {texture} — vulneravel OOP")
 
-    def _eval_bb_vs_cbet(self, hand: dict, flop_a: dict) -> Optional[int]:
-        """Evaluate BB response to a flop c-bet (OOP).
-
-        Based on RegLife 'BB vs CBet OOP':
-        - Defend (call/raise) with made hands and draws: correct.
-        - Fold with made hands or draws: incorrect.
-        - Fold with air: correct.
-        - Call/raise with air: incorrect.
-        - Draws: folding is marginal (depends on sizing/odds).
-        """
+    def _eval_bb_vs_cbet(self, hand: dict, flop_a: dict) -> tuple[Optional[int], str]:
+        """Evaluate BB response to flop c-bet OOP. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
-
         hero_folds = flop_a.get('hero_folds', False)
+        action_str = 'foldou' if hero_folds else 'defendeu'
 
         if not hero_cards or not board_flop:
             if hero_folds:
-                return None  # fold may be correct, cannot evaluate
-            return 1
+                return (None, f"BB vs CBet: foldou sem info para avaliar")
+            return (1, f"BB vs CBet: defendeu sem info para avaliar")
 
         strength = self._hand_connects_board(hero_cards, board_flop)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return None if hero_folds else 1
+            if hero_folds:
+                return (None, f"BB vs CBet com {notation}: foldou, forca nao determinada")
+            return (1, f"BB vs CBet com {notation}: defendeu, forca nao determinada")
 
         if strength in ('strong', 'medium'):
-            return 0 if hero_folds else 1  # should defend made hands
+            if hero_folds:
+                return (0, f"BB vs CBet incorreto: foldou {notation} ({strength}) — deveria defender")
+            return (1, f"BB vs CBet correto: defendeu {notation} ({strength})")
 
         if strength == 'draw':
             if hero_folds:
-                return None  # folding a draw is sizing-dependent
-            return 1  # defending draws is correct
+                return (None, f"BB vs CBet marginal: foldou {notation} (draw) — depende do sizing")
+            return (1, f"BB vs CBet correto: defendeu {notation} (draw)")
 
-        # strength == 'weak' (air)
-        return 1 if hero_folds else 0
+        # air
+        if hero_folds:
+            return (1, f"BB vs CBet correto: foldou {notation} (air)")
+        return (0, f"BB vs CBet incorreto: defendeu {notation} (air) — deveria foldar")
 
-    def _eval_ip_vs_cbet(self, hand: dict, flop_a: dict) -> Optional[int]:
-        """Evaluate IP response to villain's flop c-bet.
-
-        Based on RegLife 'Pós-Flop IP - Enfrentando C-Bet':
-        - IP should defend wide vs c-bets (position is an asset).
-        - Folding made hands (strong/medium) IP is a clear mistake.
-        - Draws are profitable to defend (call or raise as semi-bluff).
-        - With air: folding is fine; floating or bluff-raising can be correct.
-        - Correct (1): defend with made hand or draw; fold or raise with air.
-        - Marginal (None): float (call) with air; fold a draw (sizing-dep).
-        - Incorrect (0): fold made hand or medium hand IP.
-        """
+    def _eval_ip_vs_cbet(self, hand: dict, flop_a: dict) -> tuple[Optional[int], str]:
+        """Evaluate IP response to villain's flop c-bet. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
-
         hero_folds = flop_a.get('hero_folds', False)
         hero_raises = flop_a.get('hero_raises', False)
 
         if not hero_cards or not board_flop:
             if hero_folds:
-                return None  # cannot evaluate, fold may be correct
-            return 1  # defending is generally right IP
+                return (None, "IP vs CBet: foldou sem info para avaliar")
+            return (1, "IP vs CBet: defendeu sem info para avaliar")
 
         strength = self._hand_connects_board(hero_cards, board_flop)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return None if hero_folds else 1
+            if hero_folds:
+                return (None, f"IP vs CBet com {notation}: forca nao determinada")
+            return (1, f"IP vs CBet com {notation}: defendeu, forca nao determinada")
 
         if strength in ('strong', 'medium'):
-            return 0 if hero_folds else 1  # never fold made hands IP
+            if hero_folds:
+                return (0, f"IP vs CBet incorreto: foldou {notation} ({strength}) — nunca foldar made hand IP")
+            return (1, f"IP vs CBet correto: defendeu {notation} ({strength}) IP")
 
         if strength == 'draw':
             if hero_folds:
-                return None  # sizing-dependent
-            return 1  # defending draws IP (call or semi-bluff raise)
+                return (None, f"IP vs CBet marginal: foldou {notation} (draw) — depende do sizing")
+            return (1, f"IP vs CBet correto: defendeu {notation} (draw) IP")
 
-        # strength == 'weak' (air)
+        # air
         if hero_folds:
-            return 1  # correct to give up with nothing
+            return (1, f"IP vs CBet correto: foldou {notation} (air)")
         if hero_raises:
-            return 1  # bluff-raise IP is a sound play
-        return None  # floating (calling) with air IP is marginal
+            return (1, f"IP vs CBet correto: bluff-raise com {notation} (air) IP")
+        return (None, f"IP vs CBet marginal: float com {notation} (air) IP")
 
     def _eval_facing_checkraise(self, hand: dict,
-                                street_a: dict) -> Optional[int]:
-        """Evaluate hero's response when facing a check-raise.
-
-        Based on RegLife 'Enfrentando o Check-Raise':
-        - Check-raises represent strength: weak hands should fold.
-        - Strong made hands should continue (call or 3-bet).
-        - Medium hands: calling is usually correct, folding is marginal.
-        - Draws: defending is correct (equity); folding is sizing-dependent.
-        - Correct (1): fold air; defend made hands or draws.
-        - Marginal (None): fold medium/draw (sizing/stack dep); call air.
-        - Incorrect (0): fold strong hand; call/raise with air.
-        """
+                                street_a: dict) -> tuple[Optional[int], str]:
+        """Evaluate hero's response facing check-raise. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
-
         hero_folds = street_a.get('hero_folds', False)
         hero_raises = street_a.get('hero_raises', False)
 
         if not hero_cards or not board_flop:
             if hero_folds:
-                return None  # cannot evaluate
-            return 1  # defending is generally fine
+                return (None, "Vs check-raise: foldou sem info para avaliar")
+            return (1, "Vs check-raise: defendeu sem info para avaliar")
 
         strength = self._hand_connects_board(hero_cards, board_flop)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return None
+            return (None, f"Vs check-raise com {notation}: forca nao determinada")
 
         if strength == 'strong':
-            return 0 if hero_folds else 1  # must not fold premium hands
+            if hero_folds:
+                return (0, f"Vs check-raise incorreto: foldou {notation} (strong) — nunca foldar")
+            return (1, f"Vs check-raise correto: defendeu {notation} (strong)")
 
         if strength == 'medium':
             if hero_folds:
-                return None  # folding medium vs c/r can be correct
+                return (None, f"Vs check-raise marginal: foldou {notation} (medium)")
             if hero_raises:
-                return None  # 3-betting a medium hand is marginal
-            return 1  # calling with medium hand: correct
+                return (None, f"Vs check-raise marginal: re-raise com {notation} (medium)")
+            return (1, f"Vs check-raise correto: call com {notation} (medium)")
 
         if strength == 'draw':
             if hero_folds:
-                return None  # depends on sizing and pot odds
-            return 1  # defending draws vs check-raise: correct
+                return (None, f"Vs check-raise marginal: foldou {notation} (draw) — depende do sizing")
+            return (1, f"Vs check-raise correto: defendeu {notation} (draw)")
 
-        # strength == 'weak' (air)
-        return 1 if hero_folds else 0  # fold air vs c/r; defending is wrong
+        # air
+        if hero_folds:
+            return (1, f"Vs check-raise correto: foldou {notation} (air)")
+        return (0, f"Vs check-raise incorreto: defendeu {notation} (air) — deveria foldar")
 
     def _eval_3bet_pot_postflop(self, hand: dict, flop_a: dict,
-                                pf: dict) -> Optional[int]:
-        """Evaluate postflop play in a 3-bet pot.
-
-        Based on RegLife '3-Betted Pots Pós-Flop':
-        - SPR is low (~2-3): made hands should not fold to a single bet.
-        - PFA should c-bet their range (value and bluffs).
-        - Caller: defend made hands and draws; fold air vs c-bet.
-        - Correct (1): defend made hands/draws; PFA c-bets or folds air.
-        - Marginal (None): fold draw (SPR/sizing dep); check back as PFA.
-        - Incorrect (0): fold made hand; caller raises air; check-fold PFA.
-        """
+                                pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate postflop play in 3-bet pot. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
-        # hero_3bets/hero_squeezes = hero made the last preflop raise (PFA into flop)
-        # hero_is_preflop_aggressor stays True even if hero opened then called a 3-bet
         pf_agg = pf.get('hero_3bets', False) or pf.get('hero_squeezes', False)
+        role = 'PFA' if pf_agg else 'caller'
 
         hero_folds = flop_a.get('hero_folds', False)
         hero_bets = flop_a.get('hero_bets', False)
@@ -1830,37 +1701,38 @@ class LessonClassifier:
 
         if not hero_cards or not board_flop:
             if hero_folds:
-                return None  # cannot evaluate
-            return 1
+                return (None, f"3-bet pot ({role}): foldou sem info para avaliar")
+            return (1, f"3-bet pot ({role}): jogou sem info para avaliar")
 
         strength = self._hand_connects_board(hero_cards, board_flop)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return None
+            return (None, f"3-bet pot ({role}) com {notation}: forca nao determinada")
 
         if strength in ('strong', 'medium'):
-            return 0 if hero_folds else 1  # never fold made hands 3-bet pot
+            if hero_folds:
+                return (0, f"3-bet pot incorreto: foldou {notation} ({strength}) como {role} — SPR baixo")
+            return (1, f"3-bet pot correto: defendeu {notation} ({strength}) como {role}")
 
         if strength == 'draw':
             if hero_folds:
-                return None  # depends on SPR and bet sizing
-            return 1  # playing draws aggressively: correct
+                return (None, f"3-bet pot marginal: foldou {notation} (draw) como {role} — depende de SPR")
+            return (1, f"3-bet pot correto: jogou {notation} (draw) como {role}")
 
-        # strength == 'weak' (air)
+        # air
         if pf_agg:
-            # PFA should c-bet with air (protection + fold equity)
             if hero_bets:
-                return 1  # c-bet air in 3-bet pot: correct
+                return (1, f"3-bet pot correto: CBet com {notation} (air) como PFA — fold equity")
             if hero_folds:
-                return None  # check-fold air as PFA: marginal
-            return None  # checking air back as PFA: marginal
+                return (None, f"3-bet pot marginal: check-fold com {notation} (air) como PFA")
+            return (None, f"3-bet pot marginal: check com {notation} (air) como PFA")
         else:
-            # Caller with air: fold vs c-bet
             if hero_folds:
-                return 1  # correct to fold air as caller
+                return (1, f"3-bet pot correto: foldou {notation} (air) como caller")
             if hero_raises:
-                return 0  # raising with air as caller: incorrect
-            return None  # floating with air as caller: marginal
+                return (0, f"3-bet pot incorreto: raise com {notation} (air) como caller")
+            return (None, f"3-bet pot marginal: float com {notation} (air) como caller")
 
     @classmethod
     def _turn_changes_texture(cls, board_flop: str,
@@ -1991,66 +1863,49 @@ class LessonClassifier:
 
     def _eval_cbet_turn(self, hand: dict,
                         flop_a: dict,  # noqa: ARG002
-                        turn_a: dict) -> Optional[int]:  # noqa: ARG002
-        """Evaluate c-bet turn (double barrel) execution.
-
-        Based on RegLife 'C-Bet Turn':
-        - Double-barreling with value or semi-bluff is always correct.
-        - Bluffing air on a blank turn is correct (villain can't have improved).
-        - Bluffing air when the turn completes draws is a mistake.
-        - Correct (1): strong/medium hand, draw, or air on a blank turn.
-        - Partial (None): air on a neutral turn.
-        - Incorrect (0): air when turn is dangerous (completes draws).
-        """
+                        turn_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
+        """Evaluate c-bet turn (double barrel). Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            return 1  # cannot evaluate; assume correct
+            return (1, "CBet turn: sem info para avaliar, assumido correto")
 
         full_board = (f"{board_flop} {board_turn}"
                       if board_turn else board_flop)
         strength = self._hand_connects_board(hero_cards, full_board)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return 1
+            return (1, f"CBet turn com {notation}: forca nao determinada")
 
         if strength in ('strong', 'medium', 'draw'):
-            return 1  # value or semi-bluff: double barrel is always correct
+            return (1, f"CBet turn correto: {notation} ({strength}) — double barrel valido")
 
-        # strength == 'weak' (air bluff)
+        # air
         if not board_turn:
-            return None  # no turn card info; cannot classify
+            return (None, f"CBet turn com {notation} (air): sem carta de turn para avaliar")
 
         turn_change = self._turn_changes_texture(board_flop, board_turn)
         if turn_change == 'blank':
-            return 1   # blank turn: bluffing is a sound double barrel
+            return (1, f"CBet turn correto: {notation} (air) em turn blank — blefe sound")
         if turn_change == 'neutral':
-            return None  # marginal: depends on reads and range
-        return 0  # dangerous turn: bluffing here is over-barreling
+            return (None, f"CBet turn marginal: {notation} (air) em turn neutral")
+        return (0, f"CBet turn incorreto: {notation} (air) em turn dangerous — over-barreling")
 
     def _eval_cbet_river(self, hand: dict,
                         flop_a: dict,  # noqa: ARG002
                         turn_a: dict,  # noqa: ARG002
-                        river_a: dict) -> Optional[int]:  # noqa: ARG002
-        """Evaluate c-bet river (triple barrel) execution.
-
-        Based on RegLife 'C-Bet River':
-        - Triple-barreling with value is always correct.
-        - Air bluffs on blank rivers are sound (polarized triple barrel).
-        - Bluffing air when the river completes flush/straight draws is a mistake.
-        - Correct (1): strong/medium hand, or air on a blank river.
-        - Partial (None): air on a neutral river (paired board, high card).
-        - Incorrect (0): air when river is dangerous (completes draws).
-        """
+                        river_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
+        """Evaluate c-bet river (triple barrel). Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         board_river = hand.get('board_river')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            return 1  # cannot evaluate; assume correct
+            return (1, "CBet river: sem info para avaliar, assumido correto")
 
         full_board = board_flop
         if board_turn:
@@ -2059,133 +1914,103 @@ class LessonClassifier:
             full_board += f" {board_river}"
 
         strength = self._hand_connects_board(hero_cards, full_board)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return 1
+            return (1, f"CBet river com {notation}: forca nao determinada")
 
         if strength in ('strong', 'medium', 'draw'):
-            return 1  # value or draw: triple barrel is always correct
+            return (1, f"CBet river correto: {notation} ({strength}) — triple barrel valido")
 
-        # strength == 'weak' (air bluff)
+        # air
         if not board_river:
-            return None  # no river card info; cannot classify
+            return (None, f"CBet river com {notation} (air): sem carta de river para avaliar")
 
         river_change = self._river_changes_texture(
             board_flop, board_turn or '', board_river
         )
         if river_change == 'blank':
-            return 1   # blank river: bluffing is a sound triple barrel
+            return (1, f"CBet river correto: {notation} (air) em river blank — blefe polarizado")
         if river_change == 'neutral':
-            return None  # marginal: depends on reads and range
-        return 0  # dangerous river: bluffing here is over-barreling
+            return (None, f"CBet river marginal: {notation} (air) em river neutral")
+        return (0, f"CBet river incorreto: {notation} (air) em river dangerous — over-barreling")
 
     def _eval_delayed_cbet(self, hand: dict,
                            flop_a: dict,  # noqa: ARG002
-                           turn_a: dict) -> Optional[int]:  # noqa: ARG002
-        """Evaluate delayed c-bet execution.
-
-        Based on RegLife 'Delayed CBet':
-        - Hero was PFA but checked the flop, then bets the turn after
-          villain checked back (showing weakness).
-        - Strong/medium hands: correct to bet the turn for value.
-        - Draws: semi-bluff on the turn is correct.
-        - Air: the delayed bet is generally correct when villain checked back
-          (sign of weakness), unless the turn is clearly dangerous.
-        - Correct (1): value, draw, or air with blank/neutral turn.
-        - Partial (None): air when turn is dangerous (draws completed).
-        - Incorrect (0): not applicable (execution of delayed bet is the trigger).
-        """
+                           turn_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
+        """Evaluate delayed c-bet execution. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            # Villain checked back, hero fired: sound play in principle.
-            return 1
+            return (1, "Delayed CBet: vilao mostrou fraqueza, aposta correta por padrao")
 
         full_board = (f"{board_flop} {board_turn}"
                       if board_turn else board_flop)
         strength = self._hand_connects_board(hero_cards, full_board)
+        notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return 1
+            return (1, f"Delayed CBet com {notation}: forca nao determinada")
 
         if strength in ('strong', 'medium', 'draw'):
-            return 1  # betting for value or semi-bluff: correct
+            return (1, f"Delayed CBet correto: {notation} ({strength}) — valor/semi-blefe no turn")
 
-        # strength == 'weak' (air delayed bluff)
-        # Villain showing weakness (checked back) justifies the bluff,
-        # but a dangerous turn (completed draws) makes it risky.
+        # air
         if not board_turn:
-            return 1  # villain checked back; delayed bluff is correct by default
+            return (1, f"Delayed CBet com {notation} (air): vilao fraco, blefe correto")
 
         turn_change = self._turn_changes_texture(board_flop, board_turn)
         if turn_change in ('blank', 'neutral'):
-            return 1   # villain weakness + acceptable turn: correct delayed bluff
-        return None  # dangerous turn: delayed bluff becomes marginal
+            return (1, f"Delayed CBet correto: {notation} (air) em turn {turn_change} — vilao fraco")
+        return (None, f"Delayed CBet marginal: {notation} (air) em turn dangerous — arriscado")
 
     def _eval_mda(self, hand: dict, flop_a: dict,
-                 turn_a: dict) -> Optional[int]:
-        """Evaluate multi-street decision-making (MDA).
-
-        Based on RegLife 'Introdução ao MDA':
-        - Made hands should not fold to single bets on the turn.
-        - Air should fold to villain aggression on the turn.
-        - Correct (1): made hand continues, or air folds/checks.
-        - Marginal (None): air calls villain bet (pot-odds dependent).
-        - Incorrect (0): made hand folds to a single turn bet.
-        """
+                 turn_a: dict) -> tuple[Optional[int], str]:
+        """Evaluate multi-street decision-making (MDA). Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            return None  # cannot evaluate without cards
+            return (None, "MDA: sem cartas/board para avaliar")
 
         full_board = board_flop
         if board_turn:
             full_board += f" {board_turn}"
 
         strength = self._hand_connects_board(hero_cards, full_board)
+        notation = self._hand_notation(hero_cards) or '?'
         if strength is None:
-            return None
+            return (None, f"MDA com {notation}: forca nao determinada")
 
-        # Made hands: folding to a single turn bet is the key MDA mistake
         if strength in ('strong', 'medium'):
             if turn_a.get('hero_folds') and turn_a.get('villain_bets_first'):
-                return 0  # folding made hand to turn bet: incorrect
-            return 1
+                return (0, f"MDA incorreto: foldou {notation} ({strength}) no turn vs bet")
+            return (1, f"MDA correto: continuou com {notation} ({strength})")
 
         if strength == 'draw':
-            return 1  # semi-bluffing or chasing on later streets: correct
+            return (1, f"MDA correto: {notation} (draw) — semi-blefe ou chase valido")
 
-        # Air: fold to villain aggression on turn is correct
+        # air
         if turn_a.get('hero_folds') and turn_a.get('villain_bets_first'):
-            return 1  # correctly folding air to turn bet
+            return (1, f"MDA correto: foldou {notation} (air) vs bet no turn")
         if turn_a.get('hero_calls') and turn_a.get('villain_bets_first'):
-            return None  # calling turn with air: depends on pot odds
-        return 1  # checking/betting air on turn handled by other lessons
+            return (None, f"MDA marginal: call com {notation} (air) vs bet — depende de pot odds")
+        return (1, f"MDA: {notation} (air) — check/bet tratado por outras licoes")
 
     def _eval_postflop_advanced(self, hand: dict, flop_a: dict,
                                 turn_a: dict,
-                                river_a: dict) -> Optional[int]:
-        """Evaluate advanced postflop play across all 3 streets.
-
-        Based on RegLife 'Pós-Flop Avançado':
-        - Strong hands must not fold to river bets.
-        - Missed draws should fold to river bets.
-        - Air folding to river bets is correct.
-        - Correct (1): strong hand continues; missed draw/air folds.
-        - Marginal (None): medium hand facing river bet; draw calls river.
-        - Incorrect (0): strong hand folds to river bet.
-        """
+                                river_a: dict) -> tuple[Optional[int], str]:
+        """Evaluate advanced postflop across 3 streets. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         board_river = hand.get('board_river')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            return None
+            return (None, "Pos-flop avancado: sem cartas/board para avaliar")
 
         full_board = board_flop
         if board_turn:
@@ -2194,115 +2019,93 @@ class LessonClassifier:
             full_board += f" {board_river}"
 
         strength = self._hand_connects_board(hero_cards, full_board)
+        notation = self._hand_notation(hero_cards) or '?'
         if strength is None:
-            return None
+            return (None, f"Pos-flop avancado com {notation}: forca nao determinada")
 
-        # Strong hands: never fold to river bet
         if strength == 'strong':
             if river_a.get('hero_folds') and river_a.get('villain_bets_first'):
-                return 0  # folding strong hand to river bet: incorrect
-            return 1
+                return (0, f"Pos-flop avancado incorreto: foldou {notation} (strong) no river vs bet")
+            return (1, f"Pos-flop avancado correto: {notation} (strong) continuou no river")
 
-        # Medium hands: marginal in big river spots
         if strength == 'medium':
             if river_a.get('hero_folds') and river_a.get('villain_bets_first'):
-                return None  # depends on bet sizing and reads
-            return 1
+                return (None, f"Pos-flop avancado marginal: foldou {notation} (medium) no river vs bet")
+            return (1, f"Pos-flop avancado correto: {notation} (medium) jogou ate o river")
 
-        # Draws (missed on river): fold to bet is correct
         if strength == 'draw':
             if river_a.get('hero_folds') and river_a.get('villain_bets_first'):
-                return 1  # folding missed draw to river bet: correct
-            return None  # calling with missed draw: depends on bluff-catcher value
+                return (1, f"Pos-flop avancado correto: foldou {notation} (draw perdido) no river")
+            return (None, f"Pos-flop avancado marginal: {notation} (draw) call no river — bluff-catcher")
 
-        # Air: fold to river bet is correct
+        # air
         if river_a.get('hero_folds') and river_a.get('villain_bets_first'):
-            return 1  # correctly folding air to river bet
-        return None  # other air scenarios: marginal
+            return (1, f"Pos-flop avancado correto: foldou {notation} (air) no river")
+        return (None, f"Pos-flop avancado marginal: {notation} (air) no river")
 
     def _eval_bet_vs_missed_bet(self, hand: dict, flop_a: dict,
-                                turn_a: dict) -> Optional[int]:
-        """Evaluate bet vs missed bet / missed c-bet exploitation.
-
-        Based on RegLife 'Bet vs Missed Bet':
-        - Villain showed weakness (missed c-bet or checked back); hero bets.
-        - Strong/medium/draw: always correct (value + exploit).
-        - Air: correct when turn is blank/neutral (villain showed weakness).
-        - Air: marginal when turn is dangerous (villain may have connected).
-        - Correct (1): value, semi-bluff, or air with acceptable turn.
-        - Marginal (None): air when turn is dangerous.
-        - Incorrect (0): not applicable (execution of the bet is the trigger).
-        """
+                                turn_a: dict) -> tuple[Optional[int], str]:
+        """Evaluate bet vs missed bet exploitation. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            return 1  # villain showed weakness; betting is correct by default
+            return (1, "Bet vs missed: vilao mostrou fraqueza, aposta correta")
 
         full_board = board_flop
         if board_turn:
             full_board += f" {board_turn}"
 
         strength = self._hand_connects_board(hero_cards, full_board)
+        notation = self._hand_notation(hero_cards) or '?'
         if strength is None:
-            return 1
+            return (1, f"Bet vs missed com {notation}: forca nao determinada")
 
-        # Made hands and draws: bet for value or semi-bluff is always correct
         if strength in ('strong', 'medium', 'draw'):
-            return 1
+            return (1, f"Bet vs missed correto: {notation} ({strength}) — valor/semi-blefe")
 
-        # Air: exploitation depends on turn texture
+        # air
         if board_turn:
             turn_change = self._turn_changes_texture(board_flop, board_turn)
             if turn_change in ('blank', 'neutral'):
-                return 1   # villain weakness + acceptable turn: correct
-            return None  # dangerous turn: villain may have connected
+                return (1, f"Bet vs missed correto: {notation} (air) em turn {turn_change} — vilao fraco")
+            return (None, f"Bet vs missed marginal: {notation} (air) em turn dangerous — vilao pode ter conectado")
 
-        return 1  # no turn info: assume correct
+        return (1, f"Bet vs missed com {notation} (air): sem turn, assumido correto")
 
     def _eval_probe(self, hand: dict, flop_a: dict,  # noqa: ARG002
-                    turn_a: dict) -> Optional[int]:   # noqa: ARG002
-        """Evaluate BB probe bet on turn after PFA checked flop back.
-
-        Based on RegLife 'Probe do BB':
-        - BB probes the turn to take the lead when PFA showed weakness.
-        - Strong/medium/draw: probe for value or semi-bluff: correct.
-        - Air: probe correct on blank turns (exploit PFA weakness).
-        - Air: marginal on neutral turns; incorrect on dangerous turns.
-        - Correct (1): value/semi-bluff, or air on blank turn.
-        - Marginal (None): air on neutral turn.
-        - Incorrect (0): air probe when turn is dangerous.
-        """
+                    turn_a: dict) -> tuple[Optional[int], str]:   # noqa: ARG002
+        """Evaluate BB probe bet on turn. Returns (score, note_pt_br)."""
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         hero_cards = hand.get('hero_cards')
 
         if not hero_cards or not board_flop:
-            return 1  # PFA checked; probing is sound by default
+            return (1, "Probe BB: PFA checou, probe correta por padrao")
 
         full_board = board_flop
         if board_turn:
             full_board += f" {board_turn}"
 
         strength = self._hand_connects_board(hero_cards, full_board)
+        notation = self._hand_notation(hero_cards) or '?'
         if strength is None:
-            return 1
+            return (1, f"Probe BB com {notation}: forca nao determinada")
 
-        # Value/semi-bluff: probe is always correct
         if strength in ('strong', 'medium', 'draw'):
-            return 1
+            return (1, f"Probe BB correto: {notation} ({strength}) — valor/semi-blefe")
 
-        # Air probe: depends on turn texture
+        # air
         if board_turn:
             turn_change = self._turn_changes_texture(board_flop, board_turn)
             if turn_change == 'blank':
-                return 1   # blank turn: probing air exploits PFA weakness
+                return (1, f"Probe BB correto: {notation} (air) em turn blank — explora fraqueza")
             if turn_change == 'neutral':
-                return None  # neutral turn: marginal probe with air
-            return 0  # dangerous turn: probing with air is incorrect
+                return (None, f"Probe BB marginal: {notation} (air) em turn neutral")
+            return (0, f"Probe BB incorreto: {notation} (air) em turn dangerous")
 
-        return 1  # no turn info; probing is correct by default
+        return (1, f"Probe BB com {notation} (air): sem turn, probe correta por padrao")
 
     # ── Advanced Detection ───────────────────────────────────────────
 

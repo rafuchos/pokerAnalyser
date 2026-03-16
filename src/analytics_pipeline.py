@@ -492,8 +492,10 @@ def _persist_lesson_stats(analytics: AnalyticsRepository,
             stat_data['mastery'] = 'mastered'
         elif total_evaluated >= 10 and accuracy is not None and accuracy >= 60:
             stat_data['mastery'] = 'learning'
-        elif total_evaluated > 0:
+        elif total_evaluated >= 5:
             stat_data['mastery'] = 'needs_work'
+        elif total_evaluated > 0:
+            stat_data['mastery'] = 'insufficient_data'
         else:
             stat_data['mastery'] = 'no_data'
 
@@ -513,6 +515,7 @@ def _persist_lesson_stats(analytics: AnalyticsRepository,
         mastered = 0
         learning = 0
         needs_work = 0
+        insufficient_data = 0
         for (lid, _), s in gt_stats.items():
             te = s['correct'] + s['incorrect']
             acc = round(s['correct'] / te * 100, 1) if te > 0 else None
@@ -520,8 +523,10 @@ def _persist_lesson_stats(analytics: AnalyticsRepository,
                 mastered += 1
             elif te >= 10 and acc is not None and acc >= 60:
                 learning += 1
-            elif te > 0:
+            elif te >= 5:
                 needs_work += 1
+            elif te > 0:
+                insufficient_data += 1
 
         # Category breakdown
         by_category = {}
@@ -547,6 +552,7 @@ def _persist_lesson_stats(analytics: AnalyticsRepository,
             'mastered': mastered,
             'learning': learning,
             'needs_work': needs_work,
+            'insufficient_data': insufficient_data,
             'by_category': by_category,
         }
         analytics.insert_global_stat(gt, 'lesson_summary', stat_json=summary)
