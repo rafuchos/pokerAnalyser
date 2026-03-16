@@ -511,6 +511,7 @@
                     <th>Street</th>
                     <th>Resultado</th>
                     <th class="num">Net</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
@@ -529,6 +530,10 @@
                         {% endif %}
                     </td>
                     <td class="num {{ 'positive' if (h.get('net') or 0) >= 0 else 'negative' }}">${{ '{:+.2f}'.format(h.get('net') or 0) }}</td>
+                    <td>
+                        <a href="{{ url_for('main.hand_replayer', hand_id=h['hand_id']) }}?game_type=cash&lesson={{ lesson['lesson_id'] }}"
+                           class="detail-link" title="Replay">&#9654;</a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
