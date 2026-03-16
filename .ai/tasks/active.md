@@ -120,6 +120,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-053b: Rewrite Preflop: RFI, Flat/3Bet, Reação vs 3Bet, Open Shove (Aulas 1-4) (2026-03-16)
 - [x] US-053c: Rewrite Preflop: Squeeze, BB Defense, Blind War (Aulas 5-9) (2026-03-16)
 - [x] US-053d: Rewrite Postflop: CBet Flop/Turn/River, Delayed CBet (Aulas 13-17) (2026-03-16)
+- [x] US-053e: Rewrite Postflop: Defense — BB vs CBet, Check-Raise, IP vs CBet, Probe, Bet vs Missed (Aulas 18-22) (2026-03-16)
 
 ---
 
