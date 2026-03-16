@@ -770,89 +770,90 @@ class LessonClassifier:
             _turn_bet = turn_a.get('hero_bet_amount', 0) / _bb if _bb > 0 else 0
             river_pot_bb = (turn_pot_bb + 2 * _turn_bet) if turn_pot_bb > 0 else 0.0
 
-            # 10: Pós-Flop Avançado (Aula 12: avaliada como prática —
-            # avalia decisões no river baseado em hand strength vs board)
+            # Aulas 10 (Intro Pós-Flop) e 11 (MDA) são teóricas/ferramentas — NÃO classificar
+
+            # 12: Pós-Flop Avançado
             if has_turn and has_river:
-                m = self._match(hand_id, 10, 'flop')
+                m = self._match(hand_id, 12, 'flop')
                 m.confidence = 0.5
                 m.executed_correctly, m.notes = self._eval_postflop_advanced(
                     hand, flop_a, turn_a, river_a)
                 matches.append(m)
 
-            # 11: C-Bet Flop IP
+            # 13: C-Bet Flop IP
             if pf_agg and flop_a['hero_bets'] and hero_ip:
-                m = self._match(hand_id, 11, 'flop')
+                m = self._match(hand_id, 13, 'flop')
                 m.executed_correctly, m.notes = self._eval_cbet_flop_ip(
                     hand, flop_a, flop_pot_bb)
                 matches.append(m)
 
-            # 12: C-Bet OOP
+            # 14: C-Bet OOP
             if pf_agg and flop_a['hero_bets'] and not hero_ip:
-                m = self._match(hand_id, 12, 'flop')
+                m = self._match(hand_id, 14, 'flop')
                 m.executed_correctly, m.notes = self._eval_cbet_flop_oop(
                     hand, flop_a, flop_pot_bb)
                 matches.append(m)
 
-            # 13: C-Bet Turn (double barrel: hero bet flop AND bets turn)
+            # 15: C-Bet Turn (double barrel: hero bet flop AND bets turn)
             if pf_agg and has_turn and flop_a['hero_bets'] and turn_a['hero_bets']:
-                m = self._match(hand_id, 13, 'turn')
+                m = self._match(hand_id, 15, 'turn')
                 m.executed_correctly, m.notes = self._eval_cbet_turn(
                     hand, flop_a, turn_a, turn_pot_bb)
                 matches.append(m)
 
-            # 14: C-Bet River
+            # 16: C-Bet River
             if pf_agg and has_river and river_a['hero_bets']:
-                m = self._match(hand_id, 14, 'river')
+                m = self._match(hand_id, 16, 'river')
                 m.executed_correctly, m.notes = self._eval_cbet_river(
                     hand, flop_a, turn_a, river_a, river_pot_bb)
                 matches.append(m)
 
-            # 15: Delayed C-Bet (hero checked flop as PFA, bets turn after villain checks)
+            # 17: Delayed C-Bet (hero checked flop as PFA, bets turn after villain checks)
             if pf_agg and flop_a['hero_checks'] and has_turn and turn_a['hero_bets']:
-                m = self._match(hand_id, 15, 'turn')
+                m = self._match(hand_id, 17, 'turn')
                 m.executed_correctly, m.notes = self._eval_delayed_cbet(
                     hand, flop_a, turn_a, turn_pot_bb)
                 matches.append(m)
 
-            # 16: BB vs C-Bet OOP
+            # 18: BB vs C-Bet OOP
             if hero_pos == 'BB' and not hero_ip and flop_a['villain_bets_first']:
-                m = self._match(hand_id, 16, 'flop')
+                m = self._match(hand_id, 18, 'flop')
                 m.executed_correctly, m.notes = self._eval_bb_vs_cbet(hand, flop_a)
                 matches.append(m)
 
-            # 17: Enfrentando Check-Raise
+            # 19: Enfrentando Check-Raise
             if flop_a['hero_faces_checkraise'] or turn_a.get('hero_faces_checkraise'):
                 street = 'flop' if flop_a['hero_faces_checkraise'] else 'turn'
                 active_a = flop_a if flop_a['hero_faces_checkraise'] else turn_a
-                m = self._match(hand_id, 17, street)
+                m = self._match(hand_id, 19, street)
                 m.executed_correctly, m.notes = self._eval_facing_checkraise(hand, active_a)
                 matches.append(m)
 
-            # 18: Pós-Flop IP enfrentando C-Bet BTN
+            # 20: Pós-Flop IP enfrentando C-Bet BTN
             if hero_ip and flop_a['villain_bets_first']:
-                m = self._match(hand_id, 18, 'flop')
+                m = self._match(hand_id, 20, 'flop')
                 m.executed_correctly, m.notes = self._eval_ip_vs_cbet(hand, flop_a)
                 matches.append(m)
 
-            # 19: Bet vs Missed Bet
+            # 21: Bet vs Missed Bet
             if self._detect_bet_vs_missed(flop_a, turn_a, pf_agg):
                 street = 'turn' if turn_a.get('hero_bets') else 'flop'
-                m = self._match(hand_id, 19, street)
+                m = self._match(hand_id, 21, street)
                 m.executed_correctly, m.notes = self._eval_bet_vs_missed_bet(
                     hand, flop_a, turn_a)
                 matches.append(m)
 
-            # 20: Probe do BB
+            # 22: Probe do BB
             if hero_pos == 'BB' and not pf_agg and has_turn:
                 if flop_a.get('villain_checks_back', False) and turn_a['hero_bets']:
-                    m = self._match(hand_id, 20, 'turn')
+                    m = self._match(hand_id, 22, 'turn')
                     m.executed_correctly, m.notes = self._eval_probe(
                         hand, flop_a, turn_a)
                     matches.append(m)
 
-            # 21: 3-Betted Pots Pós-Flop
+            # 23: 3-Betted Pots Pós-Flop
             if pf['is_3bet_pot']:
-                m = self._match(hand_id, 21, 'flop')
+                m = self._match(hand_id, 23, 'flop')
                 m.executed_correctly, m.notes = self._eval_3bet_pot_postflop(hand, flop_a, pf)
                 matches.append(m)
 
@@ -861,15 +862,15 @@ class LessonClassifier:
             t_info = self.repo.get_tournament_info(hand['tournament_id'])
             is_bounty = t_info and t_info.get('is_bounty')
 
-            # 22: Intro Torneios Bounty
+            # 24: Intro Torneios Bounty
             if is_bounty:
-                m = self._match(hand_id, 22, 'preflop')
+                m = self._match(hand_id, 24, 'preflop')
                 m.executed_correctly, m.notes = self._eval_bounty_intro(hand, pf, t_info)
                 matches.append(m)
 
-            # 23: Bounty Ranges Práticos
+            # 25: Bounty Ranges Práticos
             if is_bounty and preflop:
-                m = self._match(hand_id, 23, 'preflop')
+                m = self._match(hand_id, 25, 'preflop')
                 m.executed_correctly, m.notes = self._eval_bounty_ranges(hand, pf, t_info)
                 matches.append(m)
 
