@@ -770,7 +770,8 @@ class LessonClassifier:
             _turn_bet = turn_a.get('hero_bet_amount', 0) / _bb if _bb > 0 else 0
             river_pot_bb = (turn_pot_bb + 2 * _turn_bet) if turn_pot_bb > 0 else 0.0
 
-            # 10: Pós-Flop Avançado
+            # 10: Pós-Flop Avançado (Aula 12: avaliada como prática —
+            # avalia decisões no river baseado em hand strength vs board)
             if has_turn and has_river:
                 m = self._match(hand_id, 10, 'flop')
                 m.confidence = 0.5
@@ -863,13 +864,13 @@ class LessonClassifier:
             # 22: Intro Torneios Bounty
             if is_bounty:
                 m = self._match(hand_id, 22, 'preflop')
-                m.executed_correctly, m.notes = self._eval_bounty_intro(hand, pf)
+                m.executed_correctly, m.notes = self._eval_bounty_intro(hand, pf, t_info)
                 matches.append(m)
 
             # 23: Bounty Ranges Práticos
             if is_bounty and preflop:
                 m = self._match(hand_id, 23, 'preflop')
-                m.executed_correctly, m.notes = self._eval_bounty_ranges(hand, pf)
+                m.executed_correctly, m.notes = self._eval_bounty_ranges(hand, pf, t_info)
                 matches.append(m)
 
         return matches
@@ -1631,42 +1632,110 @@ class LessonClassifier:
                 f"(tier {hand_tier} > {pos_tier}{pct_str})"
             ))
 
-    def _eval_bounty_intro(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate preflop play in bounty tournament. Returns (score, note_pt_br)."""
+    @classmethod
+    def _bounty_overlay_note(cls, t_info: Optional[dict]) -> str:
+        """Return PT-BR note describing bounty overlay level.
+
+        overlay_ratio = bounty / buy_in. Higher ratio = more valuable to chase bounties.
+        Returns empty string if t_info is None or buy_in is zero.
+        """
+        if not t_info:
+            return ""
+        bounty = t_info.get('bounty') or 0
+        buy_in = t_info.get('buy_in') or 0
+        if buy_in <= 0:
+            return ""
+        ratio = bounty / buy_in
+        if ratio >= 0.5:
+            return f" (overlay alto: bounty={bounty:.0f}/{buy_in:.0f})"
+        if ratio >= 0.2:
+            return f" (overlay medio: bounty={bounty:.0f}/{buy_in:.0f})"
+        return f" (overlay baixo: bounty={bounty:.0f}/{buy_in:.0f})"
+
+    def _eval_bounty_intro(self, hand: dict, pf: dict,
+                           t_info: Optional[dict] = None) -> tuple[Optional[int], str]:
+        """Evaluate preflop play in bounty tournament with coverage awareness.
+
+        High bounty coverage (>= 50% buy-in) widens profitable range,
+        making folding tier 1 hands a clear mistake.
+        Returns (score, note_pt_br).
+        """
         hero_cards = hand.get('hero_cards')
+        hero_folded = pf.get('hero_folds_preflop', False)
+        overlay = self._bounty_overlay_note(t_info)
+
+        if not hero_cards:
+            return (None, f"Torneio bounty: sem cartas visiveis para avaliar{overlay}")
+
+        notation = self._hand_notation(hero_cards)
+        if not notation:
+            return (None, f"Torneio bounty: cartas nao parseadas{overlay}")
+
+        is_high_overlay = (
+            t_info is not None
+            and (t_info.get('buy_in') or 0) > 0
+            and (t_info.get('bounty') or 0) / t_info['buy_in'] >= 0.5
+        )
+
+        # Folding premiums in bounty is always incorrect
+        if hero_folded and notation in {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo'}:
+            return (0, f"Bounty incorreto: foldou {notation} premium em spot de bounty{overlay}")
+
+        # With high overlay, folding tier 1 hands is a missed opportunity
+        if hero_folded and is_high_overlay:
+            hand_tier = self._bounty_hand_tier(notation)
+            if hand_tier == 1:
+                return (0, f"Bounty incorreto: foldou {notation} (tier 1) com alto overlay{overlay}")
+
+        action_str = 'foldou' if hero_folded else 'jogou'
+        return (None, f"Bounty: {action_str} {notation} — decisao depende do contexto{overlay}")
+
+    def _eval_bounty_ranges(self, hand: dict, pf: dict,
+                            t_info: Optional[dict] = None) -> tuple[Optional[int], str]:
+        """Evaluate bounty range execution with bounty coverage consideration.
+
+        Considers hero action (fold/play) and bounty coverage level.
+        High overlay (bounty >= 50% of buy_in) makes tier 2 hands profitable.
+        Returns (score, note_pt_br).
+        """
+        hero_cards = hand.get('hero_cards')
+        overlay = self._bounty_overlay_note(t_info)
         hero_folded = pf.get('hero_folds_preflop', False)
 
         if not hero_cards:
-            return (None, "Torneio bounty: sem cartas visiveis para avaliar")
+            return (None, f"Bounty ranges: sem cartas visiveis para avaliar{overlay}")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return (None, "Torneio bounty: cartas nao parseadas")
-
-        if hero_folded and notation in {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo'}:
-            return (0, f"Bounty incorreto: foldou {notation} premium em spot de bounty")
-
-        action_str = 'foldou' if hero_folded else 'jogou'
-        return (None, f"Bounty: {action_str} {notation} — decisao depende do contexto")
-
-    def _eval_bounty_ranges(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate bounty range execution. Returns (score, note_pt_br)."""
-        hero_cards = hand.get('hero_cards')
-
-        if not hero_cards:
-            return (None, "Bounty ranges: sem cartas visiveis para avaliar")
-
-        notation = self._hand_notation(hero_cards)
-        if not notation:
-            return (None, "Bounty ranges: cartas nao parseadas")
+            return (None, f"Bounty ranges: cartas nao parseadas{overlay}")
 
         hand_tier = self._bounty_hand_tier(notation)
+        action_str = 'foldou' if hero_folded else 'jogou'
+
+        is_high_overlay = (
+            t_info is not None
+            and (t_info.get('buy_in') or 0) > 0
+            and (t_info.get('bounty') or 0) / t_info['buy_in'] >= 0.5
+        )
+
         if hand_tier == 1:
-            return (1, f"Bounty correto: {notation} no range tier 1 (lucrativo com overlay)")
-        elif hand_tier == 2:
-            return (None, f"Bounty marginal: {notation} no tier 2 (depende do tamanho do bounty)")
-        else:
-            return (0, f"Bounty incorreto: {notation} fora do range (tier {hand_tier}, fraco mesmo com overlay)")
+            if hero_folded:
+                return (0, f"Bounty incorreto: foldou {notation} (tier 1) — range lucrativo com overlay{overlay}")
+            return (1, f"Bounty correto: {action_str} {notation} (tier 1) — lucrativo com overlay{overlay}")
+
+        if hand_tier == 2:
+            if is_high_overlay:
+                if hero_folded:
+                    return (0, f"Bounty incorreto: foldou {notation} (tier 2) — lucrativo com alto overlay{overlay}")
+                return (1, f"Bounty correto: {action_str} {notation} (tier 2) — lucrativo com alto overlay{overlay}")
+            if hero_folded:
+                return (None, f"Bounty marginal: foldou {notation} (tier 2) — depende do bounty coverage{overlay}")
+            return (None, f"Bounty marginal: {action_str} {notation} (tier 2) — depende do bounty coverage{overlay}")
+
+        # tier 3+: not in any bounty range
+        if hero_folded:
+            return (1, f"Bounty correto: foldou {notation} (fora do range) — mao fraca mesmo com overlay{overlay}")
+        return (0, f"Bounty incorreto: {action_str} {notation} (fora do range) — mao fraca mesmo com overlay{overlay}")
 
     def _eval_bb_preflop(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
         """Evaluate BB preflop play vs a single raise with stack-depth awareness.
@@ -2213,7 +2282,12 @@ class LessonClassifier:
 
     def _eval_3bet_pot_postflop(self, hand: dict, flop_a: dict,
                                 pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate postflop play in 3-bet pot. Returns (score, note_pt_br)."""
+        """Evaluate postflop play in 3-bet pot with SPR awareness.
+
+        3-bet pots have lower SPR (typically 2-5), making commitment
+        stronger.  SPR < 3 means very committed: folding made hands costly.
+        Returns (score, note_pt_br).
+        """
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
         pf_agg = pf.get('hero_3bets', False) or pf.get('hero_squeezes', False)
@@ -2223,40 +2297,58 @@ class LessonClassifier:
         hero_bets = flop_a.get('hero_bets', False)
         hero_raises = flop_a.get('hero_raises', False)
 
+        # SPR estimation for 3-bet pot
+        _bb = hand.get('blinds_bb', 1.0) or 1.0
+        _3bet = max(pf.get('hero_3bet_amount', 0),
+                    pf.get('villain_3bet_amount', 0))
+        hero_stack = hand.get('hero_stack', 0) or 0
+        if _3bet > 0 and _bb > 0 and hero_stack > 0:
+            pot_bb = 2 * _3bet / _bb
+            remaining = hero_stack / _bb - _3bet / _bb
+            spr = remaining / pot_bb if pot_bb > 0 else 99
+        else:
+            spr = 99
+        spr_note = f" SPR~{spr:.1f}" if spr < 90 else ""
+
         if not hero_cards or not board_flop:
             if hero_folds:
-                return (None, f"3-bet pot ({role}): foldou sem info para avaliar")
-            return (1, f"3-bet pot ({role}): jogou sem info para avaliar")
+                return (None, f"3-bet pot ({role}): foldou sem info para avaliar{spr_note}")
+            return (1, f"3-bet pot ({role}): jogou sem info para avaliar{spr_note}")
 
         strength = self._hand_connects_board(hero_cards, board_flop)
         notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return (None, f"3-bet pot ({role}) com {notation}: forca nao determinada")
+            return (None, f"3-bet pot ({role}) com {notation}: forca nao determinada{spr_note}")
+
+        low_spr = spr < 3
 
         if strength in ('strong', 'medium'):
             if hero_folds:
-                return (0, f"3-bet pot incorreto: foldou {notation} ({strength}) como {role} — SPR baixo")
-            return (1, f"3-bet pot correto: defendeu {notation} ({strength}) como {role}")
+                spr_ctx = (f", comprometido SPR~{spr:.1f}" if low_spr
+                           else " — SPR baixo")
+                return (0, f"3-bet pot incorreto: foldou {notation} ({strength}) como {role}{spr_ctx}")
+            return (1, f"3-bet pot correto: defendeu {notation} ({strength}) como {role}{spr_note}")
 
         if strength == 'draw':
             if hero_folds:
-                return (None, f"3-bet pot marginal: foldou {notation} (draw) como {role} — depende de SPR")
-            return (1, f"3-bet pot correto: jogou {notation} (draw) como {role}")
+                return (None, (f"3-bet pot marginal: foldou {notation} (draw) "
+                               f"como {role} — depende de SPR{spr_note}"))
+            return (1, f"3-bet pot correto: jogou {notation} (draw) como {role}{spr_note}")
 
         # air
         if pf_agg:
             if hero_bets:
-                return (1, f"3-bet pot correto: CBet com {notation} (air) como PFA — fold equity")
+                return (1, f"3-bet pot correto: CBet com {notation} (air) como PFA — fold equity{spr_note}")
             if hero_folds:
-                return (None, f"3-bet pot marginal: check-fold com {notation} (air) como PFA")
-            return (None, f"3-bet pot marginal: check com {notation} (air) como PFA")
+                return (None, f"3-bet pot marginal: check-fold com {notation} (air) como PFA{spr_note}")
+            return (None, f"3-bet pot marginal: check com {notation} (air) como PFA{spr_note}")
         else:
             if hero_folds:
-                return (1, f"3-bet pot correto: foldou {notation} (air) como caller")
+                return (1, f"3-bet pot correto: foldou {notation} (air) como caller{spr_note}")
             if hero_raises:
-                return (0, f"3-bet pot incorreto: raise com {notation} (air) como caller")
-            return (None, f"3-bet pot marginal: float com {notation} (air) como caller")
+                return (0, f"3-bet pot incorreto: raise com {notation} (air) como caller{spr_note}")
+            return (None, f"3-bet pot marginal: float com {notation} (air) como caller{spr_note}")
 
     @classmethod
     def _turn_changes_texture(cls, board_flop: str,

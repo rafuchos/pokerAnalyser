@@ -3397,14 +3397,15 @@ class TestBountyEvaluation(unittest.TestCase):
         init_db(self.conn)
         self.repo = Repository(self.conn)
         self.classifier = LessonClassifier(self.repo)
-        # Set up a bounty tournament
+        # Set up a bounty tournament with low overlay (10%) so tier 2 stays marginal
+        # High-overlay behavior (>=50%) is tested in TestUS053fBountyCoverage
         self.repo.insert_tournament({
             'tournament_id': 'BT01',
             'platform': 'GGPoker',
             'name': 'Bounty Hunter',
             'date': '2026-01-15',
-            'buy_in': 10, 'rake': 1, 'bounty': 5,
-            'total_buy_in': 16, 'is_bounty': True,
+            'buy_in': 10, 'rake': 1, 'bounty': 1,
+            'total_buy_in': 12, 'is_bounty': True,
         })
 
     def tearDown(self):
@@ -3616,6 +3617,132 @@ class TestBountyEvaluation(unittest.TestCase):
         matches = self._classify('BT_D02')
         ids = [m.lesson_id for m in matches]
         self.assertIn(22, ids)
+
+
+# ── Bounty Coverage Tests (US-053f) ──────────────────────────────────
+
+
+class TestUS053fBountyCoverage(unittest.TestCase):
+    """Test bounty coverage (overlay) impact on lessons 22 and 23.
+
+    High bounty overlay (bounty >= 50% buy_in) makes tier 2 hands profitable
+    and should be reflected in the evaluation.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+        # High overlay tournament: bounty=5, buy_in=10, ratio=50%
+        self.repo.insert_tournament({
+            'tournament_id': 'BH01',
+            'platform': 'GGPoker',
+            'name': 'High Bounty',
+            'date': '2026-01-15',
+            'buy_in': 10, 'rake': 1, 'bounty': 5,
+            'total_buy_in': 16, 'is_bounty': True,
+        })
+        # Low overlay tournament: bounty=1, buy_in=10, ratio=10%
+        self.repo.insert_tournament({
+            'tournament_id': 'BL01',
+            'platform': 'GGPoker',
+            'name': 'Low Bounty',
+            'date': '2026-01-15',
+            'buy_in': 10, 'rake': 1, 'bounty': 1,
+            'total_buy_in': 12, 'is_bounty': True,
+        })
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _bounty_result(self, hand_id, lesson_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == lesson_id), None)
+        return m.executed_correctly if m else None
+
+    def _insert_bounty_hand(self, hand_id, hero_cards, tournament_id,
+                             hero_pos='BTN', hero_folded=False):
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     game_type='tournament', tournament_id=tournament_id)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        if hero_folded:
+            _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                           300, 0, 1, 'UTG')
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'fold',
+                           0, 1, 2, hero_pos)
+        else:
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                           300, 1, 1, hero_pos)
+
+    # -- Lesson 23 (Bounty Ranges): coverage affects tier evaluation --
+
+    def test_high_overlay_tier2_play_correct(self):
+        """Tier 2 hand played in high overlay = correct (1)."""
+        self._insert_bounty_hand('BC01', 'Kh 7h', 'BH01')  # K7s = tier 2
+        self.assertEqual(self._bounty_result('BC01', 23), 1)
+
+    def test_low_overlay_tier2_play_marginal(self):
+        """Tier 2 hand played in low overlay = marginal (None)."""
+        self._insert_bounty_hand('BC02', 'Kh 7h', 'BL01')
+        self.assertIsNone(self._bounty_result('BC02', 23))
+
+    def test_high_overlay_tier2_fold_incorrect(self):
+        """Tier 2 hand folded in high overlay = incorrect (0)."""
+        self._insert_bounty_hand('BC03', 'Kh 7h', 'BH01', hero_folded=True)
+        self.assertEqual(self._bounty_result('BC03', 23), 0)
+
+    def test_tier1_fold_always_incorrect(self):
+        """Tier 1 hand folded in any bounty = incorrect (0)."""
+        self._insert_bounty_hand('BC04', 'Ah Ad', 'BL01', hero_folded=True)
+        self.assertEqual(self._bounty_result('BC04', 23), 0)
+
+    def test_tier3_fold_correct(self):
+        """Tier 3 hand folded = correct (1)."""
+        self._insert_bounty_hand('BC05', '7h 2d', 'BH01', hero_folded=True)
+        self.assertEqual(self._bounty_result('BC05', 23), 1)
+
+    def test_tier3_play_incorrect(self):
+        """Tier 3 hand played = incorrect (0)."""
+        self._insert_bounty_hand('BC06', '7h 2d', 'BH01')
+        self.assertEqual(self._bounty_result('BC06', 23), 0)
+
+    # -- Lesson 22 (Bounty Intro): high overlay widens incorrect folds --
+
+    def test_high_overlay_fold_tier1_incorrect(self):
+        """Folding tier 1 non-premium in high overlay = incorrect (0)."""
+        self._insert_bounty_hand('BC10', 'Th 9h', 'BH01',
+                                  hero_folded=True)  # T9s = tier 1
+        self.assertEqual(self._bounty_result('BC10', 22), 0)
+
+    def test_low_overlay_fold_tier1_nonpremium_is_none(self):
+        """Folding tier 1 non-premium in low overlay = None (context)."""
+        self._insert_bounty_hand('BC11', 'Th 9h', 'BL01', hero_folded=True)
+        self.assertIsNone(self._bounty_result('BC11', 22))
+
+    def test_high_overlay_fold_premium_incorrect(self):
+        """Folding premium in any bounty = incorrect (0)."""
+        self._insert_bounty_hand('BC12', 'Ah Ad', 'BH01', hero_folded=True)
+        self.assertEqual(self._bounty_result('BC12', 22), 0)
+
+    # -- Notes include overlay info --
+
+    def test_high_overlay_note_mentions_overlay(self):
+        """Notes for high overlay should mention bounty coverage."""
+        self._insert_bounty_hand('BC20', 'Kh 7h', 'BH01')
+        matches = self._classify('BC20')
+        m23 = next((m for m in matches if m.lesson_id == 23), None)
+        self.assertIsNotNone(m23)
+        self.assertIn('overlay', m23.notes.lower())
 
 
 # ── Board Analysis Helpers Tests (US-046) ────────────────────────────
@@ -4890,6 +5017,59 @@ class Test3BetPotPostflopEvaluation(unittest.TestCase):
         self._setup_3bet_pot_caller('TBP71', hero_cards='Qh Qd',
                                     board_flop='Ts 7d 2c', hero_action='call')
         self.assertEqual(self._3bet_result('TBP71'), 1)
+
+    # -- All-in preflop guard (US-053f) --
+
+    def test_allin_preflop_guard_blocks_lesson_21(self):
+        """Hands all-in preflop should NOT trigger lesson 21."""
+        _insert_hand(self.repo, 'TBP_G1', position='BTN',
+                     board_flop='Ts 7d 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=?, has_allin=1, "
+            "allin_street='preflop' WHERE hand_id=?",
+            ('Ah Kd', 'TBP_G1'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'TBP_G1', 'preflop', 'P1', 'raise',
+                       2.0, 0, 1, 'CO')
+        _insert_action(self.repo, 'TBP_G1', 'preflop', 'Hero', 'raise',
+                       6.0, 1, 2, 'BTN')
+        _insert_action(self.repo, 'TBP_G1', 'preflop', 'P1', 'all-in',
+                       50.0, 0, 3, 'CO')
+        _insert_action(self.repo, 'TBP_G1', 'preflop', 'Hero', 'call',
+                       50.0, 1, 4, 'BTN')
+        matches = self._classify('TBP_G1')
+        self.assertNotIn(21, [m.lesson_id for m in matches])
+
+    def test_no_postflop_action_guard_blocks_lesson_21(self):
+        """3-bet pot with no hero postflop action should NOT trigger lesson 21."""
+        _insert_hand(self.repo, 'TBP_G2', position='BTN',
+                     board_flop='Ts 7d 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'TBP_G2'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'TBP_G2', 'preflop', 'P1', 'raise',
+                       2.0, 0, 1, 'CO')
+        _insert_action(self.repo, 'TBP_G2', 'preflop', 'Hero', 'raise',
+                       6.0, 1, 2, 'BTN')
+        _insert_action(self.repo, 'TBP_G2', 'preflop', 'P1', 'call',
+                       6.0, 0, 3, 'CO')
+        # Villain bets flop but hero has no action recorded
+        _insert_action(self.repo, 'TBP_G2', 'flop', 'P1', 'bet',
+                       4.0, 0, 4, 'CO')
+        matches = self._classify('TBP_G2')
+        self.assertNotIn(21, [m.lesson_id for m in matches])
+
+    # -- SPR note in 3-bet pot (US-053f) --
+
+    def test_spr_note_included(self):
+        """3-bet pot notes should include SPR estimate."""
+        self._setup_3bet_pot_pfa('TBP_S1', hero_cards='Ah Kd',
+                                 board_flop='As 7d 2c', hero_action='bet')
+        matches = self._classify('TBP_S1')
+        m = next((m for m in matches if m.lesson_id == 21), None)
+        self.assertIsNotNone(m)
+        self.assertIn('SPR~', m.notes)
 
 
 # ── Turn Changes Texture Helper Tests (US-048) ───────────────────────
@@ -9270,6 +9450,624 @@ class TestUS053eUnknownRateBelow15Percent(unittest.TestCase):
         rate = self._unknown_rate(hands, lesson_id=20)
         self.assertLess(rate, 0.15,
                         f"Aula 22 unknown rate {rate:.1%} >= 15%")
+
+
+# ── US-053f: Aula 12 (Pós-Flop Avançado, DB Lesson 10) ───────────────
+
+
+class TestUS053fAula12PostflopAvancado(unittest.TestCase):
+    """Aula 12 (RegLife course) = DB Lesson 10 (Pós-Flop Avançado).
+
+    Acceptance criteria: Aula 12 é prática → implementar.
+    Detection: hands that reach the river with hero having postflop action.
+    Guard: all-in preflop never triggers this lesson.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 10), None)
+        return m.executed_correctly if m else None
+
+    def _setup_full_street_hand(self, hand_id, hero_cards='Ah Ad',
+                                board_flop='As Kd 2c', board_turn='5s',
+                                board_river='9h', hero_river_action='call'):
+        """Hero reaches the river and acts (3-street hand)."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop, board_turn=board_turn,
+                     board_river=board_river)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       5.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'call',
+                       5.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'river', 'P1', 'bet',
+                       8.0, 0, seq, 'BB'); seq += 1
+        if hero_river_action == 'call':
+            _insert_action(self.repo, hand_id, 'river', 'Hero', 'call',
+                           8.0, 1, seq, 'BTN')
+        elif hero_river_action == 'fold':
+            _insert_action(self.repo, hand_id, 'river', 'Hero', 'fold',
+                           0, 1, seq, 'BTN')
+
+    # -- Detection --
+
+    def test_aula12_is_practical_detected(self):
+        """Pós-Flop Avançado (lesson 10) triggers for 3-street hands — practical, not removed."""
+        self._setup_full_street_hand('PA001')
+        matches = self._classify('PA001')
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(10, ids, "Lesson 10 should be detected for 3-street hands")
+
+    def test_aula12_no_river_not_detected(self):
+        """Lesson 10 not triggered when hand ends on turn (no river card)."""
+        _insert_hand(self.repo, 'PA002', position='BTN',
+                     board_flop='As Kd 2c', board_turn='5s')
+        _insert_action(self.repo, 'PA002', 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'BTN')
+        _insert_action(self.repo, 'PA002', 'preflop', 'P1', 'call',
+                       1.5, 0, 2, 'BB')
+        _insert_action(self.repo, 'PA002', 'flop', 'P1', 'check',
+                       0, 0, 3, 'BB')
+        _insert_action(self.repo, 'PA002', 'flop', 'Hero', 'bet',
+                       2.0, 1, 4, 'BTN')
+        _insert_action(self.repo, 'PA002', 'turn', 'P1', 'fold',
+                       0, 0, 5, 'BB')
+        matches = self._classify('PA002')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(10, ids, "Lesson 10 requires river card to exist")
+
+    # -- Guard tests --
+
+    def test_aula12_preflop_allin_guard(self):
+        """Preflop all-in hands must NOT trigger lesson 10 (Pós-Flop Avançado)."""
+        _insert_hand(self.repo, 'PA003', position='BTN',
+                     board_flop='As Kd 2c', board_turn='5s', board_river='9h')
+        self.repo.conn.execute(
+            "UPDATE hands SET has_allin=1, allin_street='preflop' WHERE hand_id=?",
+            ('PA003',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'PA003', 'preflop', 'Hero', 'all-in',
+                       100, 1, 1, 'BTN')
+        _insert_action(self.repo, 'PA003', 'preflop', 'P1', 'call',
+                       100, 0, 2, 'BB')
+        _insert_action(self.repo, 'PA003', 'flop', 'Hero', 'bet',
+                       0, 1, 3, 'BTN')
+        matches = self._classify('PA003')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(10, ids, "Preflop all-in must skip lesson 10")
+
+    # -- Evaluation --
+
+    def test_aula12_strong_hand_river_correct(self):
+        """Strong hand reaches river and calls = correct (score=1)."""
+        self._setup_full_street_hand('PA004', hero_cards='Ah Ad',
+                                     board_flop='As Kd 2c', board_turn='5s',
+                                     board_river='9h', hero_river_action='call')
+        result = self._result('PA004')
+        self.assertEqual(result, 1, "Strong hand calling river bet = correct")
+
+    def test_aula12_strong_hand_incorrect_fold_river(self):
+        """Folding a strong hand on river vs bet = incorrect (score=0)."""
+        self._setup_full_street_hand('PA005', hero_cards='Ah Ad',
+                                     board_flop='As Kd 2c', board_turn='5s',
+                                     board_river='9h', hero_river_action='fold')
+        result = self._result('PA005')
+        self.assertEqual(result, 0, "Folding strong hand on river = incorrect")
+
+    def test_aula12_air_hand_correct_fold_river(self):
+        """Air hand folding on river vs bet = correct (score=1)."""
+        self._setup_full_street_hand('PA006', hero_cards='Qh Jd',
+                                     board_flop='As Kd 2c', board_turn='5s',
+                                     board_river='9h', hero_river_action='fold')
+        result = self._result('PA006')
+        self.assertEqual(result, 1, "Folding air on river = correct")
+
+
+# ── US-053f: Aula 23 (3-Betted Pots Pós-Flop, DB Lesson 21) ─────────
+
+
+class TestUS053fAula23_3BetPots(unittest.TestCase):
+    """Aula 23 (RegLife course) = DB Lesson 21 (3-Betted Pots Pós-Flop).
+
+    Acceptance criteria: 3bet pots verifica que é pot 3betado e hero tem ação pós-flop.
+    Guard: all-in preflop never triggers; no postflop action never triggers.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _result(self, hand_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == 21), None)
+        return m.executed_correctly if m else None
+
+    def _setup_3bet_pot_hand(self, hand_id, hero_cards='Ah Kd',
+                              board_flop='Ts 7d 2c', hero_role='pfa',
+                              hero_flop_action='bet'):
+        """Set up a 3-bet pot: either hero is PFA (3bettor) or caller."""
+        _insert_hand(self.repo, hand_id, position='BTN', board_flop=board_flop)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        if hero_role == 'pfa':
+            # Hero 3bets from BTN
+            _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                           2.0, 0, seq, 'CO'); seq += 1
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                           6.0, 1, seq, 'BTN'); seq += 1
+            _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                           6.0, 0, seq, 'CO'); seq += 1
+            _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                           0, 0, seq, 'CO'); seq += 1
+        else:
+            # Hero calls 3bet from BB
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                           2.0, 1, seq, 'BTN'); seq += 1
+            _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                           6.0, 0, seq, 'BB'); seq += 1
+            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
+                           6.0, 1, seq, 'BTN'); seq += 1
+            _insert_action(self.repo, hand_id, 'flop', 'P1', 'bet',
+                           4.0, 0, seq, 'BB'); seq += 1
+        if hero_flop_action == 'bet':
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                           4.0, 1, seq, 'BTN')
+        elif hero_flop_action == 'call':
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'call',
+                           4.0, 1, seq, 'BTN')
+        elif hero_flop_action == 'fold':
+            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'fold',
+                           0, 1, seq, 'BTN')
+
+    # -- Guard: must be 3bet pot --
+
+    def test_single_raised_pot_not_detected(self):
+        """Single raised pot must NOT trigger lesson 21."""
+        _insert_hand(self.repo, 'TBF01', position='BTN', board_flop='Ts 7d 2c')
+        _insert_action(self.repo, 'TBF01', 'preflop', 'Hero', 'raise',
+                       2.0, 1, 1, 'BTN')
+        _insert_action(self.repo, 'TBF01', 'preflop', 'P1', 'call',
+                       2.0, 0, 2, 'BB')
+        _insert_action(self.repo, 'TBF01', 'flop', 'P1', 'check', 0, 0, 3, 'BB')
+        _insert_action(self.repo, 'TBF01', 'flop', 'Hero', 'bet', 3.0, 1, 4, 'BTN')
+        matches = self._classify('TBF01')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(21, ids, "Single-raised pot must not trigger lesson 21")
+
+    # -- Guard: hero must have postflop action --
+
+    def test_preflop_allin_guard_skips_lesson21(self):
+        """Preflop all-in must NOT trigger lesson 21 even if is_3bet_pot=True."""
+        _insert_hand(self.repo, 'TBF02', position='BTN', board_flop='Ts 7d 2c')
+        self.repo.conn.execute(
+            "UPDATE hands SET has_allin=1, allin_street='preflop' WHERE hand_id=?",
+            ('TBF02',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'TBF02', 'preflop', 'P1', 'raise',
+                       2.0, 0, 1, 'CO')
+        _insert_action(self.repo, 'TBF02', 'preflop', 'Hero', 'all-in',
+                       50.0, 1, 2, 'BTN')
+        _insert_action(self.repo, 'TBF02', 'preflop', 'P1', 'call',
+                       50.0, 0, 3, 'CO')
+        matches = self._classify('TBF02')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(21, ids, "Preflop all-in must skip lesson 21")
+
+    def test_no_postflop_action_guard(self):
+        """Hero folds preflop in a 3bet pot — lesson 21 not triggered (no postflop)."""
+        _insert_hand(self.repo, 'TBF03', position='BTN', board_flop='Ts 7d 2c')
+        _insert_action(self.repo, 'TBF03', 'preflop', 'P1', 'raise',
+                       2.0, 0, 1, 'CO')
+        _insert_action(self.repo, 'TBF03', 'preflop', 'P2', 'raise',
+                       6.0, 0, 2, 'BB')
+        _insert_action(self.repo, 'TBF03', 'preflop', 'Hero', 'fold',
+                       0, 1, 3, 'BTN')
+        _insert_action(self.repo, 'TBF03', 'preflop', 'P1', 'fold',
+                       0, 0, 4, 'CO')
+        matches = self._classify('TBF03')
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(21, ids, "No hero postflop action → lesson 21 not triggered")
+
+    # -- Evaluation --
+
+    def test_3bet_pot_pfa_strong_correct(self):
+        """PFA in 3bet pot with strong hand = correct (score=1)."""
+        self._setup_3bet_pot_hand('TBF04', hero_cards='Ah Ad',
+                                  board_flop='As 7d 2c', hero_role='pfa',
+                                  hero_flop_action='bet')
+        result = self._result('TBF04')
+        self.assertEqual(result, 1, "PFA with strong hand betting = correct")
+
+    def test_3bet_pot_caller_air_fold_correct(self):
+        """Caller in 3bet pot folds air hand = correct (score=1)."""
+        self._setup_3bet_pot_hand('TBF05', hero_cards='Qh Jd',
+                                  board_flop='As 7d 2c', hero_role='caller',
+                                  hero_flop_action='fold')
+        result = self._result('TBF05')
+        self.assertEqual(result, 1, "Caller folding air in 3bet pot = correct")
+
+    def test_3bet_pot_pfa_air_cbet_correct(self):
+        """PFA in 3bet pot with air hand betting = correct (fold equity)."""
+        self._setup_3bet_pot_hand('TBF06', hero_cards='Qh Jd',
+                                  board_flop='As 7d 2c', hero_role='pfa',
+                                  hero_flop_action='bet')
+        result = self._result('TBF06')
+        self.assertEqual(result, 1, "PFA betting air in 3bet pot = correct (fold equity)")
+
+
+# ── US-053f: Aulas 24-25 (Bounty, DB Lessons 22-23) with Coverage ────
+
+
+class TestUS053fBountyCoverage(unittest.TestCase):
+    """Bounty lessons (DB 22-23) consider bounty coverage in evaluation.
+
+    Acceptance criteria: Bounty aulas consideram bounty coverage nos ajustes.
+    High overlay (bounty >= 50% of buy_in) makes tier 2 hands profitable.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _setup_tournament(self, t_id, bounty, buy_in):
+        self.repo.insert_tournament({
+            'tournament_id': t_id,
+            'platform': 'GGPoker',
+            'name': 'Bounty Hunter',
+            'date': '2026-01-15',
+            'buy_in': buy_in,
+            'rake': 1,
+            'bounty': bounty,
+            'total_buy_in': buy_in + bounty + 1,
+            'is_bounty': True,
+        })
+
+    def _insert_bounty_hand(self, hand_id, t_id, hero_cards='Ah Kd',
+                             hero_pos='BTN'):
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     game_type='tournament', tournament_id=t_id)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       300, 1, 1, hero_pos)
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _get_lesson_match(self, hand_id, lesson_id):
+        matches = self._classify(hand_id)
+        return next((m for m in matches if m.lesson_id == lesson_id), None)
+
+    # -- Bounty overlay note in lesson 23 --
+
+    def test_tier1_hand_high_overlay_correct(self):
+        """Tier 1 hand with high overlay = always correct (score=1)."""
+        self._setup_tournament('BHO01', bounty=10, buy_in=10)
+        self._insert_bounty_hand('BCOV01', 'BHO01', hero_cards='Ah Ad')
+        m = self._get_lesson_match('BCOV01', 23)
+        self.assertIsNotNone(m, "Lesson 23 should be detected")
+        self.assertEqual(m.executed_correctly, 1, "Tier 1 always correct")
+
+    def test_tier2_hand_high_overlay_is_correct(self):
+        """Tier 2 hand with high overlay (bounty=50% buy_in) = correct (score=1)."""
+        self._setup_tournament('BHO02', bounty=5, buy_in=10)  # 50% overlay
+        self._insert_bounty_hand('BCOV02', 'BHO02', hero_cards='Kh 7h')  # K7s = tier 2
+        m = self._get_lesson_match('BCOV02', 23)
+        self.assertIsNotNone(m, "Lesson 23 should be detected")
+        self.assertEqual(m.executed_correctly, 1,
+                         "Tier 2 with high overlay (50%) = correct")
+
+    def test_tier2_hand_low_overlay_is_marginal(self):
+        """Tier 2 hand with low overlay (bounty < 20% buy_in) = marginal (None)."""
+        self._setup_tournament('BHO03', bounty=1, buy_in=10)  # 10% overlay
+        self._insert_bounty_hand('BCOV03', 'BHO03', hero_cards='Kh 7h')  # K7s = tier 2
+        m = self._get_lesson_match('BCOV03', 23)
+        self.assertIsNotNone(m, "Lesson 23 should be detected")
+        self.assertIsNone(m.executed_correctly,
+                          "Tier 2 with low overlay (10%) = marginal (None)")
+
+    def test_tier3_hand_high_overlay_still_incorrect(self):
+        """Tier 3 hand is incorrect even with high bounty overlay."""
+        self._setup_tournament('BHO04', bounty=10, buy_in=10)
+        self._insert_bounty_hand('BCOV04', 'BHO04', hero_cards='7h 2d')  # 72o = tier 3
+        m = self._get_lesson_match('BCOV04', 23)
+        self.assertIsNotNone(m, "Lesson 23 should be detected")
+        self.assertEqual(m.executed_correctly, 0,
+                         "Tier 3 hand incorrect even with high overlay")
+
+    # -- Overlay note appears in lesson notes --
+
+    def test_overlay_note_in_lesson22_notes(self):
+        """Lesson 22 notes include overlay information."""
+        self._setup_tournament('BHO05', bounty=5, buy_in=10)
+        self._insert_bounty_hand('BCOV05', 'BHO05', hero_cards='Ah Ad')
+        m = self._get_lesson_match('BCOV05', 22)
+        self.assertIsNotNone(m, "Lesson 22 should be detected")
+        self.assertIn('overlay', m.notes, "Notes must include overlay info")
+
+    def test_overlay_note_in_lesson23_notes(self):
+        """Lesson 23 notes include overlay information."""
+        self._setup_tournament('BHO06', bounty=5, buy_in=10)
+        self._insert_bounty_hand('BCOV06', 'BHO06', hero_cards='Ah Ad')
+        m = self._get_lesson_match('BCOV06', 23)
+        self.assertIsNotNone(m, "Lesson 23 should be detected")
+        self.assertIn('overlay', m.notes, "Notes must include overlay info")
+
+
+# ── US-053f: Guard — Preflop All-In Skips Postflop Lessons ───────────
+
+
+class TestUS053fGuardAllinPreflop(unittest.TestCase):
+    """Verify all-in preflop guard prevents lessons 10, 21 from triggering.
+
+    Acceptance criteria: Guard funciona: mãos all-in preflop nunca entram.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _setup_allin_preflop_3bet_pot(self, hand_id):
+        """All-in preflop in a 3bet pot with board run-out."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop='As Kd 2c', board_turn='5s', board_river='9h')
+        self.repo.conn.execute(
+            "UPDATE hands SET has_allin=1, allin_street='preflop' WHERE hand_id=?",
+            (hand_id,))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                       3.0, 0, 1, 'CO')
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'all-in',
+                       50.0, 1, 2, 'BTN')
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       50.0, 0, 3, 'CO')
+
+    def test_allin_preflop_skips_lesson10(self):
+        """All-in preflop must not trigger lesson 10 (Pós-Flop Avançado)."""
+        self._setup_allin_preflop_3bet_pot('GAP01')
+        hand = _get_hand_dict(self.repo, 'GAP01')
+        actions = self.repo.get_hand_actions('GAP01')
+        matches = self.classifier.classify_hand(hand, actions)
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(10, ids, "All-in preflop must skip lesson 10")
+
+    def test_allin_preflop_skips_lesson21(self):
+        """All-in preflop in 3bet pot must not trigger lesson 21."""
+        self._setup_allin_preflop_3bet_pot('GAP02')
+        hand = _get_hand_dict(self.repo, 'GAP02')
+        actions = self.repo.get_hand_actions('GAP02')
+        matches = self.classifier.classify_hand(hand, actions)
+        ids = [m.lesson_id for m in matches]
+        self.assertNotIn(21, ids, "All-in preflop must skip lesson 21")
+
+    def test_allin_on_flop_allows_lesson10(self):
+        """All-in on flop (not preflop) CAN trigger lesson 10 if board is complete."""
+        _insert_hand(self.repo, 'GAP03', position='BTN',
+                     board_flop='As Kd 2c', board_turn='5s', board_river='9h')
+        self.repo.conn.execute(
+            "UPDATE hands SET has_allin=1, allin_street='flop' WHERE hand_id=?",
+            ('GAP03',))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'GAP03', 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'BTN')
+        _insert_action(self.repo, 'GAP03', 'preflop', 'P1', 'call',
+                       1.5, 0, 2, 'BB')
+        _insert_action(self.repo, 'GAP03', 'flop', 'Hero', 'all-in',
+                       30.0, 1, 3, 'BTN')
+        hand = _get_hand_dict(self.repo, 'GAP03')
+        actions = self.repo.get_hand_actions('GAP03')
+        matches = self.classifier.classify_hand(hand, actions)
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(10, ids, "Flop all-in (not preflop) can still trigger lesson 10")
+
+
+# ── US-053f: Unknown Rate Below 15% for Aulas 12, 23 ─────────────────
+
+
+class TestUS053fUnknownRateAulas12and23(unittest.TestCase):
+    """Verify unknown rate (executed_correctly=None) < 15% for Aulas 12 and 23.
+
+    DB lessons: 10 (Aula 12, Pós-Flop Avançado), 21 (Aula 23, 3-Betted Pots).
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+        self._id = 0
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _next_id(self, prefix='UR'):
+        self._id += 1
+        return f'{prefix}{self._id:03d}'
+
+    def _unknown_rate(self, hand_ids, lesson_id):
+        total = 0
+        unknown = 0
+        for hid in hand_ids:
+            hand = _get_hand_dict(self.repo, hid)
+            actions = self.repo.get_hand_actions(hid)
+            matches = self.classifier.classify_hand(hand, actions)
+            m = next((m for m in matches if m.lesson_id == lesson_id), None)
+            if m is not None:
+                total += 1
+                if m.executed_correctly is None:
+                    unknown += 1
+        if total == 0:
+            return 0.0
+        return unknown / total
+
+    def _insert_advanced_postflop_hand(self, hero_cards, board_flop, board_turn,
+                                        board_river, hero_river_action='call'):
+        hid = self._next_id('AP')
+        _insert_hand(self.repo, hid, position='BTN',
+                     board_flop=board_flop, board_turn=board_turn,
+                     board_river=board_river)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hid))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hid, 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hid, 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hid, 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hid, 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hid, 'turn', 'Hero', 'bet',
+                       5.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hid, 'turn', 'P1', 'call',
+                       5.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hid, 'river', 'P1', 'bet',
+                       8.0, 0, seq, 'BB'); seq += 1
+        if hero_river_action == 'call':
+            _insert_action(self.repo, hid, 'river', 'Hero', 'call',
+                           8.0, 1, seq, 'BTN')
+        else:
+            _insert_action(self.repo, hid, 'river', 'Hero', 'fold',
+                           0, 1, seq, 'BTN')
+        return hid
+
+    def _insert_3bet_pot_hand(self, hero_cards, board_flop, hero_role='pfa',
+                               hero_flop_action='bet'):
+        hid = self._next_id('3B')
+        _insert_hand(self.repo, hid, position='BTN', board_flop=board_flop)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hid))
+        self.repo.conn.commit()
+        seq = 1
+        if hero_role == 'pfa':
+            _insert_action(self.repo, hid, 'preflop', 'P1', 'raise',
+                           2.0, 0, seq, 'CO'); seq += 1
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'raise',
+                           6.0, 1, seq, 'BTN'); seq += 1
+            _insert_action(self.repo, hid, 'preflop', 'P1', 'call',
+                           6.0, 0, seq, 'CO'); seq += 1
+            _insert_action(self.repo, hid, 'flop', 'P1', 'check',
+                           0, 0, seq, 'CO'); seq += 1
+        else:
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'raise',
+                           2.0, 1, seq, 'BTN'); seq += 1
+            _insert_action(self.repo, hid, 'preflop', 'P1', 'raise',
+                           6.0, 0, seq, 'BB'); seq += 1
+            _insert_action(self.repo, hid, 'preflop', 'Hero', 'call',
+                           6.0, 1, seq, 'BTN'); seq += 1
+            _insert_action(self.repo, hid, 'flop', 'P1', 'bet',
+                           4.0, 0, seq, 'BB'); seq += 1
+        if hero_flop_action == 'bet':
+            _insert_action(self.repo, hid, 'flop', 'Hero', 'bet',
+                           4.0, 1, seq, 'BTN')
+        elif hero_flop_action == 'call':
+            _insert_action(self.repo, hid, 'flop', 'Hero', 'call',
+                           4.0, 1, seq, 'BTN')
+        elif hero_flop_action == 'fold':
+            _insert_action(self.repo, hid, 'flop', 'Hero', 'fold',
+                           0, 1, seq, 'BTN')
+        return hid
+
+    def test_aula12_postflop_advanced_unknown_below_15pct(self):
+        """Aula 12 (Pós-Flop Avançado, DB Lesson 10): unknown rate < 15%."""
+        hands = []
+        # Strong hands calling river: correct (1)
+        for cards, flop, turn, river in [('Ah Ad', 'As Kd 2c', '5s', '9h'),
+                                          ('Kh Kd', 'Ks 7d 2c', '5s', '9h'),
+                                          ('Qh Qd', 'Qs 7d 2c', '5s', '9h'),
+                                          ('Jh Jd', 'Js 7d 2c', '5s', '9h'),
+                                          ('Th Td', 'Ts 7d 2c', '5s', '9h')]:
+            hands.append(self._insert_advanced_postflop_hand(
+                cards, flop, turn, river, 'call'))
+        # Air folding on river: correct (1)
+        for cards in ['Qh Jd', 'Kh 9d', 'Jh 8d', 'Th 6d', '9d 5c']:
+            hands.append(self._insert_advanced_postflop_hand(
+                cards, 'As 7h 3c', '2d', '4s', 'fold'))
+        # Strong hands incorrectly folded: incorrect (0)
+        for cards, flop in [('Ah Ad', 'As Kd 2c'), ('Kh Kd', 'Ks 7d 2c')]:
+            hands.append(self._insert_advanced_postflop_hand(
+                cards, flop, '5s', '9h', 'fold'))
+        rate = self._unknown_rate(hands, lesson_id=10)
+        self.assertLess(rate, 0.15,
+                        f"Aula 12 unknown rate {rate:.1%} >= 15%")
+
+    def test_aula23_3bet_pots_unknown_below_15pct(self):
+        """Aula 23 (3-Betted Pots, DB Lesson 21): unknown rate < 15%."""
+        hands = []
+        # PFA with strong hands: correct (1)
+        for cards, flop in [('Ah Ad', 'As Kd 2c'), ('Kh Kd', 'Ks 7d 2c'),
+                             ('Qh Qd', 'Qs 7d 2c'), ('Jh Jd', 'Js 7d 2c'),
+                             ('Th Td', 'Ts 7d 2c')]:
+            hands.append(self._insert_3bet_pot_hand(cards, flop, 'pfa', 'bet'))
+        # Caller folding air: correct (1)
+        for cards in ['Qh Jd', 'Kh 9d', 'Jh 8d', 'Th 6d', '9d 5c']:
+            hands.append(self._insert_3bet_pot_hand(cards, 'As 7h 3c', 'caller', 'fold'))
+        # PFA with air betting: correct (1)
+        for cards in ['Qh Jd', 'Kh 9d']:
+            hands.append(self._insert_3bet_pot_hand(cards, 'As 7h 3c', 'pfa', 'bet'))
+        rate = self._unknown_rate(hands, lesson_id=21)
+        self.assertLess(rate, 0.15,
+                        f"Aula 23 unknown rate {rate:.1%} >= 15%")
 
 
 if __name__ == '__main__':
