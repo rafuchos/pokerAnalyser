@@ -400,6 +400,41 @@ class LessonClassifier:
         'BTN': 2, 'SB': 2, 'BB': 2,
     }
 
+    # ── BB Defense Stack-Depth Position Tiers (US-053c) ─────────────────────
+    # At shorter stacks, implied odds drop → speculative hands lose value in BB.
+    # Based on RegLife 'Jogando no Big Blind - Pre-Flop' PDF adapted for stack depth.
+    # Stack bands: 15bb / 30bb / 50bb / 100bb.
+    _BB_STACK_POS_TIER = {
+        15: {
+            # Very shallow: tighten — set mining and draws lose implied odds
+            'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+            'LJ': 1, 'MP': 1, 'HJ': 1,
+            'CO': 2,
+            'BTN': 2, 'SB': 2,
+        },
+        30: {
+            # Shallow: still tighter, speculative hands marginal from BTN/SB
+            'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+            'LJ': 1, 'MP': 2, 'HJ': 2,
+            'CO': 2,
+            'BTN': 3, 'SB': 3,
+        },
+        50: {
+            # Medium stacks: full default defense
+            'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+            'LJ': 2, 'MP': 2, 'HJ': 2,
+            'CO': 3,
+            'BTN': 4, 'SB': 4,
+        },
+        100: {
+            # Deep stacks: full default defense (same as _BB_POS_DEFEND_TIER)
+            'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+            'LJ': 2, 'MP': 2, 'HJ': 2,
+            'CO': 3,
+            'BTN': 4, 'SB': 4,
+        },
+    }
+
     # ── Open Shove cEV 10BB Range Data (from RegLife 'Ranges de Open Shove cEV 10BB' PDF) ──
     # Open shove ranges for ≤10BB stacks (all-in as first raise, preflop).
     # At 10BB, GTO solution strongly favors shoving a wide range vs folding/minraising.
@@ -907,6 +942,7 @@ class LessonClassifier:
             'hero_folds_rfi_spot': False,  # folded in spot where hero could have opened
             'hero_4bets': False,           # hero raised again after facing a 3-bet
             'hero_is_preflop_aggressor': False,
+            'hero_sb_limps_bw': False,     # SB limped in blind war position (US-053c)
             'is_blind_war': False,
             'is_blind_war_bb_vs_sb': False,
             'is_multiway': False,
@@ -969,6 +1005,7 @@ class LessonClassifier:
                 if is_hero:
                     if calls_before_hero > 0:
                         result['hero_squeezes'] = True
+                        result['callers_before_hero'] = calls_before_hero  # 3-way+ scenario
                     else:
                         result['hero_3bets'] = True
                     result['hero_is_preflop_aggressor'] = True
@@ -1013,6 +1050,16 @@ class LessonClassifier:
                 result['is_blind_war'] = True
                 if hero_pos == 'BB':
                     result['is_blind_war_bb_vs_sb'] = True
+
+        # Blind war: folds to SB, SB limps (calls BB), only BB left (US-053c)
+        if (hero_pos == 'SB' and hero_last_action == 'call'
+                and not first_raise_seen):
+            non_blind_non_fold = [a for a in actions
+                                  if a.get('position', '').upper() not in ('SB', 'BB', '')
+                                  and a.get('action_type', '').lower() != 'fold']
+            if not non_blind_non_fold:
+                result['is_blind_war'] = True
+                result['hero_sb_limps_bw'] = True
 
         # Multiway: 3+ players in the pot
         if len(players_in) >= 3:
@@ -1156,6 +1203,24 @@ class LessonClassifier:
         if notation in self._BB_TIER4:
             return 4
         return 5
+
+    def _bb_pos_tier_for_stack(self, open_raiser_pos: str, stack_bb: Optional[float]) -> int:
+        """Get stack-depth-aware BB defense max tier vs a specific raiser position.
+
+        Uses _BB_STACK_POS_TIER with 4 stack bands (15/30/50/100bb).
+        Falls back to _BB_POS_DEFEND_TIER for unknown stacks.
+        """
+        if stack_bb is None:
+            return self._BB_POS_DEFEND_TIER.get(open_raiser_pos, 2)
+        if stack_bb <= 15:
+            band = 15
+        elif stack_bb <= 30:
+            band = 30
+        elif stack_bb <= 50:
+            band = 50
+        else:
+            band = 100
+        return self._BB_STACK_POS_TIER[band].get(open_raiser_pos, 2)
 
     def _rfi_pos_tier_for_stack(self, hero_pos: str, stack_bb: Optional[float]) -> int:
         """Get stack-depth-aware RFI position max tier.
@@ -1443,26 +1508,64 @@ class LessonClassifier:
             return (0, f"Vs 3-bet incorreto: continuou com {notation} (deveria foldar)")
 
     def _eval_squeeze(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate squeeze execution. Returns (score, note_pt_br)."""
+        """Evaluate squeeze execution with 3-way scenario and sizing.
+
+        Based on RegLife 'SQUEEZE' PDF:
+        - Squeeze requires open + at least 1 caller (3-way+ scenario)
+        - Sizing: IP 3.5-5.0x the open, OOP 4.5-7.0x the open
+        Returns (score, note_pt_br).
+        """
         hero_cards = hand.get('hero_cards')
         hero_pos = (hand.get('hero_position') or '').upper()
+        n_callers = pf.get('callers_before_hero', 1)  # always >= 1 in squeeze
+        cenario = f"cenario {n_callers + 2}-way"  # open + callers + hero
+
+        # Sizing validation
+        sizing_note = ''
+        open_amt = pf.get('open_raise_amount', 0)
+        squeeze_amt = pf.get('hero_3bet_amount', 0)
+        if open_amt > 0 and squeeze_amt > 0:
+            ratio = squeeze_amt / open_amt
+            hero_is_ip = hero_pos in ('BTN', 'CO', 'HJ')
+            if hero_is_ip:
+                sizing_ok = 3.0 <= ratio <= 6.0
+                sizing_note = f", sizing {ratio:.1f}x (IP: ideal 3-5x)"
+            else:
+                sizing_ok = 3.5 <= ratio <= 7.5
+                sizing_note = f", sizing {ratio:.1f}x (OOP: ideal 4-6x)"
+        else:
+            sizing_ok = None
 
         if not hero_cards:
-            return (1, f"Squeeze do {hero_pos} sem cartas visiveis")
+            return (1, f"Squeeze do {hero_pos} ({cenario}) sem cartas visiveis{sizing_note}")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return (1, f"Squeeze do {hero_pos} — cartas nao parseadas")
+            return (1, f"Squeeze do {hero_pos} ({cenario}) — cartas nao parseadas{sizing_note}")
 
         hand_tier = self._squeeze_hand_tier(notation)
         pos_tier = self._SQUEEZE_POS_MAX_TIER.get(hero_pos, 1)
 
         if hand_tier <= pos_tier:
-            return (1, f"Squeeze correto: {notation} no range de squeeze do {hero_pos} (tier {hand_tier} <= {pos_tier})")
+            if sizing_ok is False:
+                return (None, (
+                    f"Squeeze com {notation} do {hero_pos} ({cenario}): "
+                    f"range correto (tier {hand_tier}){sizing_note} — sizing incorreto"
+                ))
+            return (1, (
+                f"Squeeze correto: {notation} no range do {hero_pos} ({cenario}) "
+                f"(tier {hand_tier} <= {pos_tier}){sizing_note}"
+            ))
         elif hand_tier == pos_tier + 1:
-            return (None, f"Squeeze marginal: {notation} 1 tier acima do range do {hero_pos}")
+            return (None, (
+                f"Squeeze marginal: {notation} 1 tier acima do range do {hero_pos} "
+                f"({cenario}){sizing_note}"
+            ))
         else:
-            return (0, f"Squeeze incorreto: {notation} fora do range de squeeze do {hero_pos} (tier {hand_tier} > {pos_tier})")
+            return (0, (
+                f"Squeeze incorreto: {notation} fora do range do {hero_pos} ({cenario}) "
+                f"(tier {hand_tier} > {pos_tier}){sizing_note}"
+            ))
 
     def _eval_open_shove(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
         """Evaluate open shove execution with PDF position ranges.
@@ -1553,10 +1656,18 @@ class LessonClassifier:
             return (0, f"Bounty incorreto: {notation} fora do range (tier {hand_tier}, fraco mesmo com overlay)")
 
     def _eval_bb_preflop(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate BB preflop play vs a single raise. Returns (score, note_pt_br)."""
+        """Evaluate BB preflop play vs a single raise with stack-depth awareness.
+
+        Based on RegLife 'Jogando no Big Blind - Pre-Flop' PDF:
+        - Defense range depends on raiser position AND hero stack depth.
+        - At shorter stacks (15-30bb), speculative hands lose implied odds.
+        Returns (score, note_pt_br).
+        """
         hero_cards = hand.get('hero_cards')
         hero_folded = pf.get('hero_folds_preflop', False)
         open_raiser_pos = (pf.get('open_raiser_pos') or '').upper()
+        hero_stack_bb = self._stack_in_bb(hand)
+        stack_str = f"{hero_stack_bb:.0f}BB" if hero_stack_bb else ">50BB"
         action_str = 'foldou' if hero_folded else 'defendeu'
 
         if not open_raiser_pos or open_raiser_pos == 'BB':
@@ -1565,44 +1676,144 @@ class LessonClassifier:
             return (None, "BB foldou em limped pot")
 
         if not hero_cards:
-            return (None, f"BB vs raise do {open_raiser_pos}: {action_str} sem cartas visiveis")
+            return (None, f"BB vs raise do {open_raiser_pos} com {stack_str}: {action_str} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return (None, f"BB vs raise do {open_raiser_pos}: cartas nao parseadas")
+            return (None, f"BB vs raise do {open_raiser_pos} com {stack_str}: cartas nao parseadas")
 
         hand_tier = self._bb_hand_tier(notation)
-        pos_tier = self._BB_POS_DEFEND_TIER.get(open_raiser_pos, 2)
+        pos_tier = self._bb_pos_tier_for_stack(open_raiser_pos, hero_stack_bb)
 
         if hand_tier <= pos_tier:
             if hero_folded:
-                return (0, f"BB incorreto: foldou {notation} vs {open_raiser_pos} (tier {hand_tier} <= {pos_tier}, deveria defender)")
-            return (1, f"BB correto: defendeu {notation} vs {open_raiser_pos} (tier {hand_tier} <= {pos_tier})")
+                return (0, (
+                    f"BB incorreto: foldou {notation} vs {open_raiser_pos} com {stack_str} "
+                    f"(tier {hand_tier} <= max {pos_tier}, deveria defender)"
+                ))
+            return (1, (
+                f"BB correto: defendeu {notation} vs {open_raiser_pos} com {stack_str} "
+                f"(tier {hand_tier} <= max {pos_tier})"
+            ))
         elif hand_tier == pos_tier + 1 and hand_tier <= 4:
-            return (None, f"BB marginal: {notation} vs {open_raiser_pos} — {action_str} (tier {hand_tier} vs max {pos_tier})")
+            return (None, (
+                f"BB marginal: {notation} vs {open_raiser_pos} com {stack_str} — "
+                f"{action_str} (tier {hand_tier} vs max {pos_tier})"
+            ))
         else:
             if hero_folded:
-                return (1, f"BB correto: foldou {notation} vs {open_raiser_pos} (tier {hand_tier} > {pos_tier})")
-            return (0, f"BB incorreto: defendeu {notation} vs {open_raiser_pos} (tier {hand_tier} > {pos_tier}, deveria foldar)")
+                return (1, (
+                    f"BB correto: foldou {notation} vs {open_raiser_pos} com {stack_str} "
+                    f"(tier {hand_tier} > max {pos_tier})"
+                ))
+            return (0, (
+                f"BB incorreto: defendeu {notation} vs {open_raiser_pos} com {stack_str} "
+                f"(tier {hand_tier} > max {pos_tier}, deveria foldar)"
+            ))
 
     def _eval_sb_vs_bb(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate SB steal in blind war. Returns (score, note_pt_br)."""
+        """Evaluate SB action in blind war: limp vs raise vs shove by stack.
+
+        Based on RegLife 'O Conceito de Blind War - SB vs BB' PDF.
+        Stack-aware evaluation (15/30/50/100bb bands):
+        - 15bb: deve shovetar (ou raise), limp e incorreto
+        - 30bb: raise correto; limp com range especulativo e marginal
+        - 50bb+: raise correto; limp especulativo pode ser aceitavel
+        Returns (score, note_pt_br).
+        """
         hero_cards = hand.get('hero_cards')
+        hero_stack_bb = self._stack_in_bb(hand)
+        stack_str = f"{hero_stack_bb:.0f}BB" if hero_stack_bb else ">50BB"
+        hero_limped = pf.get('hero_sb_limps_bw', False)
+        hero_shoved = (pf.get('hero_action') == 'all-in')
+
         if not hero_cards:
-            return (1, "SB blind war: raise sem cartas visiveis")
+            action_desc = 'limp' if hero_limped else ('shove' if hero_shoved else 'raise')
+            return (1, f"SB blind war: {action_desc} com {stack_str} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
             return (1, "SB blind war: cartas nao parseadas")
 
         rfi_tier = self._rfi_hand_tier(notation)
-        if rfi_tier <= 4:
-            return (1, f"SB blind war correto: {notation} no range de steal (RFI tier {rfi_tier})")
+        in_steal_range = rfi_tier <= 4 or notation in self._SB_WAR_EXTRA
 
-        if notation in self._SB_WAR_EXTRA:
-            return (1, f"SB blind war correto: {notation} no range extra de SB war")
+        # ── Stack-based action evaluation ────────────────────────────────
+        if hero_stack_bb is not None and hero_stack_bb <= 15:
+            # A 15BB: shovetar e a acao certa; limp desperdicao de fold equity
+            if hero_limped:
+                return (0, (
+                    f"SB blind war incorreto: limp com {notation} e {stack_str} — "
+                    f"a 15BB deve shovetar ou levantar para maximizar fold equity"
+                ))
+            if hero_shoved:
+                if in_steal_range:
+                    return (1, (
+                        f"SB blind war correto: shove com {notation} e {stack_str} — "
+                        f"shove a 15BB e otimo vs BB (RFI tier {rfi_tier})"
+                    ))
+                return (0, (
+                    f"SB blind war incorreto: shove com {notation} e {stack_str} — "
+                    f"mao fora do range de steal do SB"
+                ))
+            # Regular raise at 15bb — acceptable but mention shove option
+            if in_steal_range:
+                return (1, (
+                    f"SB blind war correto: raise com {notation} e {stack_str} "
+                    f"(RFI tier {rfi_tier}; considere shove a 15BB)"
+                ))
+            return (0, (
+                f"SB blind war incorreto: {notation} fora do range de steal do SB com {stack_str}"
+            ))
 
-        return (0, f"SB blind war incorreto: {notation} fora do range de steal do SB")
+        elif hero_stack_bb is not None and hero_stack_bb <= 30:
+            # A 30BB: raise e correto; limp com especulativos e marginal
+            if hero_limped:
+                if rfi_tier <= 4:
+                    return (None, (
+                        f"SB blind war marginal: limp com {notation} e {stack_str} — "
+                        f"prefira levantar a 30BB para ganhar fold equity"
+                    ))
+                if notation in self._SB_WAR_EXTRA:
+                    return (1, (
+                        f"SB blind war correto: limp especulativo com {notation} e {stack_str} "
+                        f"(mao do range extra, limp aceitavel)"
+                    ))
+                return (1, (
+                    f"SB blind war correto: limp com {notation} e {stack_str} "
+                    f"(mao fora do range de raise, limp defensavel)"
+                ))
+            # Raise or shove
+            if in_steal_range:
+                return (1, (
+                    f"SB blind war correto: {'shove' if hero_shoved else 'raise'} "
+                    f"com {notation} e {stack_str} (RFI tier {rfi_tier})"
+                ))
+            return (0, (
+                f"SB blind war incorreto: {notation} fora do range de steal do SB com {stack_str}"
+            ))
+
+        else:
+            # 50bb / 100bb: raise e correto; limp especulativo pode ser aceitavel
+            if hero_limped:
+                if rfi_tier <= 2:
+                    return (None, (
+                        f"SB blind war marginal: limp com {notation} e {stack_str} — "
+                        f"maos fortes preferem raise para valor"
+                    ))
+                return (1, (
+                    f"SB blind war correto: limp especulativo com {notation} e {stack_str} "
+                    f"(stack profundo — limp pode ser lucrativo)"
+                ))
+            if in_steal_range:
+                return (1, (
+                    f"SB blind war correto: {'shove' if hero_shoved else 'raise'} "
+                    f"com {notation} e {stack_str} "
+                    f"({'range extra SB' if notation in self._SB_WAR_EXTRA else f'RFI tier {rfi_tier}'})"
+                ))
+            return (0, (
+                f"SB blind war incorreto: {notation} fora do range de steal do SB com {stack_str}"
+            ))
 
     def _eval_bb_vs_sb(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
         """Evaluate BB defense in blind war vs SB. Returns (score, note_pt_br)."""

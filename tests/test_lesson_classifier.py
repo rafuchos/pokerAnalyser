@@ -7019,5 +7019,421 @@ class TestUS053bAula4OpenShovePDF(unittest.TestCase):
         self.assertEqual(self.classifier._OPEN_SHOVE_POS_TARGET_PCT.get('BTN'), 41)
 
 
+class TestUS053cAula5Squeeze3WaySizing(unittest.TestCase):
+    """Aula 5: Squeeze verifies 3-way scenario and correct sizing.
+
+    US-053c acceptance criteria:
+    - Squeeze verifica cenario 3-way (open + pelo menos 1 caller)
+    - Squeeze verifica sizing: IP 3-5x, OOP 4-6x o open
+    - Notes em PT-BR com 'cenario N-way'
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _squeeze_match(self, hand_id):
+        matches = self._classify(hand_id)
+        return next((m for m in matches if m.lesson_id == 5), None)
+
+    def _insert_squeeze(self, hand_id, hero_cards, hero_pos, opener_pos,
+                        caller_pos, open_amount=1.5, caller_amount=1.5,
+                        hero_squeeze_amount=6.0):
+        _insert_hand(self.repo, hand_id, position=hero_pos)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Opener', 'raise',
+                       open_amount, 0, 1, opener_pos)
+        _insert_action(self.repo, hand_id, 'preflop', 'Caller', 'call',
+                       caller_amount, 0, 2, caller_pos)
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       hero_squeeze_amount, 1, 3, hero_pos)
+
+    # -- Cenario 3-way na nota --
+
+    def test_squeeze_note_mentions_3way_scenario(self):
+        """Note should mention the 3-way scenario (open + 1 caller)."""
+        self._insert_squeeze('C5A', 'Ah Ad', 'BTN', 'HJ', 'CO',
+                             open_amount=1.5, caller_amount=1.5,
+                             hero_squeeze_amount=6.0)
+        m = self._squeeze_match('C5A')
+        self.assertIsNotNone(m, "Squeeze should be detected")
+        self.assertIn('3-way', m.notes, f"Note should mention '3-way': {m.notes}")
+
+    def test_squeeze_note_mentions_multiway_with_2callers(self):
+        """With 2 callers, note should mention 4-way scenario."""
+        _insert_hand(self.repo, 'C5B', position='BB')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", ('Ah Kh', 'C5B'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'C5B', 'preflop', 'Opener', 'raise', 1.5, 0, 1, 'UTG')
+        _insert_action(self.repo, 'C5B', 'preflop', 'Caller1', 'call', 1.5, 0, 2, 'HJ')
+        _insert_action(self.repo, 'C5B', 'preflop', 'Caller2', 'call', 1.5, 0, 3, 'BTN')
+        _insert_action(self.repo, 'C5B', 'preflop', 'Hero', 'raise', 9.0, 1, 4, 'BB')
+        m = self._squeeze_match('C5B')
+        self.assertIsNotNone(m, "Squeeze should be detected with 2 callers")
+        self.assertIn('4-way', m.notes, f"Note should mention '4-way': {m.notes}")
+
+    # -- Sizing validation --
+
+    def test_squeeze_ip_correct_sizing_4x(self):
+        """BTN squeeze at 4x open — correct IP sizing (ideal 3-5x)."""
+        # 1.5 open → 6.0 squeeze = 4x (IP correct)
+        self._insert_squeeze('C5C', 'Ah Ad', 'BTN', 'HJ', 'CO',
+                             open_amount=1.5, hero_squeeze_amount=6.0)
+        m = self._squeeze_match('C5C')
+        self.assertEqual(m.executed_correctly, 1,
+                         f"AA BTN 4x squeeze should be correct: {m.notes}")
+        self.assertIn('sizing', m.notes.lower(), f"Note should mention sizing: {m.notes}")
+
+    def test_squeeze_ip_bad_sizing_too_small(self):
+        """BTN squeeze at 1.5x open — too small, should be marginal/incorrect."""
+        # 1.5 open → 2.0 squeeze = 1.3x (way too small for IP: 3-5x)
+        self._insert_squeeze('C5D', 'Ah Ad', 'BTN', 'HJ', 'CO',
+                             open_amount=1.5, hero_squeeze_amount=2.0)
+        m = self._squeeze_match('C5D')
+        # Below threshold → None (sizing incorrect note)
+        self.assertNotEqual(m.executed_correctly, 1,
+                            f"AA BTN 1.3x squeeze should not be correct: {m.notes}")
+        self.assertIn('sizing', m.notes.lower(), f"Note should mention sizing: {m.notes}")
+
+    def test_squeeze_oop_correct_sizing_5x(self):
+        """BB squeeze at 5x open — correct OOP sizing (ideal 4-6x)."""
+        # 1.5 open → 7.5 squeeze = 5x (OOP correct)
+        self._insert_squeeze('C5E', 'Kh Ks', 'BB', 'CO', 'BTN',
+                             open_amount=1.5, hero_squeeze_amount=7.5)
+        m = self._squeeze_match('C5E')
+        self.assertEqual(m.executed_correctly, 1,
+                         f"KK BB 5x squeeze should be correct: {m.notes}")
+
+    def test_squeeze_callers_stored_in_pf(self):
+        """callers_before_hero should be stored when hero squeezes."""
+        self._insert_squeeze('C5F', 'Ah Ad', 'BTN', 'HJ', 'CO',
+                             open_amount=1.5, hero_squeeze_amount=6.0)
+        hand = _get_hand_dict(self.repo, 'C5F')
+        actions = self.repo.get_hand_actions('C5F')
+        pf = self.classifier._analyze_preflop(actions, 'BTN')
+        self.assertTrue(pf['hero_squeezes'], "Should detect squeeze")
+        self.assertEqual(pf['callers_before_hero'], 1,
+                         f"Should store 1 caller: {pf}")
+
+    def test_squeeze_note_is_pt_br(self):
+        """All squeeze notes must be in PT-BR."""
+        self._insert_squeeze('C5G', 'Ah Ad', 'BTN', 'HJ', 'CO')
+        m = self._squeeze_match('C5G')
+        self.assertIsNotNone(m)
+        # Key PT-BR words
+        self.assertTrue(
+            any(w in m.notes.lower() for w in ['correto', 'incorreto', 'marginal', 'squeeze']),
+            f"Note should be in PT-BR: {m.notes}"
+        )
+
+    def test_squeeze_bb_stack_pos_tier_dict_structure(self):
+        """_BB_STACK_POS_TIER must have 4 bands (15/30/50/100)."""
+        self.assertEqual(set(self.classifier._BB_STACK_POS_TIER.keys()), {15, 30, 50, 100})
+
+
+class TestUS053cAula6BBStackDepth(unittest.TestCase):
+    """Aula 6: BB defense distingue range por posicao do raiser e stack depth.
+
+    US-053c acceptance criteria:
+    - BB defense depends on raiser position AND hero stack depth
+    - At 15bb: tighter range (speculative hands lose implied odds)
+    - At 30bb: medium range
+    - At 100bb: full range per position
+    - Notes em PT-BR com stack info
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _bb_result(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        matches = self.classifier.classify_hand(hand, actions)
+        m = next((m for m in matches if m.lesson_id == 6), None)
+        return (m.executed_correctly, m.notes) if m else (None, '')
+
+    def _insert_bb_defense(self, hand_id, hero_cards, raiser_pos, hero_action,
+                           hero_stack, blinds_bb=0.50):
+        _insert_hand(self.repo, hand_id, position='BB',
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Villain', 'raise',
+                       1.5, 0, 1, raiser_pos)
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', hero_action,
+                       1.5 if hero_action == 'call' else 0, 1, 2, 'BB')
+
+    # -- Position-based range --
+
+    def test_bb_tier1_defends_vs_utg_100bb(self):
+        """KQs (tier 1) must defend vs UTG at 100bb."""
+        # KQs is tier 1, UTG allows tier 1 → correct defend
+        self._insert_bb_defense('C6A', 'Kh Qh', 'UTG', 'call',
+                                hero_stack=50.0, blinds_bb=0.50)
+        score, note = self._bb_result('C6A')
+        self.assertEqual(score, 1, f"KQs vs UTG 100bb defend should be correct: {note}")
+        self.assertIn('100BB', note.upper() or '100bb', note)
+
+    def test_bb_tier4_folds_vs_utg_100bb(self):
+        """T9o (tier 4) should fold vs UTG at 100bb (UTG only allows tier 1)."""
+        # T9o is tier 4, UTG allows tier 1 → correct fold
+        self._insert_bb_defense('C6B', 'Th 9d', 'UTG', 'fold',
+                                hero_stack=50.0, blinds_bb=0.50)
+        score, note = self._bb_result('C6B')
+        self.assertEqual(score, 1, f"T9o vs UTG fold should be correct: {note}")
+
+    def test_bb_tier4_defends_vs_btn_100bb(self):
+        """T9o (tier 4) correctly defends vs BTN at 100bb (BTN allows tier 4)."""
+        self._insert_bb_defense('C6C', 'Th 9d', 'BTN', 'call',
+                                hero_stack=50.0, blinds_bb=0.50)
+        score, note = self._bb_result('C6C')
+        self.assertEqual(score, 1, f"T9o vs BTN 100bb defend should be correct: {note}")
+
+    # -- Stack depth tightening --
+
+    def test_bb_15bb_tighter_vs_btn(self):
+        """At 15bb, BB vs BTN tier max should be 2, not 4."""
+        tier = self.classifier._bb_pos_tier_for_stack('BTN', 15)
+        self.assertEqual(tier, 2,
+                         f"BTN 15bb BB defense tier should be 2, got {tier}")
+
+    def test_bb_tier3_folds_vs_btn_15bb(self):
+        """At 15bb, tier 3 hand (K5s) vs BTN should be marginal (BTN max tier = 2)."""
+        # K5s is tier 3, BTN at 15bb allows tier 2 → marginal (tier 3 = pos_tier + 1)
+        self._insert_bb_defense('C6D', 'Kd 5d', 'BTN', 'fold',
+                                hero_stack=7.5, blinds_bb=0.50)  # 15bb
+        score, note = self._bb_result('C6D')
+        self.assertIn(score, [None, 1],
+                      f"K5s vs BTN at 15bb fold should be marginal or correct: {note}")
+        self.assertIn('15BB', note.upper() or '15bb', note)
+
+    def test_bb_tier4_folds_vs_btn_15bb_correct(self):
+        """At 15bb, tier 4 hand (Q3s) vs BTN: BTN max tier=2 so tier 4 > max → correct fold."""
+        # Q3s is tier 4, BTN at 15bb allows tier 2 → gap = 2 → correct to fold
+        self._insert_bb_defense('C6E', 'Qd 3d', 'BTN', 'fold',
+                                hero_stack=7.5, blinds_bb=0.50)  # 15bb
+        score, note = self._bb_result('C6E')
+        self.assertEqual(score, 1,
+                         f"Q3s vs BTN at 15bb fold should be correct: {note}")
+
+    def test_bb_30bb_medium_range_vs_co(self):
+        """At 30bb, CO max tier is 2 (vs standard 3 at 100bb)."""
+        tier = self.classifier._bb_pos_tier_for_stack('CO', 30)
+        self.assertEqual(tier, 2,
+                         f"CO 30bb BB defense tier should be 2, got {tier}")
+
+    def test_bb_100bb_full_range_vs_btn(self):
+        """At 100bb, BTN max tier is 4 (full defense)."""
+        tier = self.classifier._bb_pos_tier_for_stack('BTN', 100)
+        self.assertEqual(tier, 4,
+                         f"BTN 100bb BB defense tier should be 4, got {tier}")
+
+    def test_bb_note_includes_stack_info(self):
+        """BB defense note must include stack info (PT-BR)."""
+        self._insert_bb_defense('C6F', 'Ah Kh', 'UTG', 'call',
+                                hero_stack=50.0, blinds_bb=0.50)
+        score, note = self._bb_result('C6F')
+        self.assertIsNotNone(score)
+        self.assertTrue(
+            'BB' in note or 'bb' in note.lower(),
+            f"Note should include stack info: {note}"
+        )
+
+    def test_bb_stack_pos_tier_has_4_bands(self):
+        """_BB_STACK_POS_TIER must have exactly 4 stack depth bands."""
+        self.assertEqual(len(self.classifier._BB_STACK_POS_TIER), 4)
+
+    def test_bb_15bb_tighter_than_100bb_at_btn(self):
+        """At 15bb, BB vs BTN max tier must be less than at 100bb (tighter defense)."""
+        tier_15 = self.classifier._bb_pos_tier_for_stack('BTN', 15)
+        tier_100 = self.classifier._bb_pos_tier_for_stack('BTN', 100)
+        self.assertLess(tier_15, tier_100,
+                        f"15bb tier ({tier_15}) should be < 100bb tier ({tier_100})")
+
+
+class TestUS053cAula7SBBlindWarStack(unittest.TestCase):
+    """Aula 7: SB blind war diferencia limp vs raise vs shove por stack.
+
+    US-053c acceptance criteria:
+    - 15bb: shove (ou raise) e correto; limp e incorreto
+    - 30bb: raise correto; limp com mao fora do range e aceitavel
+    - 50bb+: raise correto; limp especulativo pode ser correto
+    - Notes em PT-BR mencionando stack depth
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _sb_bw_result(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        matches = self.classifier.classify_hand(hand, actions)
+        m = next((m for m in matches if m.lesson_id == 7), None)
+        return (m.executed_correctly, m.notes) if m else (None, '')
+
+    def _insert_sb_raise(self, hand_id, hero_cards, hero_stack, blinds_bb=0.50):
+        """SB raises (standard blind war)."""
+        _insert_hand(self.repo, hand_id, position='SB',
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, 'SB')
+        _insert_action(self.repo, hand_id, 'preflop', 'BB', 'fold', 0, 0, 2, 'BB')
+
+    def _insert_sb_shove(self, hand_id, hero_cards, hero_stack, blinds_bb=0.50):
+        """SB shoves all-in (blind war shove)."""
+        _insert_hand(self.repo, hand_id, position='SB',
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'all-in',
+                       hero_stack, 1, 1, 'SB')
+        _insert_action(self.repo, hand_id, 'preflop', 'BB', 'fold', 0, 0, 2, 'BB')
+
+    def _insert_sb_limp(self, hand_id, hero_cards, hero_stack, blinds_bb=0.50):
+        """SB limps (calls BB — blind war limp)."""
+        _insert_hand(self.repo, hand_id, position='SB',
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        # No previous raise — SB calls the BB (limp)
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
+                       blinds_bb, 1, 1, 'SB')
+
+    # -- 15bb stack scenarios --
+
+    def test_sb_limp_at_15bb_is_incorrect(self):
+        """SB limping at 15bb is incorrect — should shove or raise."""
+        self._insert_sb_limp('C7A', 'Ah Kd', 15.0 * 0.50, blinds_bb=0.50)  # 15bb stack
+        score, note = self._sb_bw_result('C7A')
+        self.assertEqual(score, 0, f"SB limp at 15bb should be incorrect: {note}")
+        self.assertIn('limp', note.lower(), f"Note should mention limp: {note}")
+        self.assertIn('15BB', note.upper() or '15bb', note)
+
+    def test_sb_shove_at_15bb_is_correct(self):
+        """SB shoving AA at 15bb is correct."""
+        self._insert_sb_shove('C7B', 'Ah As', 7.5, blinds_bb=0.50)  # 15bb
+        score, note = self._sb_bw_result('C7B')
+        self.assertEqual(score, 1, f"SB shove AA at 15bb should be correct: {note}")
+        self.assertIn('shove', note.lower(), f"Note should mention shove: {note}")
+
+    def test_sb_raise_at_15bb_is_correct(self):
+        """SB raising AKo at 15bb is correct (with note about shove option)."""
+        self._insert_sb_raise('C7C', 'Ah Kd', 7.5, blinds_bb=0.50)  # 15bb
+        score, note = self._sb_bw_result('C7C')
+        self.assertEqual(score, 1, f"SB raise AKo at 15bb should be correct: {note}")
+
+    # -- 30bb stack scenarios --
+
+    def test_sb_raise_at_30bb_is_correct(self):
+        """SB raising QQ at 30bb is correct."""
+        self._insert_sb_raise('C7D', 'Qh Qd', 15.0, blinds_bb=0.50)  # 30bb
+        score, note = self._sb_bw_result('C7D')
+        self.assertEqual(score, 1, f"SB raise QQ at 30bb should be correct: {note}")
+
+    def test_sb_limp_strong_hand_at_30bb_is_marginal(self):
+        """SB limping strong hand (AKo) at 30bb is marginal — should raise."""
+        # AKo is RFI tier 1 (strong) — limping is marginal at 30bb
+        self._insert_sb_limp('C7E', 'Ah Kd', 15.0, blinds_bb=0.50)  # 30bb
+        score, note = self._sb_bw_result('C7E')
+        self.assertIsNone(score, f"SB limp AKo at 30bb should be marginal: {note}")
+        self.assertIn('prefira', note.lower() or 'marginal',
+                      f"Note should suggest raising: {note}")
+
+    # -- 50bb/100bb stack scenarios --
+
+    def test_sb_raise_at_100bb_is_correct(self):
+        """SB raising KQs at 100bb is correct."""
+        self._insert_sb_raise('C7F', 'Kh Qh', 50.0, blinds_bb=0.50)  # 100bb
+        score, note = self._sb_bw_result('C7F')
+        self.assertEqual(score, 1, f"SB raise KQs at 100bb should be correct: {note}")
+
+    def test_sb_limp_speculative_at_100bb_is_correct(self):
+        """SB limping speculative hand (85s) at 100bb is correct (implied odds)."""
+        # 85s is tier 3 in RFI → not in SB war extra → limp at 100bb OK (deep)
+        self._insert_sb_limp('C7G', '8d 5d', 50.0, blinds_bb=0.50)  # 100bb
+        score, note = self._sb_bw_result('C7G')
+        self.assertEqual(score, 1,
+                         f"SB limp 85s at 100bb should be correct: {note}")
+        self.assertIn('especulat', note.lower(),
+                      f"Note should mention speculative: {note}")
+
+    def test_sb_limp_strong_at_100bb_is_marginal(self):
+        """SB limping AA at 100bb is marginal — strong hands prefer raising."""
+        # AA is tier 1 — limping is marginal (should raise for value)
+        self._insert_sb_limp('C7H', 'Ah As', 50.0, blinds_bb=0.50)  # 100bb
+        score, note = self._sb_bw_result('C7H')
+        self.assertIsNone(score, f"SB limp AA at 100bb should be marginal: {note}")
+        self.assertIn('forte', note.lower() or 'valor',
+                      f"Note should mention strong hands prefer raising: {note}")
+
+    # -- Blind war limp detection --
+
+    def test_sb_limp_detected_as_blind_war(self):
+        """SB limp (no prior raise) should be detected as blind war."""
+        self._insert_sb_limp('C7I', 'Ah As', 50.0, blinds_bb=0.50)
+        hand = _get_hand_dict(self.repo, 'C7I')
+        actions = self.repo.get_hand_actions('C7I')
+        pf = self.classifier._analyze_preflop(actions, 'SB')
+        self.assertTrue(pf['is_blind_war'], "SB limp should trigger is_blind_war")
+        self.assertTrue(pf['hero_sb_limps_bw'], "Should set hero_sb_limps_bw flag")
+
+    def test_sb_limp_triggers_lesson_7(self):
+        """SB limp in blind war should trigger lesson 7 classification."""
+        self._insert_sb_limp('C7J', 'Ah As', 50.0, blinds_bb=0.50)
+        hand = _get_hand_dict(self.repo, 'C7J')
+        actions = self.repo.get_hand_actions('C7J')
+        matches = self.classifier.classify_hand(hand, actions)
+        ids = [m.lesson_id for m in matches]
+        self.assertIn(7, ids, "SB limp should trigger lesson 7")
+
+    def test_sb_raise_out_of_range_is_incorrect(self):
+        """SB raising 32o at any stack is incorrect (outside all SB steal ranges)."""
+        # 32o is not in RFI tiers 1-4 nor in _SB_WAR_EXTRA
+        self._insert_sb_raise('C7K', '3h 2d', 25.0, blinds_bb=0.50)  # 50bb
+        score, note = self._sb_bw_result('C7K')
+        self.assertEqual(score, 0, f"SB raise 32o should be incorrect: {note}")
+
+    def test_sb_shove_out_of_range_15bb_incorrect(self):
+        """SB shoving 32o at 15bb is incorrect (outside all SB steal ranges)."""
+        # 32o is not in RFI tiers 1-4, not in _SB_WAR_EXTRA
+        self._insert_sb_shove('C7L', '3h 2d', 7.5, blinds_bb=0.50)  # 15bb
+        score, note = self._sb_bw_result('C7L')
+        self.assertEqual(score, 0, f"SB shove 32o at 15bb should be incorrect: {note}")
+
+
 if __name__ == '__main__':
     unittest.main()
