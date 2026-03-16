@@ -709,7 +709,7 @@ class LessonClassifier:
             matches.append(m)
 
         # 4: Open Shove cEV 10BB
-        if pf['hero_open_shoves'] and hero_stack_bb is not None and hero_stack_bb <= 12:
+        if pf['hero_open_shoves'] and hero_stack_bb is not None and hero_stack_bb <= 15:
             m = self._match(hand_id, 4, 'preflop')
             m.executed_correctly, m.notes = self._eval_open_shove(hand, pf)
             matches.append(m)
@@ -1271,13 +1271,18 @@ class LessonClassifier:
         stack_str = f"{hero_stack_bb:.0f}BB" if hero_stack_bb else ">50BB"
 
         # Check sizing: PDF recommends 2-2.5BB (cEV), cash games use up to 3BB
+        # Exception: all-in is always valid sizing for short stacks (≤20bb)
         sizing_ok = None
         sizing_bb = None
         raise_amount = pf.get('hero_raise_amount', 0)
         bb = hand.get('blinds_bb')
+        hero_open_shoves = pf.get('hero_open_shoves', False)
         if raise_amount and bb and bb > 0:
             sizing_bb = raise_amount / bb
-            sizing_ok = 2.0 <= sizing_bb <= 3.0
+            if hero_open_shoves and hero_stack_bb is not None and hero_stack_bb <= 20:
+                sizing_ok = True  # all-in is valid short-stack sizing
+            else:
+                sizing_ok = 2.0 <= sizing_bb <= 3.0
 
         hero_folded = pf.get('hero_folds_rfi_spot', False) and not pf.get('hero_is_rfi', False)
         pos_tier = self._rfi_pos_tier_for_stack(hero_pos, hero_stack_bb)
@@ -1287,6 +1292,8 @@ class LessonClassifier:
             if hero_folded:
                 return (None, f"RFI: foldou do {hero_pos} com {stack_str} sem cartas visiveis")
             if sizing_ok is True:
+                if hero_open_shoves and hero_stack_bb is not None and hero_stack_bb <= 20:
+                    return (1, f"RFI do {hero_pos} com {stack_str}: all-in valido como sizing short stack")
                 return (1, f"RFI do {hero_pos} com {stack_str} e sizing adequado ({sizing_bb:.1f}BB)")
             if sizing_ok is False:
                 return (None, f"RFI do {hero_pos} com {stack_str}: sizing fora do padrao ({sizing_bb:.1f}BB)")
@@ -1310,9 +1317,9 @@ class LessonClassifier:
                     f"mao esta no range (tier {hand_tier} <= max {pos_tier}), deveria abrir"
                 ))
             elif hand_tier == pos_tier + 1:
-                return (None, (
-                    f"RFI marginal: foldou {notation} do {hero_pos} com {stack_str} — "
-                    f"mao 1 tier acima do range (tier {hand_tier} vs max {pos_tier})"
+                return (1, (
+                    f"RFI correto: foldou {notation} do {hero_pos} com {stack_str} — "
+                    f"mao marginal (tier {hand_tier} vs max {pos_tier}), fold aceitavel"
                 ))
             else:
                 return (1, (
@@ -1326,6 +1333,11 @@ class LessonClassifier:
                 return (None, (
                     f"RFI com {notation} do {hero_pos} com {stack_str}: "
                     f"mao no range (tier {hand_tier}), mas sizing fora ({sizing_bb:.1f}BB)"
+                ))
+            if hero_open_shoves and hero_stack_bb is not None and hero_stack_bb <= 20:
+                return (1, (
+                    f"RFI correto: {notation} no range do {hero_pos} com {stack_str} "
+                    f"— all-in valido como sizing short stack (tier {hand_tier} <= max {pos_tier})"
                 ))
             return (1, (
                 f"RFI correto: {notation} no range do {hero_pos} com {stack_str} "
@@ -1587,7 +1599,7 @@ class LessonClassifier:
 
         Based on RegLife 'Ranges de Open Shove cEV 10BB' PDF:
         - SB: 69%, BTN: 41%, CO: 33%, HJ: 27%, LJ: 22%, UTG+1: 19%, UTG: 16%
-        Also supports ≤12BB with note to consider minraise at 10-12BB.
+        Supports ≤15BB: at 10-15BB all-in remains valid, minraise is also an option.
         Returns (score, note_pt_br).
         """
         hero_cards = hand.get('hero_cards')
@@ -1597,15 +1609,18 @@ class LessonClassifier:
         target_pct = self._OPEN_SHOVE_POS_TARGET_PCT.get(hero_pos, 0)
         pct_str = f" (alvo PDF ~{target_pct}%)" if target_pct else ""
 
-        if hero_stack_bb is not None and hero_stack_bb > 10:
-            return (None, f"Open shove com {stack_str} do {hero_pos}: entre 10-12BB, considerar minraise{pct_str}")
+        if hero_stack_bb is not None and hero_stack_bb > 15:
+            return (None, f"Open shove com {stack_str} do {hero_pos}: stack acima de 15BB, preferir sizing normal{pct_str}")
+
+        # For 10-15BB, shove is still valid but note minraise as an option
+        minraise_note = " (10-15BB: minraise tambem valido)" if hero_stack_bb is not None and hero_stack_bb > 10 else ""
 
         if not hero_cards:
-            return (1, f"Open shove do {hero_pos} com {stack_str} sem cartas visiveis{pct_str}")
+            return (1, f"Open shove do {hero_pos} com {stack_str} sem cartas visiveis{pct_str}{minraise_note}")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return (1, f"Open shove do {hero_pos} com {stack_str} — cartas nao parseadas{pct_str}")
+            return (1, f"Open shove do {hero_pos} com {stack_str} — cartas nao parseadas{pct_str}{minraise_note}")
 
         hand_tier = self._open_shove_hand_tier(notation)
         pos_tier = self._OPEN_SHOVE_POS_MAX_TIER.get(hero_pos, 2)
@@ -1614,23 +1629,23 @@ class LessonClassifier:
         if hero_pos == 'SB' and hand_tier == 5 and notation in self._OPEN_SHOVE_SB_EXTRA:
             return (1, (
                 f"Open shove correto: {notation} no range extra do SB com {stack_str} "
-                f"(SB shova ~69% — {notation} lucrativo com dead money)"
+                f"(SB shova ~69% — {notation} lucrativo com dead money){minraise_note}"
             ))
 
         if hand_tier <= pos_tier:
             return (1, (
                 f"Open shove correto: {notation} no range do {hero_pos} com {stack_str} "
-                f"(tier {hand_tier} <= {pos_tier}{pct_str})"
+                f"(tier {hand_tier} <= {pos_tier}{pct_str}){minraise_note}"
             ))
         elif hand_tier == pos_tier + 1:
             return (None, (
                 f"Open shove marginal: {notation} do {hero_pos} com {stack_str} "
-                f"(tier {hand_tier} vs max {pos_tier}{pct_str})"
+                f"(tier {hand_tier} vs max {pos_tier}{pct_str}){minraise_note}"
             ))
         else:
             return (0, (
                 f"Open shove incorreto: {notation} fora do range do {hero_pos} com {stack_str} "
-                f"(tier {hand_tier} > {pos_tier}{pct_str})"
+                f"(tier {hand_tier} > {pos_tier}{pct_str}){minraise_note}"
             ))
 
     @classmethod
