@@ -83,12 +83,48 @@ class LessonClassifier:
         '76o', '75o', '65o', '64o', '54o', '53o',
     }
 
-    # Position → maximum hand tier allowed for RFI
+    # Position → maximum hand tier allowed for RFI (100bb default)
     _RFI_POS_MAX_TIER = {
         'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
         'LJ': 2, 'MP': 2, 'HJ': 2,
         'CO': 3,
         'BTN': 4, 'SB': 4,
+    }
+
+    # ── Stack-Depth RFI Position Max Tiers ──────────────────────────────────
+    # Based on RegLife 'Ranges de RFI em cEV' PDF — percentages by stack depth:
+    #   UTG:   17.0%(100bb) 17.3%(50bb) 18.4%(25bb) 15.5%(15bb)
+    #   UTG+1: 19.6%(100bb) 19.6%(50bb) 20.8%(25bb) 17.4%(15bb)
+    #   LJ:    23.2%(100bb) 23.7%(50bb) 23.9%(25bb) 20.1%(15bb)
+    #   HJ:    28.5%(100bb) 28.4%(50bb) 27.6%(25bb) 23.8%(15bb)
+    #   CO:    37.1%(100bb) 37.5%(50bb) 34.0%(25bb) 29.6%(15bb)
+    #   BTN:   54.4%(100bb) 53.8%(50bb) 45.1%(25bb) 38.3%(15bb)
+    # At shorter stacks speculative hands lose implied odds → tighter ranges.
+    _RFI_STACK_POS_TIER = {
+        15: {
+            'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+            'LJ': 1, 'MP': 1, 'HJ': 2,
+            'CO': 2,
+            'BTN': 3, 'SB': 3,
+        },
+        25: {
+            'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+            'LJ': 2, 'MP': 2, 'HJ': 2,
+            'CO': 3,
+            'BTN': 3, 'SB': 3,
+        },
+        50: {
+            'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+            'LJ': 2, 'MP': 2, 'HJ': 2,
+            'CO': 3,
+            'BTN': 4, 'SB': 4,
+        },
+        100: {
+            'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
+            'LJ': 2, 'MP': 2, 'HJ': 2,
+            'CO': 3,
+            'BTN': 4, 'SB': 4,
+        },
     }
 
     # ── Multiway BB Defense Data (from RegLife 'Defesa Multiway do BB' PDF) ──
@@ -302,11 +338,20 @@ class LessonClassifier:
         'T9s', '98s', '87s', '76s', '65s', '54s',
         'AKo', 'AQo',
     }
-    # 4-bet range: hands that should 4-bet (for value or as bluffs).
+    # 4-bet range: hands that should 4-bet for value.
     _VS3BET_4BET = {
         'AA', 'KK', 'QQ',
         'AKs', 'AKo',
     }
+    # Blocker 4-bet bluff range: suited aces that block AA/AK combos.
+    # 54s has MORE EV vs 3-bet than AQo because AQo can be dominated by AK/AA;
+    # these suited aces are NOT dominated and have blocker equity for 4-bet bluffs.
+    _VS3BET_BLOCKER_4BET = {
+        'A5s', 'A4s', 'A3s', 'A2s',
+    }
+    # Hands with domination risk vs 3-bet (share top card with 3-bettor's value range).
+    # AQo/AJo can be dominated by AK/AA; 54s has no domination concern.
+    _VS3BET_DOMINATED = {'AQo', 'AJo', 'ATo', 'KQo'}
     # Marginal: continue when in position, lean fold when OOP vs tight 3-bet.
     _VS3BET_MARGINAL = {
         '44', '33', '22',
@@ -413,11 +458,43 @@ class LessonClassifier:
     }
 
     # Position → maximum hand tier allowed for open shove at 10BB
+    # Aligned with PDF percentages: UTG 16%, UTG+1 19%, LJ 22%, HJ 27%,
+    # CO 33%, BTN 41%, SB 69%.
     _OPEN_SHOVE_POS_MAX_TIER = {
         'UTG': 1, 'EP': 1, 'UTG+1': 1, 'UTG+2': 1,
-        'LJ': 1, 'MP': 2, 'HJ': 2,
+        'LJ': 2, 'MP': 2, 'HJ': 2,
         'CO': 3,
         'BTN': 4, 'SB': 4,
+    }
+
+    # SB-only extra shove hands: valid from SB at ≤10BB (extends range to ~69%).
+    # These hands are profitable from SB due to dead money + fold equity vs sole BB.
+    _OPEN_SHOVE_SB_EXTRA = {
+        'Q5s', 'Q4s', 'Q3s', 'Q2s',
+        'J5s', 'J4s', 'J3s', 'J2s',
+        'T5s', 'T4s', 'T3s', 'T2s',
+        '95s', '94s', '93s', '92s',
+        '84s', '83s', '82s',
+        '74s', '73s', '72s',
+        '63s', '62s',
+        '53s', '43s', '42s', '32s',
+        # Offsuit medium hands profitable from SB only
+        'Q7o', 'Q6o', 'Q5o', 'Q4o',
+        'J7o', 'J6o', 'J5o', 'J4o',
+        'T7o', 'T6o', 'T5o', 'T4o',
+        '96o', '95o', '94o',
+        '86o', '85o', '84o',
+        '76o', '75o', '74o',
+        '65o', '64o', '63o',
+        '54o', '53o', '52o', '43o',
+    }
+
+    # Target shove percentages by position (from PDF, 10BB stack).
+    _OPEN_SHOVE_POS_TARGET_PCT = {
+        'UTG': 16, 'EP': 16, 'UTG+1': 19, 'UTG+2': 19,
+        'LJ': 22, 'MP': 22, 'HJ': 27,
+        'CO': 33,
+        'BTN': 41, 'SB': 69,
     }
 
     # ── SB vs BB Blind War Data (from RegLife 'O Conceito de Blind War - SB vs BB') ──
@@ -578,8 +655,8 @@ class LessonClassifier:
 
         # --- Preflop Lessons ---
 
-        # 1: RFI (Raise First In)
-        if pf['hero_is_rfi']:
+        # 1: RFI (Raise First In) — also catches fold of openable hand
+        if pf['hero_is_rfi'] or pf['hero_folds_rfi_spot']:
             m = self._match(hand_id, 1, 'preflop')
             m.executed_correctly, m.notes = self._eval_rfi(hand, pf)
             matches.append(m)
@@ -827,6 +904,8 @@ class LessonClassifier:
             'hero_open_shoves': False,
             'hero_squeezes': False,
             'hero_folds_preflop': False,
+            'hero_folds_rfi_spot': False,  # folded in spot where hero could have opened
+            'hero_4bets': False,           # hero raised again after facing a 3-bet
             'hero_is_preflop_aggressor': False,
             'is_blind_war': False,
             'is_blind_war_bb_vs_sb': False,
@@ -834,6 +913,9 @@ class LessonClassifier:
             'is_3bet_pot': False,
             'hero_action': None,
             'hero_raise_amount': 0,
+            'open_raise_amount': 0,   # amount of the first raise (by any player)
+            'hero_3bet_amount': 0,    # amount of hero's 3-bet when hero_3bets=True
+            'villain_3bet_amount': 0, # amount of villain's 3-bet vs hero's open
             'open_raiser_pos': None,
             'callers_before_hero': 0,
         }
@@ -862,6 +944,9 @@ class LessonClassifier:
                     # Hero faces 3-bet: hero opened, then someone re-raised, hero folds
                     if result['hero_is_rfi'] and second_raise_seen and not result['hero_3bets']:
                         result['hero_faces_3bet'] = True
+                    # RFI fold spot: hero folds with no prior raise (could have opened)
+                    if not first_raise_seen and not calls_before_hero and hero_pos != 'BB':
+                        result['hero_folds_rfi_spot'] = True
                 continue
 
             if action in ('call', 'raise', 'bet', 'all-in'):
@@ -870,6 +955,7 @@ class LessonClassifier:
             if action in ('raise', 'bet', 'all-in') and not first_raise_seen:
                 first_raise_seen = True
                 open_raiser_pos = a.get('position', '')
+                result['open_raise_amount'] = a.get('amount', 0)
                 if is_hero:
                     result['hero_is_rfi'] = True
                     result['hero_is_preflop_aggressor'] = True
@@ -886,10 +972,15 @@ class LessonClassifier:
                     else:
                         result['hero_3bets'] = True
                     result['hero_is_preflop_aggressor'] = True
+                    result['hero_3bet_amount'] = a.get('amount', 0)
+                else:
+                    # Villain 3-bets hero's open
+                    result['villain_3bet_amount'] = a.get('amount', 0)
                 raises.append(a)
             elif action in ('raise', 'all-in') and second_raise_seen:
                 if is_hero:
                     result['hero_is_preflop_aggressor'] = True
+                    result['hero_4bets'] = True
                 raises.append(a)
 
             if action == 'call' and not is_hero and first_raise_seen:
@@ -899,6 +990,7 @@ class LessonClassifier:
             if is_hero:
                 hero_acted = True
                 hero_last_action = action
+                result['hero_action'] = action
                 if action == 'fold':
                     result['hero_folds_preflop'] = True
                 elif action == 'call' and first_raise_seen:
@@ -1065,13 +1157,38 @@ class LessonClassifier:
             return 4
         return 5
 
-    def _eval_rfi(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate RFI execution based on position, hand strength, and sizing.
+    def _rfi_pos_tier_for_stack(self, hero_pos: str, stack_bb: Optional[float]) -> int:
+        """Get stack-depth-aware RFI position max tier.
 
+        Uses _RFI_STACK_POS_TIER with 4 stack bands (15/25/50/100bb).
+        Falls back to _RFI_POS_MAX_TIER for unknown stacks.
+        """
+        if stack_bb is None:
+            return self._RFI_POS_MAX_TIER.get(hero_pos, 2)
+        # Select the appropriate stack band
+        if stack_bb <= 15:
+            band = 15
+        elif stack_bb <= 25:
+            band = 25
+        elif stack_bb <= 50:
+            band = 50
+        else:
+            band = 100
+        return self._RFI_STACK_POS_TIER[band].get(hero_pos, 2)
+
+    def _eval_rfi(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
+        """Evaluate RFI execution: open correct, out of range, or fold of openable hand.
+
+        Handles three scenarios per PDF 'Ranges de RFI em cEV':
+        - Hero opened with hand in range → correct
+        - Hero opened with hand outside range → incorrect
+        - Hero folded a hand that should have been opened → incorrect
         Returns (score, note_pt_br).
         """
         hero_pos = (hand.get('hero_position') or '').upper()
         hero_cards = hand.get('hero_cards')
+        hero_stack_bb = self._stack_in_bb(hand)
+        stack_str = f"{hero_stack_bb:.0f}BB" if hero_stack_bb else ">50BB"
 
         # Check sizing: PDF recommends 2-2.5BB (cEV), cash games use up to 3BB
         sizing_ok = None
@@ -1082,31 +1199,68 @@ class LessonClassifier:
             sizing_bb = raise_amount / bb
             sizing_ok = 2.0 <= sizing_bb <= 3.0
 
-        # Without hero cards, evaluate sizing only
+        hero_folded = pf.get('hero_folds_rfi_spot', False) and not pf.get('hero_is_rfi', False)
+        pos_tier = self._rfi_pos_tier_for_stack(hero_pos, hero_stack_bb)
+
+        # Without hero cards, evaluate sizing only (for open case)
         if not hero_cards:
+            if hero_folded:
+                return (None, f"RFI: foldou do {hero_pos} com {stack_str} sem cartas visiveis")
             if sizing_ok is True:
-                return (1, f"RFI do {hero_pos} com sizing adequado ({sizing_bb:.1f}BB)")
+                return (1, f"RFI do {hero_pos} com {stack_str} e sizing adequado ({sizing_bb:.1f}BB)")
             if sizing_ok is False:
-                return (None, f"RFI do {hero_pos} com sizing fora do padrao ({sizing_bb:.1f}BB)")
-            return (None, f"RFI do {hero_pos} sem cartas visiveis")
+                return (None, f"RFI do {hero_pos} com {stack_str}: sizing fora do padrao ({sizing_bb:.1f}BB)")
+            return (None, f"RFI do {hero_pos} com {stack_str} sem cartas visiveis")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
+            if hero_folded:
+                return (None, f"RFI: foldou do {hero_pos} com {stack_str} — cartas nao parseadas")
             if sizing_ok is not False:
-                return (1, f"RFI do {hero_pos} — cartas nao parseadas")
-            return (None, f"RFI do {hero_pos} com sizing inadequado")
+                return (1, f"RFI do {hero_pos} com {stack_str} — cartas nao parseadas")
+            return (None, f"RFI do {hero_pos} com {stack_str}: sizing inadequado")
 
         hand_tier = self._rfi_hand_tier(notation)
-        pos_tier = self._RFI_POS_MAX_TIER.get(hero_pos, 2)
 
+        # Hero folded in RFI spot (should have opened)
+        if hero_folded:
+            if hand_tier <= pos_tier:
+                return (0, (
+                    f"RFI incorreto: foldou {notation} do {hero_pos} com {stack_str} — "
+                    f"mao esta no range (tier {hand_tier} <= max {pos_tier}), deveria abrir"
+                ))
+            elif hand_tier == pos_tier + 1:
+                return (None, (
+                    f"RFI marginal: foldou {notation} do {hero_pos} com {stack_str} — "
+                    f"mao 1 tier acima do range (tier {hand_tier} vs max {pos_tier})"
+                ))
+            else:
+                return (1, (
+                    f"RFI correto: foldou {notation} do {hero_pos} com {stack_str} — "
+                    f"mao fora do range (tier {hand_tier} > max {pos_tier})"
+                ))
+
+        # Hero opened (RFI case)
         if hand_tier <= pos_tier:
             if sizing_ok is False:
-                return (None, f"RFI com {notation} do {hero_pos}: mao no range (tier {hand_tier}), mas sizing fora ({sizing_bb:.1f}BB)")
-            return (1, f"RFI correto: {notation} no range do {hero_pos} (tier {hand_tier} <= tier {pos_tier})")
+                return (None, (
+                    f"RFI com {notation} do {hero_pos} com {stack_str}: "
+                    f"mao no range (tier {hand_tier}), mas sizing fora ({sizing_bb:.1f}BB)"
+                ))
+            return (1, (
+                f"RFI correto: {notation} no range do {hero_pos} com {stack_str} "
+                f"(tier {hand_tier} <= max {pos_tier})"
+            ))
         elif hand_tier == pos_tier + 1:
-            return (None, f"RFI marginal: {notation} 1 tier acima do range do {hero_pos} (tier {hand_tier} vs max {pos_tier})")
+            return (None, (
+                f"RFI marginal: {notation} 1 tier acima do range do {hero_pos} com {stack_str} "
+                f"(tier {hand_tier} vs max {pos_tier})"
+            ))
         else:
-            return (0, f"RFI incorreto: {notation} fora do range do {hero_pos} (tier {hand_tier} > tier {pos_tier})")
+            return (0, (
+                f"RFI incorreto: {notation} fora do range do {hero_pos} com {stack_str} "
+                f"(tier {hand_tier} > max {pos_tier})"
+            ))
 
     def _flat_hand_tier(self, notation: str) -> int:
         """Return flat-call tier (1-4) for a hand notation. Lower = stronger."""
@@ -1159,7 +1313,13 @@ class LessonClassifier:
         return 3  # not in any bounty range
 
     def _eval_flat_3bet(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate flat/3-bet execution. Returns (score, note_pt_br)."""
+        """Evaluate flat/3-bet execution including 3-bet sizing.
+
+        Checks range correctness (flat vs 3-bet) and sizing:
+        - IP (BTN/CO/HJ): 3-bet should be 3-4x the open
+        - OOP (SB/BB/EP/MP): 3-bet should be 4-5x the open
+        Returns (score, note_pt_br).
+        """
         hero_cards = hand.get('hero_cards')
         hero_pos = (hand.get('hero_position') or '').upper()
 
@@ -1175,12 +1335,37 @@ class LessonClassifier:
         if pf['hero_3bets']:
             hand_tier = self._3bet_hand_tier(notation)
             pos_tier = self._3BET_POS_MAX_TIER.get(hero_pos, 2)
-            if hand_tier <= pos_tier:
-                return (1, f"3-bet correto: {notation} no range de 3-bet do {hero_pos} (tier {hand_tier} <= {pos_tier})")
-            elif hand_tier == pos_tier + 1:
-                return (None, f"3-bet marginal: {notation} 1 tier acima do range do {hero_pos}")
+
+            # Check 3-bet sizing: IP 3-4x, OOP 4-5x
+            sizing_note = ''
+            open_amt = pf.get('open_raise_amount', 0)
+            bet_amt = pf.get('hero_3bet_amount', 0)
+            if open_amt > 0 and bet_amt > 0:
+                ratio = bet_amt / open_amt
+                hero_is_ip = hero_pos in ('BTN', 'CO', 'HJ')
+                if hero_is_ip:
+                    sizing_ok = 3.0 <= ratio <= 4.5
+                    sizing_note = f", sizing {ratio:.1f}x (IP: ideal 3-4x)"
+                else:
+                    sizing_ok = 4.0 <= ratio <= 5.5
+                    sizing_note = f", sizing {ratio:.1f}x (OOP: ideal 4-5x)"
             else:
-                return (0, f"3-bet incorreto: {notation} fora do range de 3-bet do {hero_pos} (tier {hand_tier} > {pos_tier})")
+                sizing_ok = None
+
+            if hand_tier <= pos_tier:
+                if sizing_ok is False:
+                    return (None, (
+                        f"3-bet com {notation} do {hero_pos}: mao no range (tier {hand_tier})"
+                        f"{sizing_note} — sizing incorreto"
+                    ))
+                return (1, (
+                    f"3-bet correto: {notation} no range de 3-bet do {hero_pos} "
+                    f"(tier {hand_tier} <= {pos_tier}){sizing_note}"
+                ))
+            elif hand_tier == pos_tier + 1:
+                return (None, f"3-bet marginal: {notation} 1 tier acima do range do {hero_pos}{sizing_note}")
+            else:
+                return (0, f"3-bet incorreto: {notation} fora do range de 3-bet do {hero_pos} (tier {hand_tier} > {pos_tier}){sizing_note}")
 
         if pf['hero_flats']:
             hand_tier = self._flat_hand_tier(notation)
@@ -1195,10 +1380,20 @@ class LessonClassifier:
         return (None, f"{notation} do {hero_pos}: acao ambigua")
 
     def _eval_reaction_vs_3bet(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate reaction to 3-bet. Returns (score, note_pt_br)."""
+        """Evaluate reaction to 3-bet with blocker and domination criteria.
+
+        Based on RegLife 'Ranges de reação vs 3-bet' PDF:
+        - Value 4-bet: AA/KK/QQ/AKs/AKo
+        - Blocker 4-bet bluff: A5s/A4s/A3s/A2s (block AA/AK combos)
+        - Continue (call): TT-55, suited broadways, suited connectors including 54s
+        - 54s has MORE EV vs 3-bet than AQo because AQo risks domination by AK/AA
+        - Marginal: small pairs, suited aces below A5s
+        Returns (score, note_pt_br).
+        """
         hero_cards = hand.get('hero_cards')
         hero_folded = pf.get('hero_folds_preflop', False)
-        action_str = 'foldou' if hero_folded else 'continuou'
+        hero_4bet = pf.get('hero_4bets', False)
+        action_str = 'foldou' if hero_folded else ('4-betou' if hero_4bet else 'continuou')
 
         if not hero_cards:
             return (None, f"Vs 3-bet: {action_str} sem cartas visiveis")
@@ -1207,9 +1402,38 @@ class LessonClassifier:
         if not notation:
             return (None, f"Vs 3-bet: {action_str} — cartas nao parseadas")
 
+        # Handle 4-bet cases
+        if hero_4bet:
+            if notation in self._VS3BET_4BET:
+                return (1, f"4-bet de valor correto: {notation} (AA/KK/QQ/AK — range de valor vs 3-bet)")
+            if notation in self._VS3BET_BLOCKER_4BET:
+                return (1, (
+                    f"4-bet bluff correto: {notation} com blocker de As — "
+                    f"bloqueia AA/AK do adversario, gerando fold equity"
+                ))
+            if notation in self._VS3BET_CONTINUE:
+                return (None, (
+                    f"4-bet com {notation}: mao do range de call, nao de 4-bet — "
+                    f"prefira call ou fold"
+                ))
+            return (0, f"4-bet incorreto com {notation}: muito fraco para 4-bet vs 3-bet")
+
+        # Handle continue (call) and fold cases
         if notation in self._VS3BET_CONTINUE:
             if hero_folded:
                 return (0, f"Vs 3-bet incorreto: foldou {notation} que deve sempre continuar")
+            # Check domination risk
+            if notation in self._VS3BET_DOMINATED:
+                return (1, (
+                    f"Vs 3-bet: continuou com {notation} — atencao a dominacao: "
+                    f"3-bettor tem AK/AA no range que domina seu kicker"
+                ))
+            # Suited connectors: explicitly note no domination concern
+            if notation in ('54s', '65s', '76s', '87s', '98s', 'T9s'):
+                return (1, (
+                    f"Vs 3-bet correto: continuou com {notation} — "
+                    f"sem dominacao vs range de 3-bet (AA/KK/QQ/AK), bom equity"
+                ))
             return (1, f"Vs 3-bet correto: continuou com {notation} (range de continue)")
         elif notation in self._VS3BET_MARGINAL:
             return (None, f"Vs 3-bet marginal: {notation} — {action_str}, ambas acoes defensaveis")
@@ -1241,31 +1465,55 @@ class LessonClassifier:
             return (0, f"Squeeze incorreto: {notation} fora do range de squeeze do {hero_pos} (tier {hand_tier} > {pos_tier})")
 
     def _eval_open_shove(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
-        """Evaluate open shove execution. Returns (score, note_pt_br)."""
+        """Evaluate open shove execution with PDF position ranges.
+
+        Based on RegLife 'Ranges de Open Shove cEV 10BB' PDF:
+        - SB: 69%, BTN: 41%, CO: 33%, HJ: 27%, LJ: 22%, UTG+1: 19%, UTG: 16%
+        Also supports ≤12BB with note to consider minraise at 10-12BB.
+        Returns (score, note_pt_br).
+        """
         hero_cards = hand.get('hero_cards')
         hero_pos = (hand.get('hero_position') or '').upper()
         hero_stack_bb = self._stack_in_bb(hand)
         stack_str = f"{hero_stack_bb:.0f}BB" if hero_stack_bb else "?BB"
+        target_pct = self._OPEN_SHOVE_POS_TARGET_PCT.get(hero_pos, 0)
+        pct_str = f" (alvo PDF ~{target_pct}%)" if target_pct else ""
 
         if hero_stack_bb is not None and hero_stack_bb > 10:
-            return (None, f"Open shove com {stack_str} do {hero_pos}: entre 10-12BB, considerar minraise")
+            return (None, f"Open shove com {stack_str} do {hero_pos}: entre 10-12BB, considerar minraise{pct_str}")
 
         if not hero_cards:
-            return (1, f"Open shove do {hero_pos} com {stack_str} sem cartas visiveis")
+            return (1, f"Open shove do {hero_pos} com {stack_str} sem cartas visiveis{pct_str}")
 
         notation = self._hand_notation(hero_cards)
         if not notation:
-            return (1, f"Open shove do {hero_pos} com {stack_str} — cartas nao parseadas")
+            return (1, f"Open shove do {hero_pos} com {stack_str} — cartas nao parseadas{pct_str}")
 
         hand_tier = self._open_shove_hand_tier(notation)
         pos_tier = self._OPEN_SHOVE_POS_MAX_TIER.get(hero_pos, 2)
 
+        # SB has an extended shove range (~69%) beyond standard tier 4
+        if hero_pos == 'SB' and hand_tier == 5 and notation in self._OPEN_SHOVE_SB_EXTRA:
+            return (1, (
+                f"Open shove correto: {notation} no range extra do SB com {stack_str} "
+                f"(SB shova ~69% — {notation} lucrativo com dead money)"
+            ))
+
         if hand_tier <= pos_tier:
-            return (1, f"Open shove correto: {notation} no range do {hero_pos} com {stack_str} (tier {hand_tier} <= {pos_tier})")
+            return (1, (
+                f"Open shove correto: {notation} no range do {hero_pos} com {stack_str} "
+                f"(tier {hand_tier} <= {pos_tier}{pct_str})"
+            ))
         elif hand_tier == pos_tier + 1:
-            return (None, f"Open shove marginal: {notation} do {hero_pos} com {stack_str} (tier {hand_tier} vs max {pos_tier})")
+            return (None, (
+                f"Open shove marginal: {notation} do {hero_pos} com {stack_str} "
+                f"(tier {hand_tier} vs max {pos_tier}{pct_str})"
+            ))
         else:
-            return (0, f"Open shove incorreto: {notation} fora do range do {hero_pos} com {stack_str} (tier {hand_tier} > {pos_tier})")
+            return (0, (
+                f"Open shove incorreto: {notation} fora do range do {hero_pos} com {stack_str} "
+                f"(tier {hand_tier} > {pos_tier}{pct_str})"
+            ))
 
     def _eval_bounty_intro(self, hand: dict, pf: dict) -> tuple[Optional[int], str]:
         """Evaluate preflop play in bounty tournament. Returns (score, note_pt_br)."""

@@ -2539,7 +2539,7 @@ class TestFlat3BetEvaluation(unittest.TestCase):
                        hero_amount, 1, 2, hero_pos)
 
     def _insert_3bet(self, hand_id, hero_cards='Ah Kd', hero_pos='BTN',
-                     opener_pos='CO', hero_amount=4.5, opener_amount=1.5):
+                     opener_pos='CO', hero_amount=6.0, opener_amount=1.5):
         """Insert a hand where hero 3-bets an open raise."""
         _insert_hand(self.repo, hand_id, position=hero_pos)
         self.repo.conn.execute(
@@ -3228,14 +3228,14 @@ class TestOpenShoveEvaluation(unittest.TestCase):
     # -- Position tier mapping tests --
 
     def test_open_shove_pos_tier_utg_is_1(self):
-        """UTG/EP/LJ positions have tier 1 (tightest)."""
-        for pos in ['UTG', 'EP', 'UTG+1', 'UTG+2', 'LJ']:
+        """UTG/EP positions have tier 1 (tightest)."""
+        for pos in ['UTG', 'EP', 'UTG+1', 'UTG+2']:
             self.assertEqual(self.classifier._OPEN_SHOVE_POS_MAX_TIER.get(pos), 1,
                              f'{pos} should have open shove tier 1')
 
     def test_open_shove_pos_tier_mp_hj_is_2(self):
-        """MP/HJ have tier 2."""
-        for pos in ['MP', 'HJ']:
+        """LJ/MP/HJ have tier 2."""
+        for pos in ['LJ', 'MP', 'HJ']:
             self.assertEqual(self.classifier._OPEN_SHOVE_POS_MAX_TIER.get(pos), 2,
                              f'{pos} should have open shove tier 2')
 
@@ -6625,6 +6625,398 @@ class TestProbeEvaluation(unittest.TestCase):
         score, note = self.classifier._eval_probe(hand, flop_a, turn_a)
         self.assertEqual(score, 1)
         self.assertIn('probe correta', note.lower())
+
+
+# ── US-053b: PDF Scenario Tests (Aulas 1-4) ──────────────────────────
+# At least 3 scenarios per lesson extracted from RegLife PDFs.
+
+
+class TestUS053bAula1StackDepthRFI(unittest.TestCase):
+    """Aula 1: RFI with stack-depth-aware ranges.
+
+    Based on RegLife 'Ranges de RFI em cEV' PDF — ranges tighten at shorter stacks:
+    - 100bb: BTN 54%, CO 37%, HJ 28%, LJ 23%, UTG+1 20%, UTG 17%
+    - 50bb:  BTN 54%, CO 38%, HJ 28%, LJ 24%, UTG+1 20%, UTG 17%
+    - 25bb:  BTN 45%, CO 34%, HJ 28%, LJ 24%, UTG+1 21%, UTG 18%
+    - 15bb:  BTN 38%, CO 30%, HJ 24%, LJ 20%, UTG+1 17%, UTG 16%
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _rfi_result(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        matches = self.classifier.classify_hand(hand, actions)
+        m = next((m for m in matches if m.lesson_id == 1), None)
+        return (m.executed_correctly, m.notes) if m else (None, '')
+
+    def _insert_rfi(self, hand_id, hero_cards, hero_pos, hero_stack, blinds_bb=0.50):
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.0, 1, 1, hero_pos)
+
+    def test_rfi_100bb_btn_tier4_correct(self):
+        """BTN at 100bb can open tier 4 hand (54% range)."""
+        self._insert_rfi('S53B1A', 'Jd 8h', 'BTN', hero_stack=50.0, blinds_bb=0.50)
+        score, note = self._rfi_result('S53B1A')
+        self.assertEqual(score, 1, f"J8o BTN 100bb should be correct RFI: {note}")
+        self.assertIn('100BB', note.upper().replace('BB', 'BB') or note)
+
+    def test_rfi_25bb_btn_tightens_to_tier3(self):
+        """BTN at 25bb only opens tier 1-3 (~45% range), tier 4 is marginal."""
+        # J8o is tier 4 — marginal from BTN at 25bb (1 tier above max 3)
+        self._insert_rfi('S53B1B', 'Jd 8h', 'BTN', hero_stack=12.5, blinds_bb=0.50)
+        score, note = self._rfi_result('S53B1B')
+        self.assertNotEqual(score, 1, f"J8o BTN 25bb should NOT be correct RFI: {note}")
+
+    def test_rfi_15bb_co_tightens_to_tier2(self):
+        """CO at 15bb only opens tier 1-2 (~30%), tier 3 hand is marginal."""
+        # Q7s is tier 3 — marginal from CO at 15bb (1 tier above max 2)
+        self._insert_rfi('S53B1C', 'Qs 7s', 'CO', hero_stack=7.5, blinds_bb=0.50)
+        score, note = self._rfi_result('S53B1C')
+        self.assertNotEqual(score, 1, f"Q7s CO 15bb should NOT be correct RFI: {note}")
+
+    def test_rfi_50bb_co_tier3_correct(self):
+        """CO at 50bb opens full tier 3 range (~38%)."""
+        # A5o is tier 3 — correct from CO at 50bb
+        self._insert_rfi('S53B1D', 'As 5h', 'CO', hero_stack=25.0, blinds_bb=0.50)
+        score, note = self._rfi_result('S53B1D')
+        self.assertEqual(score, 1, f"A5o CO 50bb should be correct RFI: {note}")
+
+    def test_rfi_fold_openable_hand_is_incorrect(self):
+        """Hero folds a hand in RFI range — should detect as incorrect."""
+        _insert_hand(self.repo, 'S53B1E', position='BTN',
+                     hero_stack=50.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", ('Ah Kd', 'S53B1E'))
+        self.repo.conn.commit()
+        # Hero folds preflop (no raise seen)
+        _insert_action(self.repo, 'S53B1E', 'preflop', 'UTG', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'S53B1E', 'preflop', 'Hero', 'fold', 0, 1, 2, 'BTN')
+        score, note = self._rfi_result('S53B1E')
+        self.assertEqual(score, 0, f"Folding AKo from BTN should be incorrect: {note}")
+        self.assertIn('foldou', note.lower())
+
+    def test_rfi_fold_trash_hand_is_correct(self):
+        """Hero folds 72o from UTG — correct, outside RFI range."""
+        _insert_hand(self.repo, 'S53B1F', position='UTG',
+                     hero_stack=50.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", ('7h 2d', 'S53B1F'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'S53B1F', 'preflop', 'Hero', 'fold', 0, 1, 1, 'UTG')
+        score, note = self._rfi_result('S53B1F')
+        self.assertEqual(score, 1, f"Folding 72o from UTG should be correct: {note}")
+
+    def test_rfi_stack_depth_dict_has_4_bands(self):
+        """_RFI_STACK_POS_TIER must have exactly 4 stack depth bands."""
+        self.assertEqual(len(self.classifier._RFI_STACK_POS_TIER), 4)
+
+    def test_rfi_stack_depth_dict_has_6_positions_each_band(self):
+        """Each stack band must cover at least 6 positions."""
+        for band, pos_dict in self.classifier._RFI_STACK_POS_TIER.items():
+            self.assertGreaterEqual(len(pos_dict), 6,
+                f"Stack band {band}bb should have >=6 positions, got {len(pos_dict)}")
+
+    def test_rfi_15bb_tighter_than_100bb_for_btn(self):
+        """At 15bb, BTN max tier should be less than at 100bb (tighter range)."""
+        tier_15bb = self.classifier._RFI_STACK_POS_TIER[15].get('BTN', 4)
+        tier_100bb = self.classifier._RFI_STACK_POS_TIER[100].get('BTN', 4)
+        self.assertLess(tier_15bb, tier_100bb,
+            f"BTN 15bb tier ({tier_15bb}) should be < 100bb tier ({tier_100bb})")
+
+
+class TestUS053bAula2FlatSizing(unittest.TestCase):
+    """Aula 2: Flat/3-bet with 3-bet sizing verification.
+
+    Based on RegLife 'Ranges de Flat e 3-BET' PDF:
+    - IP (BTN/CO/HJ): 3-bet sizing should be 3-4x the open
+    - OOP (SB/BB/EP): 3-bet sizing should be 4-5x the open
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _flat3bet_result(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        matches = self.classifier.classify_hand(hand, actions)
+        m = next((m for m in matches if m.lesson_id == 2), None)
+        return (m.executed_correctly, m.notes) if m else (None, '')
+
+    def _insert_3bet(self, hand_id, hero_cards, hero_pos, open_amount, bet_amount):
+        _insert_hand(self.repo, hand_id, position=hero_pos)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        # Villain opens
+        _insert_action(self.repo, hand_id, 'preflop', 'Villain', 'raise',
+                       open_amount, 0, 1, 'UTG')
+        # Hero 3-bets
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       bet_amount, 1, 2, hero_pos)
+
+    def test_3bet_ip_correct_sizing_3x(self):
+        """BTN 3-bets at 3x — correct IP sizing."""
+        # open 1.5 → 3bet 4.5 = 3x (IP correct: 3-4x)
+        self._insert_3bet('S53B2A', 'Ah Ad', 'BTN', 1.5, 4.5)
+        score, note = self._flat3bet_result('S53B2A')
+        self.assertEqual(score, 1, f"AA BTN 3x 3-bet should be correct: {note}")
+        self.assertIn('3.0x', note)
+
+    def test_3bet_ip_incorrect_sizing_2x(self):
+        """BTN 3-bets too small (2x) — incorrect sizing noted."""
+        # open 1.5 → 3bet 3.0 = 2x (IP too small, min is 3x)
+        self._insert_3bet('S53B2B', 'Ah Ad', 'BTN', 1.5, 3.0)
+        score, note = self._flat3bet_result('S53B2B')
+        # Range is correct but sizing wrong → None or sizing note
+        self.assertIn('sizing', note.lower(), f"Should mention sizing: {note}")
+        self.assertIn('2.0x', note)
+
+    def test_3bet_oop_correct_sizing_4x(self):
+        """BB 3-bets at 4x — correct OOP sizing."""
+        # open 1.5 → 3bet 6.0 = 4x (OOP correct: 4-5x)
+        self._insert_3bet('S53B2C', 'Kh Ks', 'BB', 1.5, 6.0)
+        score, note = self._flat3bet_result('S53B2C')
+        self.assertEqual(score, 1, f"KK BB 4x 3-bet should be correct: {note}")
+        self.assertIn('4.0x', note)
+
+    def test_3bet_oop_incorrect_sizing_3x(self):
+        """SB 3-bets too small for OOP (3x) — sizing noted as incorrect."""
+        # open 1.5 → 3bet 4.5 = 3x (OOP too small, min is 4x)
+        self._insert_3bet('S53B2D', 'Kh Ks', 'SB', 1.5, 4.5)
+        score, note = self._flat3bet_result('S53B2D')
+        self.assertIn('sizing', note.lower(), f"Should mention sizing: {note}")
+        self.assertIn('OOP', note)
+
+    def test_3bet_range_correct_no_amount(self):
+        """3-bet with correct range but no amount data — no sizing check."""
+        _insert_hand(self.repo, 'S53B2E', position='BTN')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", ('Ah Ad', 'S53B2E'))
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'S53B2E', 'preflop', 'Villain', 'raise',
+                       0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'S53B2E', 'preflop', 'Hero', 'raise',
+                       0, 1, 2, 'BTN')
+        score, note = self._flat3bet_result('S53B2E')
+        self.assertEqual(score, 1, f"AA BTN 3-bet (no sizing) should be correct: {note}")
+
+
+class TestUS053bAula3BlockerDomination(unittest.TestCase):
+    """Aula 3: Reaction vs 3-bet with blocker and domination criteria.
+
+    Based on RegLife 'Ranges de reação vs 3-bet' PDF:
+    - A5s/A4s/A3s/A2s: 4-bet bluffs (Ace blocker)
+    - 54s has MORE EV vs 3-bet than AQo (no domination, better equity vs AA/KK/QQ)
+    - AQo can be dominated by 3-bettor's AK/AA range
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _vs3bet_result(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        matches = self.classifier.classify_hand(hand, actions)
+        m = next((m for m in matches if m.lesson_id == 3), None)
+        return (m.executed_correctly, m.notes) if m else (None, '')
+
+    def _insert_vs3bet(self, hand_id, hero_cards, hero_pos, hero_action='call',
+                       hero_amount=4.5):
+        _insert_hand(self.repo, hand_id, position=hero_pos)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, 1, hero_pos)
+        _insert_action(self.repo, hand_id, 'preflop', 'Villain', 'raise',
+                       4.5, 0, 2, 'CO')
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', hero_action,
+                       hero_amount, 1, 3, hero_pos)
+
+    def test_blocker_4bet_a5s_is_correct(self):
+        """A5s 4-bet vs 3-bet is correct (blocker of Ace blocks AA/AK)."""
+        self._insert_vs3bet('S53B3A', 'As 5s', 'BTN', hero_action='raise',
+                             hero_amount=12.0)
+        score, note = self._vs3bet_result('S53B3A')
+        self.assertEqual(score, 1, f"A5s 4-bet bluff should be correct: {note}")
+        self.assertIn('blocker', note.lower())
+
+    def test_blocker_4bet_a3s_is_correct(self):
+        """A3s 4-bet bluff is correct (Ace blocker value)."""
+        self._insert_vs3bet('S53B3B', 'Ah 3h', 'UTG', hero_action='raise',
+                             hero_amount=12.0)
+        score, note = self._vs3bet_result('S53B3B')
+        self.assertEqual(score, 1, f"A3s 4-bet bluff should be correct: {note}")
+        self.assertIn('blocker', note.lower())
+
+    def test_54s_continue_not_dominated(self):
+        """54s continuing vs 3-bet is correct with note about no domination."""
+        self._insert_vs3bet('S53B3C', '5h 4h', 'BTN', hero_action='call')
+        score, note = self._vs3bet_result('S53B3C')
+        self.assertEqual(score, 1, f"54s call vs 3-bet should be correct: {note}")
+        # Should mention no domination or good equity
+        self.assertTrue(
+            'dominac' in note.lower() or 'equity' in note.lower(),
+            f"Note should mention domination/equity: {note}"
+        )
+
+    def test_aqo_continue_notes_domination_risk(self):
+        """AQo continuing vs 3-bet is technically correct but notes domination risk."""
+        self._insert_vs3bet('S53B3D', 'Ah Qd', 'UTG', hero_action='call')
+        score, note = self._vs3bet_result('S53B3D')
+        self.assertEqual(score, 1, f"AQo call vs 3-bet should be correct: {note}")
+        # Note should mention domination
+        self.assertIn('dominac', note.lower(), f"Note should mention domination: {note}")
+
+    def test_blocker_set_has_key_hands(self):
+        """_VS3BET_BLOCKER_4BET should contain A5s, A4s, A3s, A2s."""
+        for hand in ['A5s', 'A4s', 'A3s', 'A2s']:
+            self.assertIn(hand, self.classifier._VS3BET_BLOCKER_4BET,
+                          f"{hand} should be in VS3BET_BLOCKER_4BET")
+
+    def test_54s_in_continue_range(self):
+        """54s should be in _VS3BET_CONTINUE (has equity vs AA/KK/QQ)."""
+        self.assertIn('54s', self.classifier._VS3BET_CONTINUE,
+                      '54s should be in VS3BET_CONTINUE')
+
+    def test_aqo_in_dominated_set(self):
+        """AQo should be in _VS3BET_DOMINATED (shares A kicker with AK/AA)."""
+        self.assertIn('AQo', self.classifier._VS3BET_DOMINATED,
+                      'AQo should be in VS3BET_DOMINATED')
+
+    def test_value_4bet_aa_correct(self):
+        """AA 4-bet is correct value 4-bet."""
+        self._insert_vs3bet('S53B3E', 'Ah As', 'UTG', hero_action='raise',
+                             hero_amount=12.0)
+        score, note = self._vs3bet_result('S53B3E')
+        self.assertEqual(score, 1, f"AA 4-bet should be correct: {note}")
+        self.assertIn('valor', note.lower())
+
+    def test_trash_4bet_is_incorrect(self):
+        """72o 4-bet vs 3-bet is incorrect."""
+        self._insert_vs3bet('S53B3F', '7h 2d', 'UTG', hero_action='raise',
+                             hero_amount=12.0)
+        score, note = self._vs3bet_result('S53B3F')
+        self.assertEqual(score, 0, f"72o 4-bet should be incorrect: {note}")
+
+
+class TestUS053bAula4OpenShovePDF(unittest.TestCase):
+    """Aula 4: Open Shove using PDF position ranges.
+
+    Based on RegLife 'Ranges de Open Shove cEV 10BB' PDF:
+    - SB: 69%, BTN: 41%, CO: 33%, HJ: 27%, LJ: 22%, UTG+1: 19%, UTG: 16%
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _shove_result(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        matches = self.classifier.classify_hand(hand, actions)
+        m = next((m for m in matches if m.lesson_id == 4), None)
+        return (m.executed_correctly, m.notes) if m else (None, '')
+
+    def _insert_shove(self, hand_id, hero_cards, hero_pos, hero_stack,
+                      blinds_bb=0.50):
+        _insert_hand(self.repo, hand_id, position=hero_pos,
+                     hero_stack=hero_stack, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?", (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'all-in',
+                       hero_stack, 1, 1, hero_pos)
+
+    def test_sb_shove_69pct_target_in_note(self):
+        """SB shove should mention ~69% target in note."""
+        self._insert_shove('S53B4A', 'Ah Kd', 'SB', hero_stack=5.0)
+        score, note = self._shove_result('S53B4A')
+        self.assertEqual(score, 1, f"AKo SB 10bb shove should be correct: {note}")
+        self.assertIn('69', note, f"Note should mention 69% target: {note}")
+
+    def test_btn_shove_41pct_target_in_note(self):
+        """BTN shove should mention ~41% target in note."""
+        self._insert_shove('S53B4B', 'Kh 9h', 'BTN', hero_stack=5.0)
+        score, note = self._shove_result('S53B4B')
+        self.assertEqual(score, 1, f"K9s BTN 10bb shove should be correct: {note}")
+        self.assertIn('41', note, f"Note should mention 41% target: {note}")
+
+    def test_utg_shove_16pct_target_in_note(self):
+        """UTG shove should mention ~16% target in note."""
+        self._insert_shove('S53B4C', 'Ah Ad', 'UTG', hero_stack=5.0)
+        score, note = self._shove_result('S53B4C')
+        self.assertEqual(score, 1, f"AA UTG 10bb shove should be correct: {note}")
+        self.assertIn('16', note, f"Note should mention 16% target: {note}")
+
+    def test_sb_extra_range_is_correct(self):
+        """SB shoves a hand in SB extra range (beyond tier 4, valid at 69%)."""
+        # Q6o is in _OPEN_SHOVE_SB_EXTRA
+        self._insert_shove('S53B4D', 'Qs 6h', 'SB', hero_stack=5.0)
+        score, note = self._shove_result('S53B4D')
+        self.assertEqual(score, 1, f"Q6o SB 10bb shove should be correct (extra range): {note}")
+        self.assertIn('69', note, f"SB extra note should mention 69%: {note}")
+
+    def test_btn_fold_hand_in_sb_extra_is_incorrect(self):
+        """BTN cannot shove Q6o (only valid from SB); should be incorrect from BTN."""
+        self._insert_shove('S53B4E', 'Qs 6h', 'BTN', hero_stack=5.0)
+        score, note = self._shove_result('S53B4E')
+        self.assertIn(score, [0, None],
+            f"Q6o BTN 10bb shove should be incorrect or marginal: {note}")
+
+    def test_sb_shove_extra_has_weak_offsuit(self):
+        """_OPEN_SHOVE_SB_EXTRA should contain weak suited and offsuit hands."""
+        for hand in ['Q6o', 'J6o', 'T6o', '64o', 'Q5s', 'J4s']:
+            self.assertIn(hand, self.classifier._OPEN_SHOVE_SB_EXTRA,
+                          f"{hand} should be in OPEN_SHOVE_SB_EXTRA for SB 69% range")
+
+    def test_lj_tier_is_2_not_1(self):
+        """LJ open shove max tier should be 2 (22% range, not 1/16%)."""
+        tier = self.classifier._OPEN_SHOVE_POS_MAX_TIER.get('LJ', 0)
+        self.assertEqual(tier, 2,
+            f"LJ should have open shove tier 2 (PDF 22%), got {tier}")
+
+    def test_pos_target_pct_dict_has_sb_69(self):
+        """_OPEN_SHOVE_POS_TARGET_PCT should have SB=69."""
+        self.assertEqual(self.classifier._OPEN_SHOVE_POS_TARGET_PCT.get('SB'), 69)
+
+    def test_pos_target_pct_dict_has_btn_41(self):
+        """_OPEN_SHOVE_POS_TARGET_PCT should have BTN=41."""
+        self.assertEqual(self.classifier._OPEN_SHOVE_POS_TARGET_PCT.get('BTN'), 41)
 
 
 if __name__ == '__main__':
