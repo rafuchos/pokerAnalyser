@@ -2051,3 +2051,153 @@ def prepare_session_day_lessons(data, date, game_type, poker_db_path):
         'lessons': lesson_list,
     }
     return data
+
+
+# ── Hand Replayer ─────────────────────────────────────────────────
+
+_STREET_ORDER = {'preflop': 0, 'flop': 1, 'turn': 2, 'river': 3}
+_POT_ACTION_TYPES = {'post_sb', 'post_bb', 'post_ante', 'bet', 'call', 'all-in'}
+
+
+def _build_replay_steps(actions: list[dict]) -> list[dict]:
+    """Build step-by-step replay from ordered hand actions.
+
+    Each step represents one player action, with running pot and
+    visible board cards computed progressively.
+    """
+    steps = []
+    pot = 0.0
+    # Per-player investment in current street (for raise delta calculation)
+    street_investments: dict[str, float] = {}
+    current_street = None
+
+    for action in actions:
+        street = action.get('street', 'preflop')
+        if street != current_street:
+            current_street = street
+            street_investments = {}
+
+        player = action.get('player', '')
+        atype = action.get('action_type', '')
+        amount = float(action.get('amount') or 0)
+
+        # Calculate pot delta
+        if atype in _POT_ACTION_TYPES:
+            delta = amount
+            street_investments[player] = street_investments.get(player, 0) + amount
+        elif atype == 'raise':
+            prev = street_investments.get(player, 0)
+            delta = max(0.0, amount - prev)
+            street_investments[player] = amount
+        else:
+            delta = 0.0
+
+        pot_before = pot
+        pot = round(pot + delta, 2)
+
+        steps.append({
+            'idx': len(steps),
+            'street': street,
+            'player': player,
+            'action_type': atype,
+            'amount': amount,
+            'is_hero': bool(action.get('is_hero')),
+            'position': action.get('position') or '',
+            'pot_before': round(pot_before, 2),
+            'pot_after': pot,
+        })
+
+    return steps
+
+
+def prepare_hand_replayer(hand_id: str, poker_db_path: str,
+                          lesson_id: int = None) -> dict:
+    """Load hand data for the step-by-step replayer from poker.db.
+
+    Returns a dict with:
+      - hand:          hand metadata (or None if not found)
+      - steps:         list of replay steps built from hand_actions
+      - positions:     unique positions seen in hand (canonical order)
+      - lesson_notes:  lesson notes/title if lesson_id provided, else None
+      - lesson_id:     echo of the requested lesson_id
+    """
+    result: dict = {
+        'hand': None,
+        'steps': [],
+        'positions': [],
+        'lesson_notes': None,
+        'lesson_id': lesson_id,
+    }
+
+    if not poker_db_path or not os.path.exists(poker_db_path):
+        return result
+
+    try:
+        conn = sqlite3.connect(poker_db_path)
+        conn.row_factory = sqlite3.Row
+
+        # Fetch hand metadata
+        row = conn.execute(
+            "SELECT * FROM hands WHERE hand_id = ?", (hand_id,)
+        ).fetchone()
+        if row is None:
+            conn.close()
+            return result
+
+        hand = dict(row)
+
+        # Fetch ordered actions
+        action_rows = conn.execute(
+            "SELECT * FROM hand_actions WHERE hand_id = ? "
+            "ORDER BY CASE street "
+            "  WHEN 'preflop' THEN 1 WHEN 'flop' THEN 2 "
+            "  WHEN 'turn' THEN 3 WHEN 'river' THEN 4 END, "
+            "sequence_order",
+            (hand_id,),
+        ).fetchall()
+        actions = [dict(r) for r in action_rows]
+
+        # Fetch lesson notes if requested
+        lesson_notes = None
+        if lesson_id is not None:
+            lesson_row = conn.execute(
+                "SELECT l.title, l.category, l.description, "
+                "hl.executed_correctly, hl.street, hl.notes "
+                "FROM lessons l "
+                "LEFT JOIN hand_lessons hl "
+                "  ON l.lesson_id = hl.lesson_id AND hl.hand_id = ? "
+                "WHERE l.lesson_id = ?",
+                (hand_id, lesson_id),
+            ).fetchone()
+            if lesson_row:
+                lesson_notes = dict(lesson_row)
+
+        conn.close()
+
+        # Build steps
+        steps = _build_replay_steps(actions)
+
+        # Canonical position order for table layout
+        _POS_ORDER = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']
+        seen_positions = []
+        for step in steps:
+            pos = step['position']
+            if pos and pos not in seen_positions:
+                seen_positions.append(pos)
+        # Sort by canonical order (unknown positions appended)
+        def _pos_key(p):
+            try:
+                return _POS_ORDER.index(p)
+            except ValueError:
+                return len(_POS_ORDER)
+        seen_positions.sort(key=_pos_key)
+
+        result['hand'] = hand
+        result['steps'] = steps
+        result['positions'] = seen_positions
+        result['lesson_notes'] = lesson_notes
+
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        pass
+
+    return result

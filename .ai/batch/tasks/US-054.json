@@ -1,0 +1,28 @@
+{
+  "id": "US-054",
+  "title": "Fix: RFI sizing all-in como correto em short stack + trigger Aula 4 Open Shove",
+  "status": "completed",
+  "estimated_time_seconds": 600,
+  "timeout_seconds": 630,
+  "plan": [
+    "Explore classifier code to understand RFI sizing logic, open shove detection, and fold evaluation",
+    "Fix all-in sizing check in _eval_rfi: accept all-in as valid sizing when stack <= 20bb (around line 1280)",
+    "Fix marginal fold evaluation: change hand_tier == pos_tier + 1 from returning None (unknown) to returning 1 (ACERTO) (around line 1312)",
+    "Raise open shove stack threshold from <= 12 to <= 15 in lesson 4 trigger (around line 712)",
+    "Update notes text for all-in to explain it as valid short-stack sizing instead of 'sizing fora'",
+    "Update notes text for fold of hand outside range to clearly state ACERTO",
+    "Add unit tests: RFI all-in 14bb scenario, fold marginal hand scenario, open shove 13bb scenario",
+    "Run existing test suite to ensure no regressions",
+    "Verify unknown rate logic would improve for lesson 1"
+  ],
+  "complexity": "medium",
+  "recommended_model": "sonnet",
+  "files_likely_affected": [
+    "src/analyzers/lesson_classifier.py",
+    "tests/test_lesson_classifier.py"
+  ],
+  "created_at": "2026-03-16T04:03:42.716Z",
+  "completed_at": "2026-03-16T04:12:52.193Z",
+  "failure_reason": null,
+  "branch": "feat/US-054"
+}

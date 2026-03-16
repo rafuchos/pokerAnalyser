@@ -1,0 +1,886 @@
+{% extends "base.html" %}
+{% block page_title %}Hand Replayer — {{ hand_id }}{% endblock %}
+
+{% block content %}
+{% set hand = data.get('hand') %}
+{% set steps = data.get('steps', []) %}
+{% set positions = data.get('positions', []) %}
+{% set lesson_notes = data.get('lesson_notes') %}
+{% set total_steps = steps|length %}
+
+{# ── Back link ────────────────────────────────────────────────── #}
+<div class="replayer-header">
+    {% if game_type == 'tournament' %}
+    <a href="{{ url_for('tournament.sub_tab', tab='sessions') }}" class="back-link">&larr; Sessions</a>
+    {% else %}
+    <a href="{{ url_for('cash.sub_tab', tab='sessions') }}" class="back-link">&larr; Sessions</a>
+    {% endif %}
+    <h1 class="page-title" style="font-size:1rem; margin:0;">Hand Replayer</h1>
+</div>
+
+{% if not hand %}
+<div class="empty-state">
+    <div class="empty-state-icon">&#9827;</div>
+    <div class="empty-state-text">Hand <code>{{ hand_id }}</code> not found</div>
+    <div class="empty-state-hint">Check that the poker database path is configured and the hand exists.</div>
+</div>
+{% else %}
+
+{# ── Hand Meta ────────────────────────────────────────────────── #}
+<div class="replayer-meta">
+    <span class="replayer-meta-item">
+        <span class="replayer-meta-label">Hand</span>
+        <span class="replayer-meta-value">#{{ hand.get('hand_id', '') }}</span>
+    </span>
+    <span class="replayer-meta-item">
+        <span class="replayer-meta-label">Game</span>
+        <span class="replayer-meta-value">{{ hand.get('game_type', 'cash')|title }}</span>
+    </span>
+    <span class="replayer-meta-item">
+        <span class="replayer-meta-label">Blinds</span>
+        <span class="replayer-meta-value">${{ hand.get('blinds_sb', 0) }}/${{ hand.get('blinds_bb', 0) }}</span>
+    </span>
+    <span class="replayer-meta-item">
+        <span class="replayer-meta-label">Date</span>
+        <span class="replayer-meta-value">{{ (hand.get('date') or '')[:10] }}</span>
+    </span>
+    {% if hand.get('table_name') %}
+    <span class="replayer-meta-item">
+        <span class="replayer-meta-label">Table</span>
+        <span class="replayer-meta-value">{{ hand['table_name'] }}</span>
+    </span>
+    {% endif %}
+    {% if hand.get('tournament_id') %}
+    <span class="replayer-meta-item">
+        <span class="replayer-meta-label">Tournament</span>
+        <span class="replayer-meta-value">{{ hand['tournament_id'] }}</span>
+    </span>
+    {% endif %}
+    {# Final result #}
+    {% set net = hand.get('net', 0) or 0 %}
+    <span class="replayer-meta-item">
+        <span class="replayer-meta-label">Result</span>
+        <span class="replayer-meta-value {{ 'positive' if net >= 0 else 'negative' }}" style="font-weight:700;">
+            ${{ '{:+,.2f}'.format(net) }}
+        </span>
+    </span>
+</div>
+
+{# ── Lesson Notes (if ?lesson=X) ──────────────────────────────── #}
+{% if lesson_notes %}
+<div class="replayer-lesson-notes">
+    <div class="rln-header">
+        <span class="badge badge-info">{{ lesson_notes.get('category', '') }}</span>
+        <span class="rln-title">{{ lesson_notes.get('title', '') }}</span>
+        {% set ec = lesson_notes.get('executed_correctly') %}
+        {% if ec == 1 %}
+        <span class="badge badge-good">&#10003; Correto</span>
+        {% elif ec == 0 %}
+        <span class="badge badge-danger">&#10007; Incorreto</span>
+        {% endif %}
+    </div>
+    {% if lesson_notes.get('description') %}
+    <div class="rln-desc">{{ lesson_notes['description'] }}</div>
+    {% endif %}
+    {% if lesson_notes.get('notes') %}
+    <div class="rln-notes">{{ lesson_notes['notes'] }}</div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if total_steps == 0 %}
+<div class="empty-state" style="margin-top:1rem;">
+    <div class="empty-state-icon">&#9827;</div>
+    <div class="empty-state-text">No action data for this hand</div>
+    <div class="empty-state-hint">Hand actions may not have been imported yet.</div>
+</div>
+{% else %}
+
+{# ── Replayer Main Layout ─────────────────────────────────────── #}
+<div class="replayer-layout">
+
+    {# ── Poker Table Visual ──────────────────────────────────────── #}
+    <div class="replayer-table-area">
+        <div class="poker-table">
+
+            {# Board area #}
+            <div class="board-area">
+                <div class="board-label" id="board-street-label">PREFLOP</div>
+                <div class="board-cards" id="board-cards">
+                    {# Cards rendered by JS #}
+                </div>
+                <div class="pot-display">
+                    Pot: <span id="pot-display" class="pot-value">$0.00</span>
+                </div>
+            </div>
+
+            {# Player seats around the table #}
+            {% set hero_pos = hand.get('hero_position') or '' %}
+            {% set hero_cards = hand.get('hero_cards') or '' %}
+            {% set opponent_cards = hand.get('opponent_cards') or '' %}
+            {% set num_pos = positions|length %}
+
+            {# Seat layout positions depend on number of players #}
+            {# We place seats around the oval table using fixed CSS classes seat-0..seat-8 #}
+            {% for pos in positions %}
+            {% set seat_idx = loop.index0 %}
+            <div class="player-seat seat-{{ num_pos }}-{{ seat_idx }}"
+                 id="seat-{{ pos }}"
+                 data-position="{{ pos }}">
+                <div class="seat-position-label">{{ pos }}</div>
+                {% if pos == hero_pos %}
+                <div class="seat-cards hero-cards" id="hero-cards-display">
+                    {% for card in hero_cards.split(' ') if hero_cards %}
+                    <span class="card-display {{ 'card-red' if card[-1] in ('h', 'd') else 'card-dark' }}">
+                        {{ card[:-1] }}<span class="card-suit">{{ {'s': '♠', 'h': '♥', 'd': '♦', 'c': '♣'}.get(card[-1], card[-1]) }}</span>
+                    </span>
+                    {% endfor %}
+                    <div class="seat-name">Hero</div>
+                </div>
+                {% else %}
+                <div class="seat-cards villain-cards" id="villain-{{ pos }}">
+                    <span class="card-back" id="card-back-{{ pos }}">&#127136;</span>
+                    <div class="villain-cards-revealed" id="villain-cards-{{ pos }}" style="display:none;"></div>
+                    <div class="seat-name" id="seat-name-{{ pos }}">{{ pos }}</div>
+                </div>
+                {% endif %}
+                <div class="seat-action" id="seat-action-{{ pos }}"></div>
+            </div>
+            {% endfor %}
+
+        </div>{# .poker-table #}
+    </div>{# .replayer-table-area #}
+
+    {# ── Right Panel: Controls + Timeline ───────────────────────── #}
+    <div class="replayer-right-panel">
+
+        {# Step Controls #}
+        <div class="replayer-controls">
+            <button class="ctrl-btn" id="btn-prev" onclick="replayerPrev()" title="Previous (←)">&#9664;</button>
+            <span class="step-counter">
+                Step <span id="step-current">1</span> / <span id="step-total">{{ total_steps }}</span>
+            </span>
+            <button class="ctrl-btn" id="btn-next" onclick="replayerNext()" title="Next (→)">&#9654;</button>
+        </div>
+        <div class="replayer-step-bar">
+            <input type="range" id="step-slider" class="step-slider"
+                   min="0" max="{{ total_steps - 1 }}" value="0"
+                   oninput="goToStep(parseInt(this.value))">
+        </div>
+
+        {# Street Tabs #}
+        <div class="replayer-street-tabs" id="street-tabs">
+            <button class="street-tab active" id="stab-preflop" onclick="goToStreet('preflop')">Preflop</button>
+            {% if hand.get('board_flop') %}
+            <button class="street-tab" id="stab-flop" onclick="goToStreet('flop')">Flop</button>
+            {% endif %}
+            {% if hand.get('board_turn') %}
+            <button class="street-tab" id="stab-turn" onclick="goToStreet('turn')">Turn</button>
+            {% endif %}
+            {% if hand.get('board_river') %}
+            <button class="street-tab" id="stab-river" onclick="goToStreet('river')">River</button>
+            {% endif %}
+        </div>
+
+        {# Action Timeline #}
+        <div class="replayer-timeline" id="action-timeline">
+            {# Populated by JS #}
+        </div>
+
+        {# Final Result #}
+        <div class="replayer-result {{ 'result-positive' if net >= 0 else 'result-negative' }}">
+            <span class="result-label">Final Result</span>
+            <span class="result-value {{ 'positive' if net >= 0 else 'negative' }}">
+                ${{ '{:+,.2f}'.format(net) }}
+            </span>
+            {% if hand.get('hero_cards') %}
+            <span class="result-cards">{{ hand['hero_cards'] }}</span>
+            {% endif %}
+            {% if hand.get('board_flop') %}
+            <span class="result-board">
+                {{ hand.get('board_flop', '') }}
+                {% if hand.get('board_turn') %} {{ hand['board_turn'] }}{% endif %}
+                {% if hand.get('board_river') %} {{ hand['board_river'] }}{% endif %}
+            </span>
+            {% endif %}
+        </div>
+
+    </div>{# .replayer-right-panel #}
+
+</div>{# .replayer-layout #}
+
+{# ── Inline Data for JS ──────────────────────────────────────── #}
+<script id="replayer-data" type="application/json">
+{
+  "steps": {{ steps | tojson }},
+  "hand": {
+    "hero_position": {{ (hand.get('hero_position') or '') | tojson }},
+    "hero_cards": {{ (hand.get('hero_cards') or '') | tojson }},
+    "opponent_cards": {{ (hand.get('opponent_cards') or '') | tojson }},
+    "board_flop": {{ (hand.get('board_flop') or '') | tojson }},
+    "board_turn": {{ (hand.get('board_turn') or '') | tojson }},
+    "board_river": {{ (hand.get('board_river') or '') | tojson }},
+    "pot_total": {{ (hand.get('pot_total') or 0) | tojson }},
+    "net": {{ (hand.get('net') or 0) | tojson }},
+    "blinds_bb": {{ (hand.get('blinds_bb') or 0.5) | tojson }}
+  }
+}
+</script>
+
+{% endif %}{# total_steps > 0 #}
+{% endif %}{# hand #}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    // ── Parse embedded data ───────────────────────────────────────
+    var _raw = document.getElementById('replayer-data');
+    if (!_raw) return;
+    var _d = JSON.parse(_raw.textContent || '{"steps":[],"hand":{}}');
+    var STEPS = _d.steps;
+    var HAND = _d.hand;
+    var TOTAL = STEPS.length;
+    var currentStep = 0;
+
+    // ── Card rendering ────────────────────────────────────────────
+    var SUIT_SYMBOLS = {s: '♠', h: '♥', d: '♦', c: '♣'};
+    var RED_SUITS = new Set(['h', 'd']);
+
+    function renderCard(cardStr) {
+        if (!cardStr) return '';
+        var rank = cardStr.slice(0, -1);
+        var suit = cardStr.slice(-1).toLowerCase();
+        var sym = SUIT_SYMBOLS[suit] || suit;
+        var cls = RED_SUITS.has(suit) ? 'card-red' : 'card-dark';
+        return '<span class="card-display ' + cls + '">' + rank + '<span class="card-suit">' + sym + '</span></span>';
+    }
+
+    function renderCards(cardsStr) {
+        if (!cardsStr) return '';
+        return cardsStr.split(' ').filter(Boolean).map(renderCard).join('');
+    }
+
+    // ── Board rendering ───────────────────────────────────────────
+    function getBoardAtStreet(street) {
+        var cards = [];
+        if (HAND.board_flop) {
+            var flopCards = HAND.board_flop.split(' ').filter(Boolean);
+            if (street === 'flop' || street === 'turn' || street === 'river') {
+                cards = cards.concat(flopCards);
+            }
+        }
+        if (HAND.board_turn && (street === 'turn' || street === 'river')) {
+            cards = cards.concat(HAND.board_turn.split(' ').filter(Boolean));
+        }
+        if (HAND.board_river && street === 'river') {
+            cards = cards.concat(HAND.board_river.split(' ').filter(Boolean));
+        }
+        return cards;
+    }
+
+    function updateBoard(street) {
+        var boardEl = document.getElementById('board-cards');
+        var labelEl = document.getElementById('board-street-label');
+        if (!boardEl) return;
+        var cards = getBoardAtStreet(street);
+        boardEl.innerHTML = cards.map(renderCard).join('');
+        if (labelEl) labelEl.textContent = street.toUpperCase();
+    }
+
+    // ── Seat action labels ────────────────────────────────────────
+    function formatAction(step) {
+        var atype = step.action_type;
+        var amt = step.amount || 0;
+        var labels = {
+            'fold': 'fold',
+            'check': 'check',
+            'call': 'call $' + amt.toFixed(2),
+            'bet': 'bet $' + amt.toFixed(2),
+            'raise': 'raise $' + amt.toFixed(2),
+            'all-in': 'ALL-IN $' + amt.toFixed(2),
+            'post_sb': 'SB $' + amt.toFixed(2),
+            'post_bb': 'BB $' + amt.toFixed(2),
+            'post_ante': 'ante $' + amt.toFixed(2),
+        };
+        return labels[atype] || atype;
+    }
+
+    function actionClass(atype) {
+        if (atype === 'fold') return 'action-fold';
+        if (atype === 'check') return 'action-check';
+        if (atype === 'call') return 'action-call';
+        if (atype === 'bet' || atype === 'raise' || atype === 'all-in') return 'action-raise';
+        return 'action-post';
+    }
+
+    // ── Clear all seat action labels ──────────────────────────────
+    function clearSeatActions() {
+        document.querySelectorAll('.seat-action').forEach(function(el) {
+            el.textContent = '';
+            el.className = 'seat-action';
+        });
+        document.querySelectorAll('.player-seat').forEach(function(el) {
+            el.classList.remove('seat-active', 'seat-folded');
+        });
+    }
+
+    // ── Track folded players ──────────────────────────────────────
+    var foldedPositions = new Set();
+
+    // ── Showdown: reveal opponent cards ──────────────────────────
+    function maybeRevealOpponentCards(stepIdx) {
+        if (!HAND.opponent_cards) return;
+        var hasShowdown = false;
+        // Show opponent cards at the last step (or if pot_total is set and we're at end)
+        if (stepIdx >= TOTAL - 1) {
+            hasShowdown = true;
+        }
+        // Also reveal if we've seen all streets and opponent_cards is set
+        if (hasShowdown && HAND.opponent_cards) {
+            var oppCards = HAND.opponent_cards.split('|');
+            // Try to find seats that are not hero and show their cards
+            document.querySelectorAll('.villain-cards').forEach(function(el, i) {
+                var revealed = el.querySelector('.villain-cards-revealed');
+                var back = el.querySelector('.card-back');
+                if (revealed && back && oppCards[i] !== undefined) {
+                    revealed.innerHTML = renderCards(oppCards[i]);
+                    revealed.style.display = '';
+                    back.style.display = 'none';
+                }
+            });
+        }
+    }
+
+    // ── Timeline rendering ────────────────────────────────────────
+    function buildTimeline(upToStep) {
+        var timelineEl = document.getElementById('action-timeline');
+        if (!timelineEl) return;
+        var html = '';
+        var lastStreet = null;
+
+        for (var i = 0; i <= upToStep && i < TOTAL; i++) {
+            var s = STEPS[i];
+            if (s.street !== lastStreet) {
+                lastStreet = s.street;
+                html += '<div class="tl-street-header">' + s.street.toUpperCase() + '</div>';
+            }
+            var isCurrent = (i === upToStep);
+            var posLabel = s.position || s.player || '?';
+            var heroClass = s.is_hero ? ' tl-hero' : '';
+            var curClass = isCurrent ? ' tl-current' : '';
+            html += '<div class="tl-action' + heroClass + curClass + '">';
+            html += '<span class="tl-pos">' + posLabel + '</span>';
+            html += '<span class="tl-act ' + actionClass(s.action_type) + '">' + formatAction(s) + '</span>';
+            html += '</div>';
+        }
+
+        timelineEl.innerHTML = html;
+        // Scroll current into view
+        var curEl = timelineEl.querySelector('.tl-current');
+        if (curEl) curEl.scrollIntoView({block: 'nearest'});
+    }
+
+    // ── Main step renderer ────────────────────────────────────────
+    function goToStep(idx) {
+        if (idx < 0) idx = 0;
+        if (idx >= TOTAL) idx = TOTAL - 1;
+        currentStep = idx;
+
+        // Update slider and counter
+        var slider = document.getElementById('step-slider');
+        if (slider) slider.value = idx;
+        var stepCur = document.getElementById('step-current');
+        if (stepCur) stepCur.textContent = idx + 1;
+
+        var step = STEPS[idx];
+
+        // Update board for current street
+        updateBoard(step.street);
+
+        // Update pot
+        var potEl = document.getElementById('pot-display');
+        if (potEl) potEl.textContent = '$' + step.pot_after.toFixed(2);
+
+        // Update street tabs
+        document.querySelectorAll('.street-tab').forEach(function(btn) {
+            btn.classList.remove('active');
+        });
+        var activeTab = document.getElementById('stab-' + step.street);
+        if (activeTab) activeTab.classList.add('active');
+
+        // Clear previous seat actions; track folded
+        clearSeatActions();
+        foldedPositions = new Set();
+        for (var i = 0; i <= idx; i++) {
+            if (STEPS[i].action_type === 'fold') {
+                foldedPositions.add(STEPS[i].position);
+            }
+        }
+
+        // Apply folded state to seats
+        foldedPositions.forEach(function(pos) {
+            var seat = document.getElementById('seat-' + pos);
+            if (seat) seat.classList.add('seat-folded');
+        });
+
+        // Set current action on the active seat
+        var pos = step.position;
+        var seatEl = document.getElementById('seat-' + pos);
+        if (seatEl) seatEl.classList.add('seat-active');
+        var actionEl = document.getElementById('seat-action-' + pos);
+        if (actionEl) {
+            actionEl.textContent = formatAction(step);
+            actionEl.className = 'seat-action ' + actionClass(step.action_type);
+        }
+
+        // Reveal opponent cards at showdown
+        maybeRevealOpponentCards(idx);
+
+        // Rebuild timeline
+        buildTimeline(idx);
+
+        // Update prev/next button states
+        var btnPrev = document.getElementById('btn-prev');
+        var btnNext = document.getElementById('btn-next');
+        if (btnPrev) btnPrev.disabled = (idx === 0);
+        if (btnNext) btnNext.disabled = (idx >= TOTAL - 1);
+    }
+
+    // ── Navigation helpers ────────────────────────────────────────
+    window.replayerPrev = function() { goToStep(currentStep - 1); };
+    window.replayerNext = function() { goToStep(currentStep + 1); };
+    window.goToStep = goToStep;
+
+    // ── Jump to first action of a street ─────────────────────────
+    window.goToStreet = function(street) {
+        for (var i = 0; i < TOTAL; i++) {
+            if (STEPS[i].street === street) {
+                goToStep(i);
+                return;
+            }
+        }
+    };
+
+    // ── Keyboard navigation ───────────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowLeft') { replayerPrev(); e.preventDefault(); }
+        if (e.key === 'ArrowRight') { replayerNext(); e.preventDefault(); }
+    });
+
+    // ── Initialize ────────────────────────────────────────────────
+    document.getElementById('step-total').textContent = TOTAL;
+    goToStep(0);
+
+})();
+</script>
+
+<style>
+/* ── Replayer Layout ─────────────────────────────────────────── */
+.replayer-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+.replayer-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    margin-bottom: 0.75rem;
+    font-size: 0.8rem;
+}
+.replayer-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+.replayer-meta-label {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.replayer-meta-value {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* ── Lesson Notes ─────────────────────────────────────────────── */
+.replayer-lesson-notes {
+    background: rgba(0, 130, 255, 0.08);
+    border: 1px solid rgba(0, 130, 255, 0.25);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.rln-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.25rem;
+}
+.rln-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.rln-desc {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    margin-top: 0.25rem;
+}
+.rln-notes {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
+/* ── Main Replayer Layout ─────────────────────────────────────── */
+.replayer-layout {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 1rem;
+    align-items: start;
+}
+@media (max-width: 768px) {
+    .replayer-layout { grid-template-columns: 1fr; }
+}
+
+/* ── Poker Table ──────────────────────────────────────────────── */
+.replayer-table-area {
+    position: relative;
+}
+.poker-table {
+    position: relative;
+    background: radial-gradient(ellipse at center, #0a3d1f 0%, #062510 70%, #041a0d 100%);
+    border: 4px solid #8B6914;
+    border-radius: 50% / 35%;
+    min-height: 320px;
+    padding: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+}
+
+/* ── Board Area (center of table) ────────────────────────────── */
+.board-area {
+    text-align: center;
+    z-index: 2;
+}
+.board-label {
+    color: rgba(255,255,255,0.4);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.3rem;
+}
+.board-cards {
+    display: flex;
+    gap: 0.25rem;
+    justify-content: center;
+    min-height: 2.5rem;
+    margin-bottom: 0.4rem;
+}
+.pot-display {
+    color: rgba(255,255,255,0.7);
+    font-size: 0.78rem;
+}
+.pot-value {
+    color: #ffd700;
+    font-weight: 700;
+}
+
+/* ── Cards ────────────────────────────────────────────────────── */
+.card-display {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.25rem;
+    background: #fff;
+    border-radius: 3px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1;
+    min-width: 1.6rem;
+    justify-content: center;
+    gap: 0.05rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.card-display.card-red {
+    color: #cc0000;
+}
+.card-display.card-dark {
+    color: #111;
+}
+.card-suit {
+    font-size: 0.85em;
+}
+.card-back {
+    font-size: 1.4rem;
+    opacity: 0.5;
+    color: #aaa;
+}
+
+/* ── Player Seats ─────────────────────────────────────────────── */
+.player-seat {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    z-index: 3;
+    transition: opacity 0.2s;
+}
+.player-seat.seat-folded {
+    opacity: 0.35;
+}
+.player-seat.seat-active .seat-position-label {
+    color: #ffd700;
+    font-weight: 700;
+}
+.seat-position-label {
+    font-size: 0.65rem;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.seat-cards {
+    display: flex;
+    gap: 0.15rem;
+    flex-direction: column;
+    align-items: center;
+}
+.seat-name {
+    font-size: 0.6rem;
+    color: rgba(255,255,255,0.5);
+    text-align: center;
+}
+.hero-cards .seat-name {
+    color: #00ff88;
+    font-weight: 600;
+}
+.villain-cards-revealed {
+    display: flex;
+    gap: 0.15rem;
+}
+
+/* ── Seat Action Labels ───────────────────────────────────────── */
+.seat-action {
+    font-size: 0.62rem;
+    padding: 0.1rem 0.25rem;
+    border-radius: 3px;
+    text-align: center;
+    min-width: 3rem;
+    white-space: nowrap;
+}
+.action-fold { background: rgba(200,60,60,0.25); color: #ff6060; }
+.action-check { background: rgba(100,100,100,0.25); color: #aaa; }
+.action-call { background: rgba(60,120,200,0.25); color: #5599ff; }
+.action-raise { background: rgba(60,200,100,0.25); color: #00cc55; }
+.action-post { background: rgba(180,150,50,0.25); color: #ccaa33; }
+
+/* ── Seat Positions (6-max layout, radial) ────────────────────── */
+/* 6 players: UTG, MP, CO, BTN, SB, BB */
+.seat-6-0 { top: 8%; left: 22%; }   /* UTG */
+.seat-6-1 { top: 8%; right: 22%; }  /* MP */
+.seat-6-2 { top: 35%; right: 2%; }  /* CO */
+.seat-6-3 { bottom: 5%; right: 22%; } /* BTN */
+.seat-6-4 { bottom: 5%; left: 22%; }  /* SB */
+.seat-6-5 { top: 35%; left: 2%; }   /* BB */
+
+/* 5 players */
+.seat-5-0 { top: 8%; left: 28%; }
+.seat-5-1 { top: 8%; right: 28%; }
+.seat-5-2 { top: 35%; right: 2%; }
+.seat-5-3 { bottom: 5%; right: 28%; }
+.seat-5-4 { bottom: 5%; left: 28%; }
+
+/* 4 players */
+.seat-4-0 { top: 8%; left: 28%; }
+.seat-4-1 { top: 8%; right: 28%; }
+.seat-4-2 { bottom: 5%; right: 28%; }
+.seat-4-3 { bottom: 5%; left: 28%; }
+
+/* 3 players */
+.seat-3-0 { top: 8%; left: 50%; transform: translateX(-50%); }
+.seat-3-1 { bottom: 5%; right: 28%; }
+.seat-3-2 { bottom: 5%; left: 28%; }
+
+/* 2 players (heads-up) */
+.seat-2-0 { top: 8%; left: 50%; transform: translateX(-50%); }
+.seat-2-1 { bottom: 5%; left: 50%; transform: translateX(-50%); }
+
+/* 7 players */
+.seat-7-0 { top: 8%; left: 18%; }
+.seat-7-1 { top: 8%; right: 18%; }
+.seat-7-2 { top: 25%; right: 1%; }
+.seat-7-3 { bottom: 5%; right: 18%; }
+.seat-7-4 { bottom: 10%; left: 50%; transform: translateX(-50%); }
+.seat-7-5 { bottom: 5%; left: 18%; }
+.seat-7-6 { top: 25%; left: 1%; }
+
+/* 8 players */
+.seat-8-0 { top: 8%; left: 20%; }
+.seat-8-1 { top: 5%; left: 50%; transform: translateX(-50%); }
+.seat-8-2 { top: 8%; right: 20%; }
+.seat-8-3 { top: 35%; right: 1%; }
+.seat-8-4 { bottom: 5%; right: 20%; }
+.seat-8-5 { bottom: 5%; left: 20%; }
+.seat-8-6 { top: 35%; left: 1%; }
+.seat-8-7 { bottom: 10%; left: 50%; transform: translateX(-50%); }
+
+/* 9 players */
+.seat-9-0 { top: 8%; left: 18%; }
+.seat-9-1 { top: 5%; left: 50%; transform: translateX(-50%); }
+.seat-9-2 { top: 8%; right: 18%; }
+.seat-9-3 { top: 30%; right: 1%; }
+.seat-9-4 { bottom: 5%; right: 20%; }
+.seat-9-5 { bottom: 5%; left: 50%; transform: translateX(-50%); }
+.seat-9-6 { bottom: 5%; left: 20%; }
+.seat-9-7 { top: 30%; left: 1%; }
+.seat-9-8 { bottom: 30%; left: 50%; transform: translateX(-50%); }
+
+/* ── Right Panel ──────────────────────────────────────────────── */
+.replayer-right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.replayer-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
+}
+.ctrl-btn {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: var(--radius);
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.15s;
+}
+.ctrl-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.ctrl-btn:disabled { opacity: 0.3; cursor: default; }
+.step-counter {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    min-width: 6rem;
+    text-align: center;
+}
+.replayer-step-bar {
+    padding: 0 0.25rem;
+}
+.step-slider {
+    width: 100%;
+    accent-color: var(--accent-blue, #0082ff);
+}
+.replayer-street-tabs {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+}
+.street-tab {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: background 0.15s, color 0.15s;
+}
+.street-tab.active {
+    background: rgba(0, 130, 255, 0.2);
+    color: #5599ff;
+    border-color: rgba(0, 130, 255, 0.4);
+}
+.street-tab:hover:not(.active) { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── Action Timeline ──────────────────────────────────────────── */
+.replayer-timeline {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.5rem;
+    max-height: 280px;
+    overflow-y: auto;
+    font-size: 0.78rem;
+}
+.tl-street-header {
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.1rem 0.1rem;
+    border-top: 1px solid var(--border-color);
+    margin-top: 0.25rem;
+}
+.tl-street-header:first-child { border-top: none; margin-top: 0; }
+.tl-action {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.15rem 0.25rem;
+    border-radius: 3px;
+}
+.tl-action.tl-hero {
+    background: rgba(0, 255, 136, 0.06);
+}
+.tl-action.tl-current {
+    background: rgba(0, 130, 255, 0.15);
+    border-left: 2px solid #0082ff;
+}
+.tl-pos {
+    color: var(--text-muted);
+    min-width: 3rem;
+    font-size: 0.72rem;
+}
+.tl-action.tl-hero .tl-pos {
+    color: #00ff88;
+    font-weight: 600;
+}
+.tl-act {
+    font-weight: 500;
+}
+
+/* ── Result Display ───────────────────────────────────────────── */
+.replayer-result {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+.replayer-result.result-positive { border-color: rgba(0, 255, 136, 0.3); }
+.replayer-result.result-negative { border-color: rgba(255, 60, 60, 0.3); }
+.result-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.result-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+.result-cards, .result-board {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+</style>
+{% endblock %}

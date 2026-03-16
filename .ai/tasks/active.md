@@ -122,6 +122,8 @@ Update this section weekly with sprint goals and dates.
 - [x] US-053d: Rewrite Postflop: CBet Flop/Turn/River, Delayed CBet (Aulas 13-17) (2026-03-16)
 - [x] US-053e: Rewrite Postflop: Defense — BB vs CBet, Check-Raise, IP vs CBet, Probe, Bet vs Missed (Aulas 18-22) (2026-03-16)
 - [x] US-053f: Rewrite: 3Bet Pots Postflop, Pós-Flop Avançado, Bounty (Aulas 12, 23-25) (2026-03-16)
+- [x] US-054: Fix: RFI sizing all-in como correto em short stack + trigger Aula 4 Open Shove (2026-03-16)
+- [x] US-055: Hand Replayer: Visualizador step-by-step de mãos jogadas (2026-03-16)
 
 ---
 

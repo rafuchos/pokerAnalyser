@@ -1447,6 +1447,214 @@ class TestRFIRangeEvaluation(unittest.TestCase):
             result = self._rfi_result(hid)
             self.assertEqual(result, 1, f'RFI {cards} from {pos} should be correct')
 
+    # -- US-054: All-in as valid RFI sizing for short stacks --
+
+    def test_rfi_allin_14bb_is_valid_sizing(self):
+        """All-in RFI with 14BB stack should be ACERTO (not sizing fora).
+
+        At ≤20bb, going all-in as first raise is a valid sizing choice.
+        Previously returned None ('sizing fora') because 14BB > 3BB threshold.
+        """
+        # 14BB stack: hero_stack=7.0, blinds_bb=0.50
+        _insert_hand(self.repo, 'RFIAS01', position='BTN',
+                     hero_stack=7.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Ad' WHERE hand_id='RFIAS01'")
+        self.repo.conn.commit()
+        # All-in with full stack = 14BB shove as RFI
+        _insert_action(self.repo, 'RFIAS01', 'preflop', 'Hero', 'all-in',
+                       7.0, 1, 1, 'BTN')
+        result = self._rfi_result('RFIAS01')
+        self.assertEqual(result, 1, 'All-in RFI with 14BB stack should be ACERTO')
+
+    def test_rfi_allin_14bb_note_not_sizing_fora(self):
+        """All-in RFI with 14BB stack note should NOT say 'sizing fora'."""
+        _insert_hand(self.repo, 'RFIAS02', position='BTN',
+                     hero_stack=7.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Ad' WHERE hand_id='RFIAS02'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIAS02', 'preflop', 'Hero', 'all-in',
+                       7.0, 1, 1, 'BTN')
+        matches = self._classify('RFIAS02')
+        rfi = next((m for m in matches if m.lesson_id == 1), None)
+        self.assertIsNotNone(rfi, 'Lesson 1 should be detected')
+        self.assertNotIn('sizing fora', rfi.notes,
+                         f'Note should not say "sizing fora": {rfi.notes}')
+
+    def test_rfi_allin_20bb_boundary_is_valid(self):
+        """All-in RFI exactly at 20BB boundary should be ACERTO."""
+        # 20BB stack: hero_stack=10.0, blinds_bb=0.50
+        _insert_hand(self.repo, 'RFIAS03', position='BTN',
+                     hero_stack=10.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Ad' WHERE hand_id='RFIAS03'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIAS03', 'preflop', 'Hero', 'all-in',
+                       10.0, 1, 1, 'BTN')
+        result = self._rfi_result('RFIAS03')
+        self.assertEqual(result, 1, 'All-in RFI at exactly 20BB should be ACERTO')
+
+    def test_rfi_allin_21bb_is_still_sizing_fora(self):
+        """All-in RFI with >20BB stack should still be 'sizing fora' (None)."""
+        # 21BB stack: hero_stack=10.5, blinds_bb=0.50
+        _insert_hand(self.repo, 'RFIAS04', position='BTN',
+                     hero_stack=10.5, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Ad' WHERE hand_id='RFIAS04'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIAS04', 'preflop', 'Hero', 'all-in',
+                       10.5, 1, 1, 'BTN')
+        result = self._rfi_result('RFIAS04')
+        self.assertIsNone(result, 'All-in RFI with 21BB stack should be None (sizing fora)')
+
+    # -- US-054: Fold marginal hand in RFI spot = ACERTO --
+
+    def test_rfi_fold_marginal_hand_is_acerto(self):
+        """Folding a marginal hand (tier == pos_tier + 1) should be ACERTO.
+
+        HJ at 50BB has pos_tier=2. A8o is tier 3. Fold = correct (tier > max).
+        Previously returned None (unknown) for hand_tier == pos_tier + 1.
+        """
+        # HJ at 50bb: pos_tier = 2. A8o = tier 3 = pos_tier + 1 → marginal
+        _insert_hand(self.repo, 'RFIFM01', position='HJ',
+                     hero_stack=25.0, blinds_bb=0.50)  # 50BB
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='Ah 8d' WHERE hand_id='RFIFM01'")
+        self.repo.conn.commit()
+        # Hero folds with no prior raise = RFI fold spot
+        _insert_action(self.repo, 'RFIFM01', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'RFIFM01', 'preflop', 'Hero', 'fold', 0, 1, 2, 'HJ')
+        result = self._rfi_result('RFIFM01')
+        self.assertEqual(result, 1,
+                         'Fold of marginal hand (1 tier above max) should be ACERTO')
+
+    def test_rfi_fold_in_range_is_incorreto(self):
+        """Folding a hand clearly in range should be INCORRETO (0)."""
+        # UTG at 50BB: pos_tier=1. AA is tier 1 = in range → fold is INCORRETO
+        _insert_hand(self.repo, 'RFIFM02', position='UTG',
+                     hero_stack=25.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Ad' WHERE hand_id='RFIFM02'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIFM02', 'preflop', 'Hero', 'fold', 0, 1, 1, 'UTG')
+        result = self._rfi_result('RFIFM02')
+        self.assertEqual(result, 0, 'Fold of in-range hand should be INCORRETO (0)')
+
+    def test_rfi_fold_trash_is_acerto(self):
+        """Folding a trash hand (tier >> pos_tier) should be ACERTO."""
+        # UTG at 50BB: pos_tier=1. 72o is tier 5 >> 1 → fold is correct
+        _insert_hand(self.repo, 'RFIFM03', position='UTG',
+                     hero_stack=25.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='7h 2d' WHERE hand_id='RFIFM03'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'RFIFM03', 'preflop', 'Hero', 'fold', 0, 1, 1, 'UTG')
+        result = self._rfi_result('RFIFM03')
+        self.assertEqual(result, 1, 'Fold of trash hand should be ACERTO (1)')
+
+
+# ── US-054: Open Shove 13bb triggers Lesson 4 ────────────────────────
+
+
+class TestUS054OpenShove15bb(unittest.TestCase):
+    """Test that open shove with ≤15bb stack triggers Lesson 4 (US-054).
+
+    Previously only ≤12bb triggered lesson 4. Now extended to ≤15bb.
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _lesson_ids(self, matches):
+        return {m.lesson_id for m in matches}
+
+    def test_open_shove_13bb_triggers_lesson4(self):
+        """Open shove with 13BB stack should trigger lesson 4."""
+        # 13BB stack: hero_stack=6.5, blinds_bb=0.50
+        _insert_hand(self.repo, 'OS13BB01', position='BTN',
+                     hero_stack=6.5, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Kd' WHERE hand_id='OS13BB01'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'OS13BB01', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'OS13BB01', 'preflop', 'Hero', 'all-in',
+                       6.5, 1, 2, 'BTN')
+        ids = self._lesson_ids(self._classify('OS13BB01'))
+        self.assertIn(4, ids, 'Open shove with 13BB should trigger lesson 4')
+
+    def test_open_shove_13bb_in_range_is_acerto(self):
+        """Open shove AK with 13BB from BTN should be ACERTO."""
+        _insert_hand(self.repo, 'OS13BB02', position='BTN',
+                     hero_stack=6.5, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Kd' WHERE hand_id='OS13BB02'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'OS13BB02', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'OS13BB02', 'preflop', 'Hero', 'all-in',
+                       6.5, 1, 2, 'BTN')
+        matches = self._classify('OS13BB02')
+        shove = next((m for m in matches if m.lesson_id == 4), None)
+        self.assertIsNotNone(shove, 'Lesson 4 should be detected')
+        self.assertEqual(shove.executed_correctly, 1,
+                         'AK open shove from BTN at 13BB should be ACERTO')
+
+    def test_open_shove_15bb_triggers_lesson4(self):
+        """Open shove at exactly 15BB should trigger lesson 4 (boundary)."""
+        # 15BB: hero_stack=7.5, blinds_bb=0.50
+        _insert_hand(self.repo, 'OS15BB01', position='BTN',
+                     hero_stack=7.5, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Kd' WHERE hand_id='OS15BB01'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'OS15BB01', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'OS15BB01', 'preflop', 'Hero', 'all-in',
+                       7.5, 1, 2, 'BTN')
+        ids = self._lesson_ids(self._classify('OS15BB01'))
+        self.assertIn(4, ids, 'Open shove at exactly 15BB should trigger lesson 4')
+
+    def test_open_shove_16bb_does_not_trigger_lesson4(self):
+        """Open shove with 16BB stack should NOT trigger lesson 4."""
+        # 16BB: hero_stack=8.0, blinds_bb=0.50
+        _insert_hand(self.repo, 'OS16BB01', position='BTN',
+                     hero_stack=8.0, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Kd' WHERE hand_id='OS16BB01'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'OS16BB01', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'OS16BB01', 'preflop', 'Hero', 'all-in',
+                       8.0, 1, 2, 'BTN')
+        ids = self._lesson_ids(self._classify('OS16BB01'))
+        self.assertNotIn(4, ids, 'Open shove with 16BB should NOT trigger lesson 4')
+
+    def test_open_shove_13bb_note_mentions_minraise(self):
+        """Open shove at 13BB note should mention minraise as an option."""
+        _insert_hand(self.repo, 'OS13BB03', position='BTN',
+                     hero_stack=6.5, blinds_bb=0.50)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards='As Kd' WHERE hand_id='OS13BB03'")
+        self.repo.conn.commit()
+        _insert_action(self.repo, 'OS13BB03', 'preflop', 'P1', 'fold', 0, 0, 1, 'UTG')
+        _insert_action(self.repo, 'OS13BB03', 'preflop', 'Hero', 'all-in',
+                       6.5, 1, 2, 'BTN')
+        matches = self._classify('OS13BB03')
+        shove = next((m for m in matches if m.lesson_id == 4), None)
+        self.assertIsNotNone(shove, 'Lesson 4 should be detected')
+        self.assertIn('minraise', shove.notes,
+                      f'Note should mention minraise for 10-15BB: {shove.notes}')
+
 
 # ── Multiway BB Defense Evaluation Tests (US-041) ────────────────────
 
@@ -3347,21 +3555,29 @@ class TestOpenShoveEvaluation(unittest.TestCase):
 
     # -- Stack depth tests --
 
-    def test_open_shove_stack_10_to_12bb_is_marginal(self):
-        """Open shove at 11BB is detected but evaluation is marginal (stack too deep)."""
+    def test_open_shove_11bb_in_range_is_acerto(self):
+        """Open shove AA at 11BB is detected as lesson 4 and evaluated correctly.
+
+        US-054: Threshold raised to ≤15BB. At 10-15BB, all-in is valid and
+        range evaluation proceeds normally (not returned as None).
+        """
         self._insert_shove('OS16', hero_cards='Ah Ad', hero_pos='BTN',
                            hero_stack=5.5, blinds_bb=0.50)  # 11BB
-        self.assertIsNone(self._shove_result('OS16'))
+        # AA is tier 1, BTN pos_tier=4 → ACERTO (1), not None anymore
+        self.assertEqual(self._shove_result('OS16'), 1)
 
-    def test_open_shove_not_detected_above_12bb(self):
-        """Open shove at 15BB is not detected as lesson 4 (too deep)."""
+    def test_open_shove_not_detected_above_15bb(self):
+        """Open shove at 16BB is not detected as lesson 4 (too deep).
+
+        US-054: Threshold is ≤15BB. 16BB should NOT trigger lesson 4.
+        """
         _insert_hand(self.repo, 'OS17', position='BTN',
-                     hero_stack=7.5, blinds_bb=0.50)  # 15BB
+                     hero_stack=8.0, blinds_bb=0.50)  # 16BB
         self.repo.conn.execute(
             "UPDATE hands SET hero_cards=? WHERE hand_id=?", ('Ah Ad', 'OS17'))
         self.repo.conn.commit()
         _insert_action(self.repo, 'OS17', 'preflop', 'Hero', 'all-in',
-                       7.5, 1, 1, 'BTN')
+                       8.0, 1, 1, 'BTN')
         matches = self._classify('OS17')
         ids = [m.lesson_id for m in matches]
         self.assertNotIn(4, ids)
