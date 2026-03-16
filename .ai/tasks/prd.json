@@ -1344,7 +1344,8 @@
         "src/web/templates/cash/session_day.html",
         "src/web/templates/tournament/session_day.html",
         "tests/test_lesson_classifier.py"
-      ]
+      ],
+      "passes": true
     },
     {
       "id": "US-053b",
