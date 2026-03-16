@@ -116,6 +116,7 @@ Update this section weekly with sprint goals and dates.
 - [x] US-051: Lesson Tracker Web: Dashboard de Aulas + Performance por Aula (2026-03-15)
 - [x] US-052: Session Lesson Tab: Aba Hand Analyzer por Sessão com Cards de Aulas (2026-03-15)
 - [x] US-053: Umbrella: Rewrite Lesson Classifier baseado nos PDFs RegLife (2026-03-16)
+- [x] US-053a: Foundation: Guards, Mastery fix, Notes infra, remover MDA (2026-03-16)
 
 ---
 
