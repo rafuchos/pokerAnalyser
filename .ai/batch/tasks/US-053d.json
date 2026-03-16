@@ -1,0 +1,19 @@
+{
+  "id": "US-053d",
+  "title": "Rewrite Postflop: CBet Flop/Turn/River, Delayed CBet (Aulas 13-17)",
+  "status": "planned",
+  "estimated_time_seconds": 900,
+  "timeout_seconds": 945,
+  "plan": [
+    "fallback - no plan available"
+  ],
+  "complexity": "high",
+  "recommended_model": "opus",
+  "files_likely_affected": [],
+  "created_at": "2026-03-16T02:09:35.508Z",
+  "completed_at": null,
+  "failure_reason": null,
+  "branch": "feat/US-053d",
+  "replanned_at": "2026-03-16T02:24:35.978Z",
+  "replan_reason": "timeout after 900s (unknown → high)"
+}

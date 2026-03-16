@@ -761,6 +761,15 @@ class LessonClassifier:
 
             hero_ip = self._is_hero_ip(hero_pos, preflop)
 
+            # Estimate pot in BBs for sizing checks
+            _bb = hand.get('blinds_bb', 1.0) or 1.0
+            _open = pf.get('open_raise_amount', 0)
+            flop_pot_bb = (2.0 * _open / _bb) if _open > 0 and _bb > 0 else 0.0
+            _flop_bet = flop_a.get('hero_bet_amount', 0) / _bb if _bb > 0 else 0
+            turn_pot_bb = (flop_pot_bb + 2 * _flop_bet) if flop_pot_bb > 0 else 0.0
+            _turn_bet = turn_a.get('hero_bet_amount', 0) / _bb if _bb > 0 else 0
+            river_pot_bb = (turn_pot_bb + 2 * _turn_bet) if turn_pot_bb > 0 else 0.0
+
             # 10: Pós-Flop Avançado
             if has_turn and has_river:
                 m = self._match(hand_id, 10, 'flop')
@@ -772,32 +781,36 @@ class LessonClassifier:
             # 11: C-Bet Flop IP
             if pf_agg and flop_a['hero_bets'] and hero_ip:
                 m = self._match(hand_id, 11, 'flop')
-                m.executed_correctly, m.notes = self._eval_cbet_flop_ip(hand, flop_a)
+                m.executed_correctly, m.notes = self._eval_cbet_flop_ip(
+                    hand, flop_a, flop_pot_bb)
                 matches.append(m)
 
             # 12: C-Bet OOP
             if pf_agg and flop_a['hero_bets'] and not hero_ip:
                 m = self._match(hand_id, 12, 'flop')
-                m.executed_correctly, m.notes = self._eval_cbet_flop_oop(hand, flop_a)
+                m.executed_correctly, m.notes = self._eval_cbet_flop_oop(
+                    hand, flop_a, flop_pot_bb)
                 matches.append(m)
 
-            # 13: C-Bet Turn
-            if pf_agg and has_turn and turn_a['hero_bets']:
+            # 13: C-Bet Turn (double barrel: hero bet flop AND bets turn)
+            if pf_agg and has_turn and flop_a['hero_bets'] and turn_a['hero_bets']:
                 m = self._match(hand_id, 13, 'turn')
-                m.executed_correctly, m.notes = self._eval_cbet_turn(hand, flop_a, turn_a)
+                m.executed_correctly, m.notes = self._eval_cbet_turn(
+                    hand, flop_a, turn_a, turn_pot_bb)
                 matches.append(m)
 
             # 14: C-Bet River
             if pf_agg and has_river and river_a['hero_bets']:
                 m = self._match(hand_id, 14, 'river')
                 m.executed_correctly, m.notes = self._eval_cbet_river(
-                    hand, flop_a, turn_a, river_a)
+                    hand, flop_a, turn_a, river_a, river_pot_bb)
                 matches.append(m)
 
-            # 15: Delayed C-Bet
+            # 15: Delayed C-Bet (hero checked flop as PFA, bets turn after villain checks)
             if pf_agg and flop_a['hero_checks'] and has_turn and turn_a['hero_bets']:
                 m = self._match(hand_id, 15, 'turn')
-                m.executed_correctly, m.notes = self._eval_delayed_cbet(hand, flop_a, turn_a)
+                m.executed_correctly, m.notes = self._eval_delayed_cbet(
+                    hand, flop_a, turn_a, turn_pot_bb)
                 matches.append(m)
 
             # 16: BB vs C-Bet OOP
@@ -1969,12 +1982,12 @@ class LessonClassifier:
                 return 'medium'  # top pair weak kicker
             return 'medium'  # middle or bottom pair
 
-        # No made pair — check draws
+        # No made pair — check draws (hero must contribute to the flush)
         suit_cnt: dict[str, int] = {}
         for s in h_suits + b_suits:
             suit_cnt[s] = suit_cnt.get(s, 0) + 1
-        if any(v >= 4 for v in suit_cnt.values()):
-            return 'draw'  # flush draw (4-flush among 5 cards)
+        if any(cnt >= 4 and s in h_suits for s, cnt in suit_cnt.items()):
+            return 'draw'  # flush draw (4-flush with hero contributing)
 
         # Open-ended straight draw: 4 cards in a 5-rank window
         all_idxs = sorted(set(
@@ -1988,55 +2001,102 @@ class LessonClassifier:
 
         return 'weak'
 
+    @staticmethod
+    def _cbet_sizing_note(hero_bet_amount: float, blinds_bb: float,
+                          pot_bb: float, low_pct: float, high_pct: float) -> str:
+        """Format sizing note for c-bet evaluation.
+
+        Returns a string like ', sizing 2.5BB (42% pot, ok)' or
+        ', sizing 2.5BB (42% pot, esperado 50-66%)'.
+        When pot_bb is unavailable (0), returns ', sizing 2.5BB'.
+        """
+        if not hero_bet_amount or not blinds_bb or blinds_bb <= 0:
+            return ''
+        bet_bb = hero_bet_amount / blinds_bb
+        if pot_bb > 0:
+            bet_pct = bet_bb / pot_bb * 100
+            if low_pct <= bet_pct <= high_pct:
+                return f', sizing {bet_bb:.1f}BB ({bet_pct:.0f}% pot, ok)'
+            return (f', sizing {bet_bb:.1f}BB ({bet_pct:.0f}% pot, '
+                    f'esperado {low_pct:.0f}-{high_pct:.0f}%)')
+        return f', sizing {bet_bb:.1f}BB'
+
     def _eval_cbet_flop_ip(self, hand: dict,
-                           flop_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
-        """Evaluate c-bet flop IP. Returns (score, note_pt_br)."""
+                           flop_a: dict,  # noqa: ARG002
+                           pot_bb: float = 0.0) -> tuple[Optional[int], str]:
+        """Evaluate c-bet flop IP. Returns (score, note_pt_br).
+
+        Notes include: board texture, hero hand, sizing vs expected, IP marker.
+        Sizing expectation per RegLife PDF:
+          - dry board: 25-40% pot (small sizing, fold equity focus)
+          - neutral board: 40-55% pot
+          - wet board: 50-66% pot (protection + value extraction)
+        """
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
+        blinds_bb = hand.get('blinds_bb', 1.0) or 1.0
+        bet_amount = flop_a.get('hero_bet_amount', 0)
 
         if not hero_cards or not board_flop:
-            return (1, "CBet IP no flop: sem info para avaliar, assumido correto")
+            sz = self._cbet_sizing_note(bet_amount, blinds_bb, pot_bb, 25, 55)
+            return (1, f"CBet IP no flop: sem cartas visiveis{sz}")
 
         texture = self._board_texture(board_flop)
         strength = self._hand_connects_board(hero_cards, board_flop)
         notation = self._hand_notation(hero_cards) or '?'
 
+        # Sizing expected range varies by board texture
+        sz_low = 25 if texture == 'dry' else (40 if texture == 'neutral' else 50)
+        sz_high = 40 if texture == 'dry' else (55 if texture == 'neutral' else 66)
+        sz = self._cbet_sizing_note(bet_amount, blinds_bb, pot_bb, sz_low, sz_high)
+
         if strength is None:
-            return (1, f"CBet IP no flop com {notation}: forca nao determinada")
+            return (1, f"CBet IP com {notation} em board {texture}{sz}: forca nao determinada")
 
         if strength in ('strong', 'medium', 'draw'):
-            return (1, f"CBet IP correto: {notation} ({strength}) em board {texture}")
+            return (1, f"CBet IP correto: {notation} ({strength}) em board {texture}{sz}")
 
-        # air
+        # air (weak): evaluate by board texture
         if texture == 'dry':
-            return (1, f"CBet IP correto: {notation} (air) em board dry — blefe valido IP")
+            return (1, f"CBet IP correto: {notation} (air) em board seco (dry){sz} — blefe valido IP")
         if texture == 'neutral':
-            return (None, f"CBet IP marginal: {notation} (air) em board neutral")
-        return (0, f"CBet IP incorreto: {notation} (air) em board wet — over-bluffing")
+            # IP has position advantage; bluffing neutral boards is valid
+            return (1, f"CBet IP correto: {notation} (air) em board neutral{sz} — posicao favorece blefe")
+        return (0, f"CBet IP incorreto: {notation} (air) em board molhado (wet){sz} — over-bluffing IP")
 
     def _eval_cbet_flop_oop(self, hand: dict,
-                            flop_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
-        """Evaluate c-bet flop OOP. Returns (score, note_pt_br)."""
+                            flop_a: dict,  # noqa: ARG002
+                            pot_bb: float = 0.0) -> tuple[Optional[int], str]:
+        """Evaluate c-bet flop OOP. Returns (score, note_pt_br).
+
+        Notes include: board texture, hero hand, sizing vs expected, OOP marker.
+        Sizing expectation per RegLife PDF:
+          - any board: 50-66% pot (OOP needs protection and must commit)
+        """
         board_flop = hand.get('board_flop')
         hero_cards = hand.get('hero_cards')
+        blinds_bb = hand.get('blinds_bb', 1.0) or 1.0
+        bet_amount = flop_a.get('hero_bet_amount', 0)
+
+        sz = self._cbet_sizing_note(bet_amount, blinds_bb, pot_bb, 50, 66)
 
         if not hero_cards or not board_flop:
-            return (1, "CBet OOP no flop: sem info para avaliar, assumido correto")
+            return (1, f"CBet OOP no flop: sem cartas visiveis{sz}")
 
         texture = self._board_texture(board_flop)
         strength = self._hand_connects_board(hero_cards, board_flop)
         notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return (1, f"CBet OOP no flop com {notation}: forca nao determinada")
+            return (1, f"CBet OOP com {notation} em board {texture}{sz}: forca nao determinada")
 
         if strength in ('strong', 'medium', 'draw'):
-            return (1, f"CBet OOP correto: {notation} ({strength}) em board {texture}")
+            return (1, f"CBet OOP correto: {notation} ({strength}) em board {texture}{sz}")
 
         # air
         if texture == 'dry':
-            return (None, f"CBet OOP marginal: {notation} (air) em board dry — aceitavel OOP")
-        return (0, f"CBet OOP incorreto: {notation} (air) em board {texture} — vulneravel OOP")
+            return (None, f"CBet OOP marginal: {notation} (air) em board seco{sz} — aceitavel OOP")
+        return (0, f"CBet OOP incorreto: {notation} (air) em board {texture}{sz} — vulneravel OOP")
 
     def _eval_bb_vs_cbet(self, hand: dict, flop_a: dict) -> tuple[Optional[int], str]:
         """Evaluate BB response to flop c-bet OOP. Returns (score, note_pt_br)."""
@@ -2327,14 +2387,23 @@ class LessonClassifier:
 
     def _eval_cbet_turn(self, hand: dict,
                         flop_a: dict,  # noqa: ARG002
-                        turn_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
-        """Evaluate c-bet turn (double barrel). Returns (score, note_pt_br)."""
+                        turn_a: dict,
+                        pot_bb: float = 0.0) -> tuple[Optional[int], str]:
+        """Evaluate c-bet turn (double barrel: hero bet flop AND turn).
+
+        Notes include: hero hand, turn texture change, sizing vs expected, IP context.
+        Sizing expectation per RegLife C-Bet Turn PDF: 50-75% pot.
+        """
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         hero_cards = hand.get('hero_cards')
+        blinds_bb = hand.get('blinds_bb', 1.0) or 1.0
+        bet_amount = turn_a.get('hero_bet_amount', 0)
+
+        sz = self._cbet_sizing_note(bet_amount, blinds_bb, pot_bb, 50, 75)
 
         if not hero_cards or not board_flop:
-            return (1, "CBet turn: sem info para avaliar, assumido correto")
+            return (1, f"CBet turn (double barrel): sem cartas visiveis{sz}")
 
         full_board = (f"{board_flop} {board_turn}"
                       if board_turn else board_flop)
@@ -2342,34 +2411,46 @@ class LessonClassifier:
         notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return (1, f"CBet turn com {notation}: forca nao determinada")
+            return (1, f"CBet turn com {notation}: forca nao determinada{sz}")
 
         if strength in ('strong', 'medium', 'draw'):
-            return (1, f"CBet turn correto: {notation} ({strength}) — double barrel valido")
+            return (1, f"CBet turn correto: {notation} ({strength}) — double barrel valido{sz}")
 
-        # air
+        # air: evaluate by turn card change
         if not board_turn:
-            return (None, f"CBet turn com {notation} (air): sem carta de turn para avaliar")
+            return (None, f"CBet turn com {notation} (air): sem carta de turn{sz}")
 
         turn_change = self._turn_changes_texture(board_flop, board_turn)
         if turn_change == 'blank':
-            return (1, f"CBet turn correto: {notation} (air) em turn blank — blefe sound")
+            return (1, (f"CBet turn correto: {notation} (air) em turn blank "
+                        f"(nao muda textura){sz} — double barrel valido"))
         if turn_change == 'neutral':
-            return (None, f"CBet turn marginal: {notation} (air) em turn neutral")
-        return (0, f"CBet turn incorreto: {notation} (air) em turn dangerous — over-barreling")
+            return (None, (f"CBet turn marginal: {notation} (air) em turn neutral{sz} "
+                           f"— double barrel arriscado"))
+        return (0, (f"CBet turn incorreto: {notation} (air) em turn dangerous "
+                    f"(completa draw){sz} — over-barreling"))
 
     def _eval_cbet_river(self, hand: dict,
-                        flop_a: dict,  # noqa: ARG002
-                        turn_a: dict,  # noqa: ARG002
-                        river_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
-        """Evaluate c-bet river (triple barrel). Returns (score, note_pt_br)."""
+                         flop_a: dict,  # noqa: ARG002
+                         turn_a: dict,  # noqa: ARG002
+                         river_a: dict,
+                         pot_bb: float = 0.0) -> tuple[Optional[int], str]:
+        """Evaluate c-bet river (triple barrel). Returns (score, note_pt_br).
+
+        Notes include: hero hand, river texture change, sizing vs expected.
+        Sizing expectation per RegLife C-Bet River PDF: 66-100% pot (polarized).
+        """
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         board_river = hand.get('board_river')
         hero_cards = hand.get('hero_cards')
+        blinds_bb = hand.get('blinds_bb', 1.0) or 1.0
+        bet_amount = river_a.get('hero_bet_amount', 0)
+
+        sz = self._cbet_sizing_note(bet_amount, blinds_bb, pot_bb, 66, 100)
 
         if not hero_cards or not board_flop:
-            return (1, "CBet river: sem info para avaliar, assumido correto")
+            return (1, f"CBet river (triple barrel): sem cartas visiveis{sz}")
 
         full_board = board_flop
         if board_turn:
@@ -2381,34 +2462,48 @@ class LessonClassifier:
         notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return (1, f"CBet river com {notation}: forca nao determinada")
+            return (1, f"CBet river com {notation}: forca nao determinada{sz}")
 
         if strength in ('strong', 'medium', 'draw'):
-            return (1, f"CBet river correto: {notation} ({strength}) — triple barrel valido")
+            return (1, f"CBet river correto: {notation} ({strength}) — triple barrel valido{sz}")
 
-        # air
+        # air: evaluate by river card change
         if not board_river:
-            return (None, f"CBet river com {notation} (air): sem carta de river para avaliar")
+            return (None, f"CBet river com {notation} (air): sem carta de river{sz}")
 
         river_change = self._river_changes_texture(
             board_flop, board_turn or '', board_river
         )
         if river_change == 'blank':
-            return (1, f"CBet river correto: {notation} (air) em river blank — blefe polarizado")
+            return (1, (f"CBet river correto: {notation} (air) em river blank "
+                        f"(nao completa draws){sz} — triple barrel blefe polarizado"))
         if river_change == 'neutral':
-            return (None, f"CBet river marginal: {notation} (air) em river neutral")
-        return (0, f"CBet river incorreto: {notation} (air) em river dangerous — over-barreling")
+            return (None, (f"CBet river marginal: {notation} (air) em river neutral{sz} "
+                           f"— triple barrel questionavel"))
+        return (0, (f"CBet river incorreto: {notation} (air) em river dangerous "
+                    f"(completa draw){sz} — triple barrel over-barreling"))
 
     def _eval_delayed_cbet(self, hand: dict,
                            flop_a: dict,  # noqa: ARG002
-                           turn_a: dict) -> tuple[Optional[int], str]:  # noqa: ARG002
-        """Evaluate delayed c-bet execution. Returns (score, note_pt_br)."""
+                           turn_a: dict,
+                           pot_bb: float = 0.0) -> tuple[Optional[int], str]:
+        """Evaluate delayed c-bet (check flop as PFA → bet turn after villain checks).
+
+        Distinct from normal CBet (lesson 13): hero checked the flop despite being PFA,
+        then villain checked back (showed weakness), and hero bets the turn.
+        Notes include: hero hand, turn texture, sizing vs expected.
+        Sizing expectation per RegLife Delayed CBet PDF: 50-66% pot.
+        """
         board_flop = hand.get('board_flop')
         board_turn = hand.get('board_turn')
         hero_cards = hand.get('hero_cards')
+        blinds_bb = hand.get('blinds_bb', 1.0) or 1.0
+        bet_amount = turn_a.get('hero_bet_amount', 0)
+
+        sz = self._cbet_sizing_note(bet_amount, blinds_bb, pot_bb, 50, 66)
 
         if not hero_cards or not board_flop:
-            return (1, "Delayed CBet: vilao mostrou fraqueza, aposta correta por padrao")
+            return (1, f"Delayed CBet (check flop → bet turn): vilao fraco{sz}")
 
         full_board = (f"{board_flop} {board_turn}"
                       if board_turn else board_flop)
@@ -2416,19 +2511,22 @@ class LessonClassifier:
         notation = self._hand_notation(hero_cards) or '?'
 
         if strength is None:
-            return (1, f"Delayed CBet com {notation}: forca nao determinada")
+            return (1, f"Delayed CBet com {notation}: forca nao determinada{sz}")
 
         if strength in ('strong', 'medium', 'draw'):
-            return (1, f"Delayed CBet correto: {notation} ({strength}) — valor/semi-blefe no turn")
+            return (1, (f"Delayed CBet correto: {notation} ({strength}) "
+                        f"— check flop → bet turn com valor/draw{sz}"))
 
-        # air
+        # air: villain showed weakness by checking back flop, so betting turn is usually correct
         if not board_turn:
-            return (1, f"Delayed CBet com {notation} (air): vilao fraco, blefe correto")
+            return (1, f"Delayed CBet com {notation} (air): vilao fraco, blefe correto{sz}")
 
         turn_change = self._turn_changes_texture(board_flop, board_turn)
         if turn_change in ('blank', 'neutral'):
-            return (1, f"Delayed CBet correto: {notation} (air) em turn {turn_change} — vilao fraco")
-        return (None, f"Delayed CBet marginal: {notation} (air) em turn dangerous — arriscado")
+            return (1, (f"Delayed CBet correto: {notation} (air) em turn {turn_change} "
+                        f"— vilao fraco{sz}"))
+        return (None, (f"Delayed CBet marginal: {notation} (air) em turn dangerous "
+                       f"(draw completou){sz} — arriscado mesmo com vilao fraco"))
 
     def _eval_postflop_advanced(self, hand: dict, flop_a: dict,
                                 turn_a: dict,

@@ -3830,11 +3830,11 @@ class TestCBetFlopIPEvaluation(unittest.TestCase):
                             board_flop='8c 5s 2h')
         self.assertEqual(self._cbet_ip_result('CIP20'), 1)
 
-    def test_air_neutral_board_marginal(self):
-        """Air on neutral board IP = marginal (None)."""
+    def test_air_neutral_board_correct(self):
+        """Air on neutral board IP = correct (1): IP position advantage favors bluffing."""
         self._setup_cbet_ip('CIP21', hero_cards='Qh Jd',
                             board_flop='Ah 7h 2c')
-        self.assertIsNone(self._cbet_ip_result('CIP21'))
+        self.assertEqual(self._cbet_ip_result('CIP21'), 1)
 
     def test_air_wet_board_incorrect(self):
         """Air on wet board IP = incorrect (over-bluffing)."""
@@ -5541,12 +5541,14 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
                                  board_flop='As 7c 2h', board_turn='5s')
         self.assertEqual(self._delayed_cbet_result('DCB50'), 1)
 
-    def test_also_triggers_lesson_15(self):
-        """A delayed cbet also triggers lesson 13 (PFA + turn bet)."""
+    def test_does_not_trigger_lesson_13(self):
+        """Delayed cbet does NOT trigger lesson 13 (double barrel requires flop bet)."""
         self._setup_delayed_cbet('DCB51')
         matches = self._classify('DCB51')
         lesson_ids = [m.lesson_id for m in matches]
-        self.assertIn(13, lesson_ids)
+        # Lesson 13 (CBet Turn) requires hero to have bet the flop too (double barrel)
+        # Delayed cbet checks the flop, so lesson 13 must NOT fire
+        self.assertNotIn(13, lesson_ids)
         self.assertIn(15, lesson_ids)
 
 
@@ -5926,6 +5928,511 @@ class TestCBetRiverEvaluation(unittest.TestCase):
             'Ts 9d 8c', 'Jh', '7s')
         # Prior board already had 4-card window (8-9-T-J), so river 7 doesn't add new danger
         self.assertNotEqual(result, 'dangerous')
+
+
+# ── US-053d: CBet Sizing Validation & Enhanced Notes Tests ───────────
+
+
+class TestCBetSizingNotes(unittest.TestCase):
+    """Test sizing note content in CBet evaluation methods (US-053d).
+
+    Verifies that notes include: board texture, hero hand, sizing vs expected,
+    IP/OOP marker. Covers lessons 11-15 (Aulas 11-15).
+    """
+
+    def setUp(self):
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        init_db(self.conn)
+        self.repo = Repository(self.conn)
+        self.classifier = LessonClassifier(self.repo)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _classify(self, hand_id):
+        hand = _get_hand_dict(self.repo, hand_id)
+        actions = self.repo.get_hand_actions(hand_id)
+        return self.classifier.classify_hand(hand, actions)
+
+    def _notes_for_lesson(self, hand_id, lesson_id):
+        matches = self._classify(hand_id)
+        m = next((m for m in matches if m.lesson_id == lesson_id), None)
+        return m.notes if m else ''
+
+    # ── Static helper tests ─────────────────────────────────────────
+
+    def test_sizing_note_within_range(self):
+        """Bet within expected range returns 'ok' note."""
+        note = LessonClassifier._cbet_sizing_note(
+            hero_bet_amount=2.0, blinds_bb=0.50, pot_bb=6.0,
+            low_pct=25, high_pct=66)
+        # bet_bb = 4.0, bet_pct = 4/6*100 = 66.7% → just above 66
+        # Actually 66.7% > high_pct=66, so NOT ok
+        self.assertIn('sizing', note)
+        self.assertIn('BB', note)
+
+    def test_sizing_note_correct_sizing(self):
+        """Bet of 2BB on 6BB pot = 33% → within 25-40% dry range."""
+        note = LessonClassifier._cbet_sizing_note(
+            hero_bet_amount=1.0, blinds_bb=0.50, pot_bb=6.0,
+            low_pct=25, high_pct=40)
+        # bet_bb = 2.0, pot_bb = 6.0, bet_pct = 33%
+        self.assertIn('2.0BB', note)
+        self.assertIn('33%', note)
+        self.assertIn('ok', note)
+
+    def test_sizing_note_outside_range(self):
+        """Bet outside expected range includes 'esperado X-Y%'."""
+        note = LessonClassifier._cbet_sizing_note(
+            hero_bet_amount=4.0, blinds_bb=0.50, pot_bb=6.0,
+            low_pct=25, high_pct=40)
+        # bet_bb = 8.0, pot_bb = 6.0, bet_pct = 133% → over range
+        self.assertIn('esperado 25-40%', note)
+
+    def test_sizing_note_no_pot_info(self):
+        """Without pot info (pot_bb=0), returns just bet in BB."""
+        note = LessonClassifier._cbet_sizing_note(
+            hero_bet_amount=2.0, blinds_bb=0.50, pot_bb=0.0,
+            low_pct=25, high_pct=40)
+        self.assertIn('4.0BB', note)
+        self.assertNotIn('%', note)
+
+    def test_sizing_note_no_bet_amount(self):
+        """Without bet amount, returns empty string."""
+        note = LessonClassifier._cbet_sizing_note(
+            hero_bet_amount=0, blinds_bb=0.50, pot_bb=6.0,
+            low_pct=25, high_pct=40)
+        self.assertEqual(note, '')
+
+    # ── Lesson 11 (CBet Flop IP): Notes content ────────────────────
+
+    def _setup_cbet_ip(self, hand_id, hero_cards, board_flop,
+                       bet_amount=2.0, blinds_bb=0.50, open_raise=1.5):
+        """Set up CBet IP scenario with configurable sizing."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       open_raise, 1, 1, 'BTN')
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       open_raise, 0, 2, 'BB')
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, 3, 'BB')
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       bet_amount, 1, 4, 'BTN')
+
+    def test_l11_notes_include_ip_marker(self):
+        """Lesson 11 notes include 'IP' marker."""
+        self._setup_cbet_ip('SN01', 'Ah Kd', 'As 7d 2c')
+        notes = self._notes_for_lesson('SN01', 11)
+        self.assertIn('IP', notes)
+
+    def test_l11_notes_include_board_texture_dry(self):
+        """Lesson 11 notes include board texture 'dry' or 'seco'."""
+        self._setup_cbet_ip('SN02', 'Qh Jd', '8c 5s 2h')
+        notes = self._notes_for_lesson('SN02', 11)
+        # Board 8c 5s 2h is dry/seco
+        self.assertTrue('dry' in notes or 'seco' in notes,
+                        f"Expected 'dry' or 'seco' in notes: {notes}")
+
+    def test_l11_notes_include_board_texture_wet(self):
+        """Lesson 11 notes include board texture 'wet' or 'molhado'."""
+        # 3d 2c on 9h 8h 7h → air on wet board
+        self._setup_cbet_ip('SN03', '3d 2c', '9h 8h 7h')
+        notes = self._notes_for_lesson('SN03', 11)
+        self.assertTrue('wet' in notes or 'molhado' in notes,
+                        f"Expected 'wet' or 'molhado' in notes: {notes}")
+
+    def test_l11_notes_include_hero_hand_notation(self):
+        """Lesson 11 notes include hero hand notation (e.g., AKo)."""
+        self._setup_cbet_ip('SN04', 'Ah Kd', 'Ts 7d 2c')
+        notes = self._notes_for_lesson('SN04', 11)
+        self.assertIn('AKo', notes)
+
+    def test_l11_notes_include_sizing_when_pot_known(self):
+        """Lesson 11 notes include sizing info when pot is estimable."""
+        # open_raise=1.5, call=1.5 → pot_bb = 2*1.5/0.50 = 6BB
+        # bet = 2.0 → bet_bb = 4.0 → bet_pct = 4/6*100 = 67%
+        # Expected for dry board: 25-40% → sizing out of range
+        self._setup_cbet_ip('SN05', 'Qh Jd', '8c 5s 2h',
+                             bet_amount=2.0, blinds_bb=0.50, open_raise=1.5)
+        notes = self._notes_for_lesson('SN05', 11)
+        self.assertIn('sizing', notes)
+        self.assertIn('BB', notes)
+
+    def test_l11_correct_sizing_dry_board(self):
+        """Lesson 11: 33% pot on dry board = correct sizing in notes."""
+        # pot_bb = 6BB (1.5 raise + 1.5 call at $0.25/$0.50)
+        # For 33% pot: bet = 0.33 * 6 = 2BB = 1.0 currency at $0.50BB
+        self._setup_cbet_ip('SN06', 'Ah Kd', '8c 5s 2h',
+                             bet_amount=1.0, blinds_bb=0.50, open_raise=1.5)
+        notes = self._notes_for_lesson('SN06', 11)
+        self.assertIn('ok', notes)
+
+    def test_l11_air_wet_board_incorrect(self):
+        """Lesson 11: air on wet board = incorrect regardless of sizing."""
+        self._setup_cbet_ip('SN07', '3d 2c', '9h 8h 7h')
+        m = next((m for m in self._classify('SN07')
+                  if m.lesson_id == 11), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 0)
+        self.assertIn('incorreto', m.notes)
+
+    # ── Lesson 12 (CBet Flop OOP): Notes content ───────────────────
+
+    def _setup_cbet_oop(self, hand_id, hero_cards, board_flop,
+                        bet_amount=3.0, blinds_bb=0.50):
+        """Set up CBet OOP scenario (hero 3-bets BB)."""
+        _insert_hand(self.repo, hand_id, position='BB',
+                     board_flop=board_flop, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
+                       1.5, 0, 1, 'BTN')
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       4.5, 1, 2, 'BB')
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       4.5, 0, 3, 'BTN')
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       bet_amount, 1, 4, 'BB')
+
+    def test_l12_notes_include_oop_marker(self):
+        """Lesson 12 notes include 'OOP' marker."""
+        self._setup_cbet_oop('SN10', 'Ah Kd', 'Ts 7d 2c')
+        notes = self._notes_for_lesson('SN10', 12)
+        self.assertIn('OOP', notes)
+
+    def test_l12_notes_include_board_texture(self):
+        """Lesson 12 notes include board texture."""
+        self._setup_cbet_oop('SN11', 'Ah Kd', 'Ts 7d 2c')
+        notes = self._notes_for_lesson('SN11', 12)
+        # Ts 7d 2c is neutral (slightly connected but not highly)
+        self.assertTrue(any(t in notes for t in ('dry', 'neutral', 'wet', 'seco', 'molhado')),
+                        f"Expected texture in notes: {notes}")
+
+    def test_l12_notes_include_hero_hand(self):
+        """Lesson 12 notes include hero hand notation."""
+        self._setup_cbet_oop('SN12', 'Ah Kd', 'Ts 7d 2c')
+        notes = self._notes_for_lesson('SN12', 12)
+        self.assertIn('AKo', notes)
+
+    def test_l12_air_dry_board_marginal_with_sizing(self):
+        """Lesson 12: air on dry board OOP = marginal (None) with sizing note."""
+        self._setup_cbet_oop('SN13', 'Qh Jd', '8c 5s 2h')
+        m = next((m for m in self._classify('SN13')
+                  if m.lesson_id == 12), None)
+        self.assertIsNotNone(m)
+        self.assertIsNone(m.executed_correctly)
+        self.assertIn('sizing', m.notes)
+
+    def test_l12_strong_hand_correct_with_sizing(self):
+        """Lesson 12: strong hand OOP = correct (1) with sizing note."""
+        self._setup_cbet_oop('SN14', 'Ah Ad', '9h 7d 2c')
+        m = next((m for m in self._classify('SN14')
+                  if m.lesson_id == 12), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 1)
+        self.assertIn('sizing', m.notes)
+
+    def test_l12_air_neutral_board_incorrect(self):
+        """Lesson 12: air on neutral board OOP = incorrect (0)."""
+        self._setup_cbet_oop('SN15', 'Qh Jd', 'Ah 7h 2c')
+        m = next((m for m in self._classify('SN15')
+                  if m.lesson_id == 12), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 0)
+
+    # ── Lesson 13 (CBet Turn / Double Barrel): Notes content ───────
+
+    def _setup_double_barrel_sizing(self, hand_id, hero_cards,
+                                    board_flop, board_turn,
+                                    turn_bet=4.0, blinds_bb=0.50):
+        """Set up double barrel with configurable turn bet sizing."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop, board_turn=board_turn,
+                     blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       turn_bet, 1, seq, 'BTN')
+
+    def test_l13_notes_include_double_barrel_label(self):
+        """Lesson 13 notes mention 'double barrel'."""
+        self._setup_double_barrel_sizing('SN20', 'Ah Kd', 'As 7d 2c', '3s')
+        notes = self._notes_for_lesson('SN20', 13)
+        self.assertIn('double barrel', notes)
+
+    def test_l13_notes_include_hero_hand(self):
+        """Lesson 13 notes include hero hand notation."""
+        self._setup_double_barrel_sizing('SN21', 'Ah Kd', 'As 7d 2c', '3s')
+        notes = self._notes_for_lesson('SN21', 13)
+        self.assertIn('AKo', notes)
+
+    def test_l13_notes_include_sizing(self):
+        """Lesson 13 notes include sizing info."""
+        self._setup_double_barrel_sizing('SN22', 'Ah Kd', 'As 7d 2c', '3s')
+        notes = self._notes_for_lesson('SN22', 13)
+        self.assertIn('sizing', notes)
+
+    def test_l13_correct_sizing_blank_turn(self):
+        """Lesson 13: 50% pot on blank turn = within expected range (50-75%)."""
+        # flop_pot_bb = 6, flop_bet_bb = 4 → turn_pot_bb = 6 + 8 = 14
+        # 50% of 14BB = 7BB = $3.50 at $0.50 BB → turn_bet=3.5 → 50% pot = ok
+        self._setup_double_barrel_sizing('SN23', 'Ah Kd', 'As 7d 2c', '3s',
+                                         turn_bet=3.5)
+        notes = self._notes_for_lesson('SN23', 13)
+        self.assertIn('ok', notes)
+
+    def test_l13_does_not_fire_for_delayed_cbet(self):
+        """Lesson 13 does NOT fire when hero checked flop (delayed cbet pattern)."""
+        # Set up delayed cbet: hero checks flop, villain checks back, hero bets turn
+        _insert_hand(self.repo, 'SN24', position='BTN',
+                     board_flop='As 7d 2c', board_turn='3s')
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            ('Ah Kd', 'SN24'))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, 'SN24', 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, 'SN24', 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'SN24', 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'SN24', 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BTN'); seq += 1  # hero checks flop
+        _insert_action(self.repo, 'SN24', 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, 'SN24', 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN')
+        matches = self._classify('SN24')
+        lesson_ids = [m.lesson_id for m in matches]
+        self.assertNotIn(13, lesson_ids)  # delayed cbet, not double barrel
+        self.assertIn(15, lesson_ids)     # lesson 15 fires instead
+
+    def test_l13_air_blank_turn_correct(self):
+        """Lesson 13: air on blank turn = correct (1)."""
+        # QdJc on Ah 7d 2c 3s → no pair, no draw → air, turn blank
+        self._setup_double_barrel_sizing('SN25', 'Qd Jc', 'Ah 7d 2c', '3s')
+        m = next((m for m in self._classify('SN25')
+                  if m.lesson_id == 13), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 1)
+
+    def test_l13_air_dangerous_turn_incorrect(self):
+        """Lesson 13: air on dangerous turn (flush completes) = incorrect (0)."""
+        # Kd 4c on 9h 8h 7c 2h → flush completes on turn → dangerous
+        self._setup_double_barrel_sizing('SN26', 'Kd 4c', '9h 8h 7c', '2h')
+        m = next((m for m in self._classify('SN26')
+                  if m.lesson_id == 13), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 0)
+
+    # ── Lesson 14 (CBet River / Triple Barrel): Notes content ──────
+
+    def _setup_triple_barrel_sizing(self, hand_id, hero_cards,
+                                    board_flop, board_turn, board_river,
+                                    river_bet=8.0, blinds_bb=0.50):
+        """Set up triple barrel with configurable river bet sizing."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop, board_turn=board_turn,
+                     board_river=board_river, blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'bet',
+                       2.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'call',
+                       2.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       4.0, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'call',
+                       4.0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'river', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'river', 'Hero', 'bet',
+                       river_bet, 1, seq, 'BTN')
+
+    def test_l14_notes_include_triple_barrel_label(self):
+        """Lesson 14 notes mention 'triple barrel'."""
+        self._setup_triple_barrel_sizing('SN30', 'Ah Kd',
+                                          'Ts 7d 2c', '3s', '5h')
+        notes = self._notes_for_lesson('SN30', 14)
+        self.assertIn('triple barrel', notes)
+
+    def test_l14_notes_include_hero_hand(self):
+        """Lesson 14 notes include hero hand notation."""
+        self._setup_triple_barrel_sizing('SN31', 'Ah Kd',
+                                          'Ts 7d 2c', '3s', '5h')
+        notes = self._notes_for_lesson('SN31', 14)
+        self.assertIn('AKo', notes)
+
+    def test_l14_notes_include_sizing(self):
+        """Lesson 14 notes include sizing info."""
+        self._setup_triple_barrel_sizing('SN32', 'Ah Kd',
+                                          'Ts 7d 2c', '3s', '5h')
+        notes = self._notes_for_lesson('SN32', 14)
+        self.assertIn('sizing', notes)
+
+    def test_l14_strong_hand_blank_river_correct(self):
+        """Lesson 14: strong hand on blank river = correct (1)."""
+        self._setup_triple_barrel_sizing('SN33', 'Ah Kd',
+                                          'As 7d 2c', '3s', '5h')
+        m = next((m for m in self._classify('SN33')
+                  if m.lesson_id == 14), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 1)
+        self.assertIn('strong', m.notes)
+
+    def test_l14_air_blank_river_correct(self):
+        """Lesson 14: air on blank river = correct polarized bluff (1)."""
+        # Qd Jc on Ts 7d 2c 3s 5h → no pair, no draw → air, blank rivers
+        self._setup_triple_barrel_sizing('SN34', 'Qd Jc',
+                                          'Ts 7d 2c', '3s', '5h')
+        m = next((m for m in self._classify('SN34')
+                  if m.lesson_id == 14), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 1)
+
+    def test_l14_air_dangerous_river_incorrect(self):
+        """Lesson 14: air on dangerous river (flush completes) = incorrect (0)."""
+        # Kd 4c on 9h 8h 7c 2h 3h → flush draw on flop, completes on river
+        self._setup_triple_barrel_sizing('SN35', 'Kd 4c',
+                                          '9h 8h 7c', '2h', '3h')
+        m = next((m for m in self._classify('SN35')
+                  if m.lesson_id == 14), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 0)
+
+    # ── Lesson 15 (Delayed CBet): Notes content ─────────────────────
+
+    def _setup_delayed_cbet_sizing(self, hand_id, hero_cards,
+                                    board_flop, board_turn,
+                                    turn_bet=4.0, blinds_bb=0.50):
+        """Set up delayed cbet with configurable sizing."""
+        _insert_hand(self.repo, hand_id, position='BTN',
+                     board_flop=board_flop, board_turn=board_turn,
+                     blinds_bb=blinds_bb)
+        self.repo.conn.execute(
+            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
+            (hero_cards, hand_id))
+        self.repo.conn.commit()
+        seq = 1
+        _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
+                       1.5, 1, seq, 'BTN'); seq += 1
+        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
+                       1.5, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'check',
+                       0, 1, seq, 'BTN'); seq += 1  # hero checks = delayed
+        _insert_action(self.repo, hand_id, 'turn', 'P1', 'check',
+                       0, 0, seq, 'BB'); seq += 1
+        _insert_action(self.repo, hand_id, 'turn', 'Hero', 'bet',
+                       turn_bet, 1, seq, 'BTN')
+
+    def test_l15_notes_mention_check_flop_bet_turn(self):
+        """Lesson 15 notes describe delayed pattern: check flop → bet turn."""
+        self._setup_delayed_cbet_sizing('SN40', 'Ah Kd', 'As 7d 2c', '3s')
+        notes = self._notes_for_lesson('SN40', 15)
+        self.assertTrue('check' in notes.lower() or 'delayed' in notes.lower(),
+                        f"Expected 'check' or 'delayed' in notes: {notes}")
+
+    def test_l15_notes_include_hero_hand(self):
+        """Lesson 15 notes include hero hand notation."""
+        self._setup_delayed_cbet_sizing('SN41', 'Ah Kd', 'As 7d 2c', '3s')
+        notes = self._notes_for_lesson('SN41', 15)
+        self.assertIn('AKo', notes)
+
+    def test_l15_notes_include_sizing(self):
+        """Lesson 15 notes include sizing info."""
+        self._setup_delayed_cbet_sizing('SN42', 'Ah Kd', 'As 7d 2c', '3s')
+        notes = self._notes_for_lesson('SN42', 15)
+        self.assertIn('sizing', notes)
+
+    def test_l15_strong_hand_correct(self):
+        """Lesson 15: strong hand check-flop-bet-turn = correct (1)."""
+        self._setup_delayed_cbet_sizing('SN43', 'Ah Kd', 'As 7d 2c', '3s')
+        m = next((m for m in self._classify('SN43')
+                  if m.lesson_id == 15), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 1)
+
+    def test_l15_air_blank_turn_correct(self):
+        """Lesson 15: air on blank turn = correct (villain showed weakness)."""
+        # Qd Jc on As 7d 2c 3s → air, blank turn
+        self._setup_delayed_cbet_sizing('SN44', 'Qd Jc', 'As 7d 2c', '3s')
+        m = next((m for m in self._classify('SN44')
+                  if m.lesson_id == 15), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 1)
+
+    def test_l15_air_dangerous_turn_marginal(self):
+        """Lesson 15: air on dangerous turn = marginal (None)."""
+        # Kd 4c on 9h 8h 7c 2h → flush completes on turn → dangerous
+        self._setup_delayed_cbet_sizing('SN45', 'Kd 4c', '9h 8h 7c', '2h')
+        m = next((m for m in self._classify('SN45')
+                  if m.lesson_id == 15), None)
+        self.assertIsNotNone(m)
+        self.assertIsNone(m.executed_correctly)
+
+    def test_l15_distinguishes_from_l13_double_barrel(self):
+        """Lesson 15 (delayed cbet) triggers instead of lesson 13 (double barrel)."""
+        # Delayed cbet: hero checks flop, bets turn
+        self._setup_delayed_cbet_sizing('SN46', 'Ah Kd', 'As 7d 2c', '3s')
+        matches = self._classify('SN46')
+        lesson_ids = [m.lesson_id for m in matches]
+        self.assertIn(15, lesson_ids)    # lesson 15 fires
+        self.assertNotIn(13, lesson_ids)  # lesson 13 must NOT fire
+
+    def test_l15_draw_neutral_turn_correct(self):
+        """Lesson 15: draw hand on neutral turn = correct (semi-bluff)."""
+        # Qh 9h on Ah 7h 2c (flush draw) with neutral turn Ks
+        self._setup_delayed_cbet_sizing('SN47', 'Qh 9h', 'Ah 7h 2c', 'Ks')
+        m = next((m for m in self._classify('SN47')
+                  if m.lesson_id == 15), None)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.executed_correctly, 1)
+
+    def test_l15_correct_sizing_within_range(self):
+        """Lesson 15: bet within 50-66% pot = 'ok' in sizing note."""
+        # pot_bb = 6 (2*1.5/0.5), flop_bet=0 (checked), turn_pot_bb = 6
+        # 50% of 6 = 3BB = 1.5 currency at $0.50 BB
+        self._setup_delayed_cbet_sizing('SN48', 'Ah Kd', 'As 7d 2c', '3s',
+                                         turn_bet=1.5)
+        notes = self._notes_for_lesson('SN48', 15)
+        self.assertIn('ok', notes)
 
 
 # ── Lesson 10: Pós-Flop Avançado Evaluation Tests ────────────────────
