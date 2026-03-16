@@ -634,7 +634,12 @@ class LessonClassifier:
 
         # --- Postflop Lessons ---
         # Guard: skip postflop classification for hands that went all-in preflop
-        if has_flop and not preflop_allin:
+        # Guard: skip postflop if hero has no postflop actions at all
+        hero_has_postflop_action = any(
+            a.get('is_hero', 0)
+            for a in flop_actions + turn_actions + river_actions
+        )
+        if has_flop and not preflop_allin and hero_has_postflop_action:
             pf_agg = pf['hero_is_preflop_aggressor']
 
             # Postflop action analysis
@@ -644,84 +649,84 @@ class LessonClassifier:
 
             hero_ip = self._is_hero_ip(hero_pos, preflop)
 
-            # 12: Pós-Flop Avançado
+            # 10: Pós-Flop Avançado
             if has_turn and has_river:
-                m = self._match(hand_id, 12, 'flop')
+                m = self._match(hand_id, 10, 'flop')
                 m.confidence = 0.5
                 m.executed_correctly, m.notes = self._eval_postflop_advanced(
                     hand, flop_a, turn_a, river_a)
                 matches.append(m)
 
-            # 13: C-Bet Flop IP
+            # 11: C-Bet Flop IP
             if pf_agg and flop_a['hero_bets'] and hero_ip:
-                m = self._match(hand_id, 13, 'flop')
+                m = self._match(hand_id, 11, 'flop')
                 m.executed_correctly, m.notes = self._eval_cbet_flop_ip(hand, flop_a)
                 matches.append(m)
 
-            # 14: C-Bet OOP
+            # 12: C-Bet OOP
             if pf_agg and flop_a['hero_bets'] and not hero_ip:
-                m = self._match(hand_id, 14, 'flop')
+                m = self._match(hand_id, 12, 'flop')
                 m.executed_correctly, m.notes = self._eval_cbet_flop_oop(hand, flop_a)
                 matches.append(m)
 
-            # 15: C-Bet Turn
+            # 13: C-Bet Turn
             if pf_agg and has_turn and turn_a['hero_bets']:
-                m = self._match(hand_id, 15, 'turn')
+                m = self._match(hand_id, 13, 'turn')
                 m.executed_correctly, m.notes = self._eval_cbet_turn(hand, flop_a, turn_a)
                 matches.append(m)
 
-            # 16: C-Bet River
+            # 14: C-Bet River
             if pf_agg and has_river and river_a['hero_bets']:
-                m = self._match(hand_id, 16, 'river')
+                m = self._match(hand_id, 14, 'river')
                 m.executed_correctly, m.notes = self._eval_cbet_river(
                     hand, flop_a, turn_a, river_a)
                 matches.append(m)
 
-            # 17: Delayed C-Bet
+            # 15: Delayed C-Bet
             if pf_agg and flop_a['hero_checks'] and has_turn and turn_a['hero_bets']:
-                m = self._match(hand_id, 17, 'turn')
+                m = self._match(hand_id, 15, 'turn')
                 m.executed_correctly, m.notes = self._eval_delayed_cbet(hand, flop_a, turn_a)
                 matches.append(m)
 
-            # 18: BB vs C-Bet OOP
+            # 16: BB vs C-Bet OOP
             if hero_pos == 'BB' and not hero_ip and flop_a['villain_bets_first']:
-                m = self._match(hand_id, 18, 'flop')
+                m = self._match(hand_id, 16, 'flop')
                 m.executed_correctly, m.notes = self._eval_bb_vs_cbet(hand, flop_a)
                 matches.append(m)
 
-            # 19: Enfrentando Check-Raise
+            # 17: Enfrentando Check-Raise
             if flop_a['hero_faces_checkraise'] or turn_a.get('hero_faces_checkraise'):
                 street = 'flop' if flop_a['hero_faces_checkraise'] else 'turn'
                 active_a = flop_a if flop_a['hero_faces_checkraise'] else turn_a
-                m = self._match(hand_id, 19, street)
+                m = self._match(hand_id, 17, street)
                 m.executed_correctly, m.notes = self._eval_facing_checkraise(hand, active_a)
                 matches.append(m)
 
-            # 20: Pós-Flop IP enfrentando C-Bet BTN
+            # 18: Pós-Flop IP enfrentando C-Bet BTN
             if hero_ip and flop_a['villain_bets_first']:
-                m = self._match(hand_id, 20, 'flop')
+                m = self._match(hand_id, 18, 'flop')
                 m.executed_correctly, m.notes = self._eval_ip_vs_cbet(hand, flop_a)
                 matches.append(m)
 
-            # 21: Bet vs Missed Bet
+            # 19: Bet vs Missed Bet
             if self._detect_bet_vs_missed(flop_a, turn_a, pf_agg):
                 street = 'turn' if turn_a.get('hero_bets') else 'flop'
-                m = self._match(hand_id, 21, street)
+                m = self._match(hand_id, 19, street)
                 m.executed_correctly, m.notes = self._eval_bet_vs_missed_bet(
                     hand, flop_a, turn_a)
                 matches.append(m)
 
-            # 22: Probe do BB
+            # 20: Probe do BB
             if hero_pos == 'BB' and not pf_agg and has_turn:
                 if flop_a.get('villain_checks_back', False) and turn_a['hero_bets']:
-                    m = self._match(hand_id, 22, 'turn')
+                    m = self._match(hand_id, 20, 'turn')
                     m.executed_correctly, m.notes = self._eval_probe(
                         hand, flop_a, turn_a)
                     matches.append(m)
 
-            # 23: 3-Betted Pots Pós-Flop
+            # 21: 3-Betted Pots Pós-Flop
             if pf['is_3bet_pot']:
-                m = self._match(hand_id, 23, 'flop')
+                m = self._match(hand_id, 21, 'flop')
                 m.executed_correctly, m.notes = self._eval_3bet_pot_postflop(hand, flop_a, pf)
                 matches.append(m)
 
@@ -730,15 +735,15 @@ class LessonClassifier:
             t_info = self.repo.get_tournament_info(hand['tournament_id'])
             is_bounty = t_info and t_info.get('is_bounty')
 
-            # 24: Intro Torneios Bounty
+            # 22: Intro Torneios Bounty
             if is_bounty:
-                m = self._match(hand_id, 24, 'preflop')
+                m = self._match(hand_id, 22, 'preflop')
                 m.executed_correctly, m.notes = self._eval_bounty_intro(hand, pf)
                 matches.append(m)
 
-            # 25: Bounty Ranges Práticos
+            # 23: Bounty Ranges Práticos
             if is_bounty and preflop:
-                m = self._match(hand_id, 25, 'preflop')
+                m = self._match(hand_id, 23, 'preflop')
                 m.executed_correctly, m.notes = self._eval_bounty_ranges(hand, pf)
                 matches.append(m)
 
@@ -1965,40 +1970,6 @@ class LessonClassifier:
         if turn_change in ('blank', 'neutral'):
             return (1, f"Delayed CBet correto: {notation} (air) em turn {turn_change} — vilao fraco")
         return (None, f"Delayed CBet marginal: {notation} (air) em turn dangerous — arriscado")
-
-    def _eval_mda(self, hand: dict, flop_a: dict,
-                 turn_a: dict) -> tuple[Optional[int], str]:
-        """Evaluate multi-street decision-making (MDA). Returns (score, note_pt_br)."""
-        board_flop = hand.get('board_flop')
-        board_turn = hand.get('board_turn')
-        hero_cards = hand.get('hero_cards')
-
-        if not hero_cards or not board_flop:
-            return (None, "MDA: sem cartas/board para avaliar")
-
-        full_board = board_flop
-        if board_turn:
-            full_board += f" {board_turn}"
-
-        strength = self._hand_connects_board(hero_cards, full_board)
-        notation = self._hand_notation(hero_cards) or '?'
-        if strength is None:
-            return (None, f"MDA com {notation}: forca nao determinada")
-
-        if strength in ('strong', 'medium'):
-            if turn_a.get('hero_folds') and turn_a.get('villain_bets_first'):
-                return (0, f"MDA incorreto: foldou {notation} ({strength}) no turn vs bet")
-            return (1, f"MDA correto: continuou com {notation} ({strength})")
-
-        if strength == 'draw':
-            return (1, f"MDA correto: {notation} (draw) — semi-blefe ou chase valido")
-
-        # air
-        if turn_a.get('hero_folds') and turn_a.get('villain_bets_first'):
-            return (1, f"MDA correto: foldou {notation} (air) vs bet no turn")
-        if turn_a.get('hero_calls') and turn_a.get('villain_bets_first'):
-            return (None, f"MDA marginal: call com {notation} (air) vs bet — depende de pot odds")
-        return (1, f"MDA: {notation} (air) — check/bet tratado por outras licoes")
 
     def _eval_postflop_advanced(self, hand: dict, flop_a: dict,
                                 turn_a: dict,

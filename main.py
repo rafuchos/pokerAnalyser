@@ -312,7 +312,7 @@ def cmd_classify(args):
     print(f"  Total hands:      {result['total_hands']}")
     print(f"  Classified hands: {result['classified_hands']}")
     print(f"  Total links:      {result['total_links']}")
-    print(f"  Lessons matched:  {result['lessons_matched']} / 25")
+    print(f"  Lessons matched:  {result['lessons_matched']} / 23")
     print()
 
     # Show per-lesson breakdown

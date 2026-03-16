@@ -427,10 +427,10 @@ class TestPostflopDetection(unittest.TestCase):
     def _lesson_ids(self, matches):
         return [m.lesson_id for m in matches]
 
-    # -- Lesson 10: Intro Pós-Flop --
+    # -- Lesson 10: Pós-Flop Avançado (old 12) --
 
     def test_any_postflop_hand(self):
-        """Any hand with flop = lesson 10."""
+        """Flop-only hand does not trigger lesson 10 (needs turn+river)."""
         _insert_hand(self.repo, 'PF001', position='BTN',
                      board_flop='Ah Kd 2c')
         _insert_action(self.repo, 'PF001', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
@@ -439,10 +439,10 @@ class TestPostflopDetection(unittest.TestCase):
         _insert_action(self.repo, 'PF001', 'flop', 'Hero', 'bet', 2.0, 1, 4, 'BTN')
 
         matches = self._classify('PF001')
-        # L10 (Intro Pos-Flop) removed in US-053 rewrite
+        # L10 (Pós-Flop Avançado) needs has_turn and has_river
         self.assertNotIn(10, self._lesson_ids(matches))
 
-    # -- Lesson 13: C-Bet Flop IP --
+    # -- Lesson 11: C-Bet Flop IP (old 13) --
 
     def test_cbet_flop_ip(self):
         """PFA bets flop in position = C-Bet IP."""
@@ -457,10 +457,10 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('CBIP001')
         ids = self._lesson_ids(matches)
-        self.assertIn(13, ids)  # C-Bet IP
-        self.assertNotIn(14, ids)  # should NOT be OOP
+        self.assertIn(11, ids)  # C-Bet IP
+        self.assertNotIn(12, ids)  # should NOT be OOP
 
-    # -- Lesson 14: C-Bet OOP --
+    # -- Lesson 12: C-Bet OOP (old 14) --
 
     def test_cbet_flop_oop(self):
         """PFA bets flop out of position = C-Bet OOP."""
@@ -476,10 +476,10 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('CBOOP001')
         ids = self._lesson_ids(matches)
-        self.assertIn(14, ids)  # C-Bet OOP
-        self.assertNotIn(13, ids)  # should NOT be IP
+        self.assertIn(12, ids)  # C-Bet OOP
+        self.assertNotIn(11, ids)  # should NOT be IP
 
-    # -- Lesson 15: C-Bet Turn --
+    # -- Lesson 13: C-Bet Turn (old 15) --
 
     def test_cbet_turn(self):
         """PFA bets turn = C-Bet Turn."""
@@ -495,11 +495,11 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('CBT001')
         ids = self._lesson_ids(matches)
-        self.assertIn(15, ids)  # C-Bet Turn
-        cbt = next(m for m in matches if m.lesson_id == 15)
+        self.assertIn(13, ids)  # C-Bet Turn
+        cbt = next(m for m in matches if m.lesson_id == 13)
         self.assertEqual(cbt.street, 'turn')
 
-    # -- Lesson 16: C-Bet River --
+    # -- Lesson 14: C-Bet River (old 16) --
 
     def test_cbet_river(self):
         """PFA bets river = C-Bet River."""
@@ -518,11 +518,11 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('CBR001')
         ids = self._lesson_ids(matches)
-        self.assertIn(16, ids)  # C-Bet River
-        cbr = next(m for m in matches if m.lesson_id == 16)
+        self.assertIn(14, ids)  # C-Bet River
+        cbr = next(m for m in matches if m.lesson_id == 14)
         self.assertEqual(cbr.street, 'river')
 
-    # -- Lesson 17: Delayed C-Bet --
+    # -- Lesson 15: Delayed C-Bet (old 17) --
 
     def test_delayed_cbet(self):
         """PFA checks flop, bets turn = Delayed C-Bet."""
@@ -539,11 +539,11 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('DCB001')
         ids = self._lesson_ids(matches)
-        self.assertIn(17, ids)  # Delayed C-Bet
-        dcb = next(m for m in matches if m.lesson_id == 17)
+        self.assertIn(15, ids)  # Delayed C-Bet
+        dcb = next(m for m in matches if m.lesson_id == 15)
         self.assertEqual(dcb.street, 'turn')
 
-    # -- Lesson 18: BB vs C-Bet OOP --
+    # -- Lesson 16: BB vs C-Bet OOP (old 18) --
 
     def test_bb_vs_cbet_oop(self):
         """BB faces c-bet OOP."""
@@ -558,9 +558,9 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('BBCB001')
         ids = self._lesson_ids(matches)
-        self.assertIn(18, ids)  # BB vs C-Bet OOP
+        self.assertIn(16, ids)  # BB vs C-Bet OOP
 
-    # -- Lesson 19: Enfrentando Check-Raise --
+    # -- Lesson 17: Enfrentando Check-Raise (old 19) --
 
     def test_facing_checkraise(self):
         """Hero bets, gets check-raised."""
@@ -574,9 +574,9 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('CR001')
         ids = self._lesson_ids(matches)
-        self.assertIn(19, ids)  # Facing Check-Raise
+        self.assertIn(17, ids)  # Facing Check-Raise
 
-    # -- Lesson 20: Pós-Flop IP enfrentando C-Bet --
+    # -- Lesson 18: Pós-Flop IP enfrentando C-Bet (old 20) --
 
     def test_ip_facing_cbet(self):
         """Hero IP faces c-bet from villain."""
@@ -590,9 +590,9 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('IPCB001')
         ids = self._lesson_ids(matches)
-        self.assertIn(20, ids)  # IP facing C-Bet
+        self.assertIn(18, ids)  # IP facing C-Bet
 
-    # -- Lesson 21: Bet vs Missed Bet --
+    # -- Lesson 19: Bet vs Missed Bet (old 21) --
 
     def test_bet_vs_missed_bet(self):
         """Villain was aggressor, checks back, hero bets turn."""
@@ -610,9 +610,9 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('BVMB001')
         ids = self._lesson_ids(matches)
-        self.assertIn(21, ids)  # Bet vs Missed Bet
+        self.assertIn(19, ids)  # Bet vs Missed Bet
 
-    # -- Lesson 22: Probe do BB --
+    # -- Lesson 20: Probe do BB (old 22) --
 
     def test_probe_bb(self):
         """BB probes turn after PFA checks flop."""
@@ -628,9 +628,9 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('PROBE001')
         ids = self._lesson_ids(matches)
-        self.assertIn(22, ids)  # Probe do BB
+        self.assertIn(20, ids)  # Probe do BB
 
-    # -- Lesson 23: 3-Betted Pots Pós-Flop --
+    # -- Lesson 21: 3-Betted Pots Pós-Flop (old 23) --
 
     def test_3bet_pot_postflop(self):
         """Postflop in 3-bet pot."""
@@ -645,7 +645,7 @@ class TestPostflopDetection(unittest.TestCase):
 
         matches = self._classify('3BP001')
         ids = self._lesson_ids(matches)
-        self.assertIn(23, ids)  # 3-Betted Pots
+        self.assertIn(21, ids)  # 3-Betted Pots
 
 
 # ── Tournament Detection Tests ──────────────────────────────────────
@@ -665,7 +665,7 @@ class TestTournamentDetection(unittest.TestCase):
         self.conn.close()
 
     def test_bounty_tournament_lessons(self):
-        """Bounty tournament hands match lessons 24-25."""
+        """Bounty tournament hands match lessons 22-23."""
         # Insert tournament
         self.repo.insert_tournament({
             'tournament_id': 'T001',
@@ -686,8 +686,8 @@ class TestTournamentDetection(unittest.TestCase):
         actions = self.repo.get_hand_actions('BOUNT001')
         matches = self.classifier.classify_hand(hand, actions)
         ids = [m.lesson_id for m in matches]
-        self.assertIn(24, ids)  # Intro Bounty
-        self.assertIn(25, ids)  # Bounty Ranges
+        self.assertIn(22, ids)  # Intro Bounty
+        self.assertIn(23, ids)  # Bounty Ranges
 
     def test_non_bounty_tournament(self):
         """Non-bounty tournament should NOT match bounty lessons."""
@@ -708,8 +708,8 @@ class TestTournamentDetection(unittest.TestCase):
         actions = self.repo.get_hand_actions('NONB001')
         matches = self.classifier.classify_hand(hand, actions)
         ids = [m.lesson_id for m in matches]
-        self.assertNotIn(24, ids)
-        self.assertNotIn(25, ids)
+        self.assertNotIn(22, ids)
+        self.assertNotIn(23, ids)
 
 
 # ── Pipeline / Bulk Classification Tests ─────────────────────────────
@@ -796,12 +796,11 @@ class TestClassifyPipeline(unittest.TestCase):
         result = classifier.classify_all()
 
         lessons = self.repo.get_lessons_for_hand('MULTI001')
-        # Should match at least: BB preflop (6), intro postflop (10),
-        # MDA (11), BB vs C-Bet (18)
-        self.assertGreaterEqual(len(lessons), 3)
+        # Should match at least: BB preflop (6), BB vs C-Bet (16)
+        self.assertGreaterEqual(len(lessons), 2)
 
     def test_at_least_15_lessons_classifiable(self):
-        """Acceptance criteria: classifier can detect at least 15 of 25 lessons."""
+        """Acceptance criteria: classifier can detect at least 15 of 23 lessons."""
         # Create diverse hands to trigger different lessons
 
         # 1: RFI
@@ -861,21 +860,21 @@ class TestClassifyPipeline(unittest.TestCase):
         _insert_action(self.repo, 'AC09', 'preflop', 'P5', 'raise', 1.5, 0, 5, 'SB')
         _insert_action(self.repo, 'AC09', 'preflop', 'Hero', 'call', 1.5, 1, 6, 'BB')
 
-        # 10+13: C-Bet IP (also triggers intro postflop)
+        # 11: C-Bet IP
         _insert_hand(self.repo, 'AC10', position='BTN', board_flop='Ah Kd 2c')
         _insert_action(self.repo, 'AC10', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
         _insert_action(self.repo, 'AC10', 'preflop', 'P1', 'call', 1.5, 0, 2, 'BB')
         _insert_action(self.repo, 'AC10', 'flop', 'P1', 'check', 0, 0, 3, 'BB')
         _insert_action(self.repo, 'AC10', 'flop', 'Hero', 'bet', 2.0, 1, 4, 'BTN')
 
-        # 14: C-Bet OOP
+        # 12: C-Bet OOP
         _insert_hand(self.repo, 'AC14', position='BB', board_flop='Jh Td 3c')
         _insert_action(self.repo, 'AC14', 'preflop', 'P1', 'raise', 1.5, 0, 1, 'BTN')
         _insert_action(self.repo, 'AC14', 'preflop', 'Hero', 'raise', 4.5, 1, 2, 'BB')
         _insert_action(self.repo, 'AC14', 'preflop', 'P1', 'call', 4.5, 0, 3, 'BTN')
         _insert_action(self.repo, 'AC14', 'flop', 'Hero', 'bet', 3.0, 1, 4, 'BB')
 
-        # 17: Delayed C-Bet
+        # 15: Delayed C-Bet
         _insert_hand(self.repo, 'AC17', position='BTN',
                      board_flop='Ah Kd 2c', board_turn='5s')
         _insert_action(self.repo, 'AC17', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
@@ -885,7 +884,7 @@ class TestClassifyPipeline(unittest.TestCase):
         _insert_action(self.repo, 'AC17', 'turn', 'P1', 'check', 0, 0, 5, 'BB')
         _insert_action(self.repo, 'AC17', 'turn', 'Hero', 'bet', 3.0, 1, 6, 'BTN')
 
-        # 18: BB vs C-Bet OOP
+        # 16: BB vs C-Bet OOP
         _insert_hand(self.repo, 'AC18', position='BB', board_flop='Qh 9d 4c')
         _insert_action(self.repo, 'AC18', 'preflop', 'P1', 'raise', 1.5, 0, 1, 'BTN')
         _insert_action(self.repo, 'AC18', 'preflop', 'Hero', 'call', 1.5, 1, 2, 'BB')
@@ -893,7 +892,7 @@ class TestClassifyPipeline(unittest.TestCase):
         _insert_action(self.repo, 'AC18', 'flop', 'P1', 'bet', 2.0, 0, 4, 'BTN')
         _insert_action(self.repo, 'AC18', 'flop', 'Hero', 'call', 2.0, 1, 5, 'BB')
 
-        # 19: Check-Raise
+        # 17: Check-Raise
         _insert_hand(self.repo, 'AC19', position='BTN', board_flop='Ah Kd 2c')
         _insert_action(self.repo, 'AC19', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
         _insert_action(self.repo, 'AC19', 'preflop', 'P1', 'call', 1.5, 0, 2, 'BB')
@@ -901,7 +900,7 @@ class TestClassifyPipeline(unittest.TestCase):
         _insert_action(self.repo, 'AC19', 'flop', 'Hero', 'bet', 2.0, 1, 4, 'BTN')
         _insert_action(self.repo, 'AC19', 'flop', 'P1', 'raise', 6.0, 0, 5, 'BB')
 
-        # 23: 3-Bet Pot Postflop
+        # 21: 3-Bet Pot Postflop
         _insert_hand(self.repo, 'AC23', position='BTN',
                      board_flop='Ah Kd 2c', net=5.0)
         _insert_action(self.repo, 'AC23', 'preflop', 'P1', 'raise', 1.5, 0, 1, 'UTG')
@@ -910,7 +909,7 @@ class TestClassifyPipeline(unittest.TestCase):
         _insert_action(self.repo, 'AC23', 'flop', 'P1', 'check', 0, 0, 4, 'UTG')
         _insert_action(self.repo, 'AC23', 'flop', 'Hero', 'bet', 5.0, 1, 5, 'BTN')
 
-        # 24-25: Bounty tournament
+        # 22-23: Bounty tournament
         self.repo.insert_tournament({
             'tournament_id': 'TBNTY',
             'platform': 'GGPoker',
@@ -927,7 +926,7 @@ class TestClassifyPipeline(unittest.TestCase):
         classifier = LessonClassifier(self.repo)
         result = classifier.classify_all()
 
-        # AC: at least 15 of 25 lessons covered
+        # AC: at least 15 of 23 lessons covered
         self.assertGreaterEqual(result['lessons_matched'], 15,
                                 f"Expected >=15 lessons matched, got {result['lessons_matched']}")
 
@@ -973,11 +972,11 @@ class TestExecutionEvaluation(unittest.TestCase):
         actions = self.repo.get_hand_actions('EV002')
         matches = self.classifier.classify_hand(hand, actions)
 
-        cbet = next(m for m in matches if m.lesson_id == 13)
+        cbet = next(m for m in matches if m.lesson_id == 11)
         self.assertEqual(cbet.executed_correctly, 1)
 
     def test_postflop_winning_hand(self):
-        """L10 (Intro Pos-Flop) removed in US-053; verify not present."""
+        """L10 (Pós-Flop Avançado) needs turn+river; flop-only hand skipped."""
         _insert_hand(self.repo, 'EV003', position='BTN',
                      board_flop='Ah Kd 2c', net=5.0)
         _insert_action(self.repo, 'EV003', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
@@ -992,7 +991,7 @@ class TestExecutionEvaluation(unittest.TestCase):
         self.assertNotIn(10, [m.lesson_id for m in matches])
 
     def test_postflop_losing_hand(self):
-        """L10 (Intro Pos-Flop) removed in US-053; verify not present."""
+        """L10 (Pós-Flop Avançado) needs turn+river; flop-only hand skipped."""
         _insert_hand(self.repo, 'EV004', position='BTN',
                      board_flop='Ah Kd 2c', net=-5.0)
         _insert_action(self.repo, 'EV004', 'preflop', 'Hero', 'raise', 1.5, 1, 1, 'BTN')
@@ -3386,7 +3385,7 @@ class TestOpenShoveEvaluation(unittest.TestCase):
 
 
 class TestBountyEvaluation(unittest.TestCase):
-    """Test bounty tournament range evaluation for lessons 24 and 25.
+    """Test bounty tournament range evaluation for lessons 22 and 23.
 
     Based on RegLife 'Introdução aos Torneios Bounty' and
     'Torneios Bounty - Ranges Práticos' PDFs.
@@ -3494,52 +3493,52 @@ class TestBountyEvaluation(unittest.TestCase):
         """72o is bounty tier 3 (not in any bounty range)."""
         self.assertEqual(self.classifier._bounty_hand_tier('72o'), 3)
 
-    # -- Lesson 25: Bounty Ranges Práticos --
+    # -- Lesson 23: Bounty Ranges Práticos --
 
     def test_bounty_ranges_correct_aa(self):
         """AA in bounty tournament = correct (tier 1)."""
         self._insert_bounty_hand('BT_R01', hero_cards='Ah Ad')
-        self.assertEqual(self._bounty_result('BT_R01', 25), 1)
+        self.assertEqual(self._bounty_result('BT_R01', 23), 1)
 
     def test_bounty_ranges_correct_kk(self):
         """KK in bounty tournament = correct (tier 1)."""
         self._insert_bounty_hand('BT_R02', hero_cards='Kh Kd')
-        self.assertEqual(self._bounty_result('BT_R02', 25), 1)
+        self.assertEqual(self._bounty_result('BT_R02', 23), 1)
 
     def test_bounty_ranges_correct_t9s(self):
         """T9s in bounty tier 1 = correct."""
         self._insert_bounty_hand('BT_R03', hero_cards='Th 9h')
-        self.assertEqual(self._bounty_result('BT_R03', 25), 1)
+        self.assertEqual(self._bounty_result('BT_R03', 23), 1)
 
     def test_bounty_ranges_correct_aks(self):
         """AKs in bounty tier 1 = correct."""
         self._insert_bounty_hand('BT_R04', hero_cards='Ah Kh')
-        self.assertEqual(self._bounty_result('BT_R04', 25), 1)
+        self.assertEqual(self._bounty_result('BT_R04', 23), 1)
 
     def test_bounty_ranges_marginal_k7s(self):
         """K7s in bounty tier 2 = marginal (None)."""
         self._insert_bounty_hand('BT_R05', hero_cards='Kh 7h')
-        self.assertIsNone(self._bounty_result('BT_R05', 25))
+        self.assertIsNone(self._bounty_result('BT_R05', 23))
 
     def test_bounty_ranges_marginal_a6o(self):
         """A6o in bounty tier 2 = marginal (None)."""
         self._insert_bounty_hand('BT_R06', hero_cards='Ah 6d')
-        self.assertIsNone(self._bounty_result('BT_R06', 25))
+        self.assertIsNone(self._bounty_result('BT_R06', 23))
 
     def test_bounty_ranges_marginal_t9o(self):
         """T9o in bounty tier 2 = marginal (None)."""
         self._insert_bounty_hand('BT_R07', hero_cards='Th 9d')
-        self.assertIsNone(self._bounty_result('BT_R07', 25))
+        self.assertIsNone(self._bounty_result('BT_R07', 23))
 
     def test_bounty_ranges_incorrect_72o(self):
         """72o = incorrect (too weak even with bounty overlay)."""
         self._insert_bounty_hand('BT_R08', hero_cards='7h 2d')
-        self.assertEqual(self._bounty_result('BT_R08', 25), 0)
+        self.assertEqual(self._bounty_result('BT_R08', 23), 0)
 
     def test_bounty_ranges_incorrect_32o(self):
         """32o = incorrect (trash hand, not in any bounty tier)."""
         self._insert_bounty_hand('BT_R09', hero_cards='3h 2d')
-        self.assertEqual(self._bounty_result('BT_R09', 25), 0)
+        self.assertEqual(self._bounty_result('BT_R09', 23), 0)
 
     def test_bounty_ranges_no_cards_returns_none(self):
         """Without hero cards, bounty ranges returns None."""
@@ -3550,34 +3549,34 @@ class TestBountyEvaluation(unittest.TestCase):
         self.repo.conn.commit()
         _insert_action(self.repo, 'BT_R10', 'preflop', 'Hero', 'raise',
                        300, 1, 1, 'BTN')
-        self.assertIsNone(self._bounty_result('BT_R10', 25))
+        self.assertIsNone(self._bounty_result('BT_R10', 23))
 
-    # -- Lesson 24: Intro Torneios Bounty --
+    # -- Lesson 22: Intro Torneios Bounty --
 
     def test_bounty_intro_fold_aa_is_incorrect(self):
         """Folding AA in a bounty spot = incorrect (clear mistake)."""
         self._insert_bounty_hand('BT_I01', hero_cards='Ah Ad', hero_folded=True)
-        self.assertEqual(self._bounty_result('BT_I01', 24), 0)
+        self.assertEqual(self._bounty_result('BT_I01', 22), 0)
 
     def test_bounty_intro_fold_kk_is_incorrect(self):
         """Folding KK in a bounty spot = incorrect."""
         self._insert_bounty_hand('BT_I02', hero_cards='Kh Kd', hero_folded=True)
-        self.assertEqual(self._bounty_result('BT_I02', 24), 0)
+        self.assertEqual(self._bounty_result('BT_I02', 22), 0)
 
     def test_bounty_intro_fold_aks_is_incorrect(self):
         """Folding AKs in a bounty spot = incorrect (premium hand)."""
         self._insert_bounty_hand('BT_I03', hero_cards='Ah Kh', hero_folded=True)
-        self.assertEqual(self._bounty_result('BT_I03', 24), 0)
+        self.assertEqual(self._bounty_result('BT_I03', 22), 0)
 
     def test_bounty_intro_medium_hand_is_none(self):
         """Playing 77 in a bounty tournament = contextual (None)."""
         self._insert_bounty_hand('BT_I04', hero_cards='7h 7d')
-        self.assertIsNone(self._bounty_result('BT_I04', 24))
+        self.assertIsNone(self._bounty_result('BT_I04', 22))
 
     def test_bounty_intro_not_folding_aa_is_none(self):
         """Playing (not folding) AA in bounty = None (not a clear mistake)."""
         self._insert_bounty_hand('BT_I05', hero_cards='Ah Ad')
-        self.assertIsNone(self._bounty_result('BT_I05', 24))
+        self.assertIsNone(self._bounty_result('BT_I05', 22))
 
     def test_bounty_intro_no_cards_returns_none(self):
         """Without hero cards, bounty intro returns None."""
@@ -3588,25 +3587,25 @@ class TestBountyEvaluation(unittest.TestCase):
         self.repo.conn.commit()
         _insert_action(self.repo, 'BT_I06', 'preflop', 'Hero', 'raise',
                        300, 1, 1, 'BTN')
-        self.assertIsNone(self._bounty_result('BT_I06', 24))
+        self.assertIsNone(self._bounty_result('BT_I06', 22))
 
     def test_bounty_intro_fold_trash_is_none(self):
         """Folding 72o in a bounty pot = None (folding trash is fine)."""
         self._insert_bounty_hand('BT_I07', hero_cards='7h 2d', hero_folded=True)
-        self.assertIsNone(self._bounty_result('BT_I07', 24))
+        self.assertIsNone(self._bounty_result('BT_I07', 22))
 
     # -- Both lessons detected --
 
     def test_bounty_both_lessons_detected(self):
-        """Both lessons 24 and 25 are detected for bounty tournament hands."""
+        """Both lessons 22 and 23 are detected for bounty tournament hands."""
         self._insert_bounty_hand('BT_D01', hero_cards='Ah Ad')
         matches = self._classify('BT_D01')
         ids = [m.lesson_id for m in matches]
-        self.assertIn(24, ids)
-        self.assertIn(25, ids)
+        self.assertIn(22, ids)
+        self.assertIn(23, ids)
 
-    def test_bounty_lesson_24_detected_without_preflop_action(self):
-        """Lesson 24 is detected for all bounty tournament hands (detection only)."""
+    def test_bounty_lesson_22_detected_without_preflop_action(self):
+        """Lesson 22 is detected for all bounty tournament hands (detection only)."""
         _insert_hand(self.repo, 'BT_D02', position='BTN',
                      game_type='tournament', tournament_id='BT01')
         self.repo.conn.execute(
@@ -3616,7 +3615,7 @@ class TestBountyEvaluation(unittest.TestCase):
                        300, 1, 1, 'BTN')
         matches = self._classify('BT_D02')
         ids = [m.lesson_id for m in matches]
-        self.assertIn(24, ids)
+        self.assertIn(22, ids)
 
 
 # ── Board Analysis Helpers Tests (US-046) ────────────────────────────
@@ -3743,7 +3742,7 @@ class TestBoardAnalysisHelpers(unittest.TestCase):
 
 
 class TestCBetFlopIPEvaluation(unittest.TestCase):
-    """Test _eval_cbet_flop_ip and lesson 13 detection+evaluation."""
+    """Test _eval_cbet_flop_ip and lesson 11 detection+evaluation."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -3762,7 +3761,7 @@ class TestCBetFlopIPEvaluation(unittest.TestCase):
 
     def _cbet_ip_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 13), None)
+        m = next((m for m in matches if m.lesson_id == 11), None)
         return m.executed_correctly if m else None
 
     def _setup_cbet_ip(self, hand_id, hero_cards='Ah Kd',
@@ -3785,17 +3784,17 @@ class TestCBetFlopIPEvaluation(unittest.TestCase):
 
     # -- Detection --
 
-    def test_detected_as_lesson_13(self):
-        """CBet IP scenario detects lesson 13."""
+    def test_detected_as_lesson_11(self):
+        """CBet IP scenario detects lesson 11."""
         self._setup_cbet_ip('CIP01')
         matches = self._classify('CIP01')
-        self.assertIn(13, [m.lesson_id for m in matches])
+        self.assertIn(11, [m.lesson_id for m in matches])
 
-    def test_not_detected_as_lesson_14(self):
-        """CBet IP should not detect lesson 14 (OOP)."""
+    def test_not_detected_as_lesson_12(self):
+        """CBet IP should not detect lesson 12 (OOP)."""
         self._setup_cbet_ip('CIP02')
         matches = self._classify('CIP02')
-        self.assertNotIn(14, [m.lesson_id for m in matches])
+        self.assertNotIn(12, [m.lesson_id for m in matches])
 
     # -- Value hands: correct on any texture --
 
@@ -3880,14 +3879,14 @@ class TestCBetFlopIPEvaluation(unittest.TestCase):
                        2.0, 1, 4, 'BTN')
         # No board_flop → postflop is skipped entirely
         matches = self._classify('CIP31')
-        self.assertNotIn(13, [m.lesson_id for m in matches])
+        self.assertNotIn(11, [m.lesson_id for m in matches])
 
 
 # ── CBet Flop OOP Evaluation Tests (US-046) ─────────────────────────
 
 
 class TestCBetFlopOOPEvaluation(unittest.TestCase):
-    """Test _eval_cbet_flop_oop and lesson 14 detection+evaluation."""
+    """Test _eval_cbet_flop_oop and lesson 12 detection+evaluation."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -3906,7 +3905,7 @@ class TestCBetFlopOOPEvaluation(unittest.TestCase):
 
     def _cbet_oop_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 14), None)
+        m = next((m for m in matches if m.lesson_id == 12), None)
         return m.executed_correctly if m else None
 
     def _setup_cbet_oop(self, hand_id, hero_cards='Ah Kd',
@@ -3931,17 +3930,17 @@ class TestCBetFlopOOPEvaluation(unittest.TestCase):
 
     # -- Detection --
 
-    def test_detected_as_lesson_14(self):
-        """CBet OOP scenario detects lesson 14."""
+    def test_detected_as_lesson_12(self):
+        """CBet OOP scenario detects lesson 12."""
         self._setup_cbet_oop('COP01')
         matches = self._classify('COP01')
-        self.assertIn(14, [m.lesson_id for m in matches])
+        self.assertIn(12, [m.lesson_id for m in matches])
 
-    def test_not_detected_as_lesson_13(self):
-        """CBet OOP should not detect lesson 13 (IP)."""
+    def test_not_detected_as_lesson_11(self):
+        """CBet OOP should not detect lesson 11 (IP)."""
         self._setup_cbet_oop('COP02')
         matches = self._classify('COP02')
-        self.assertNotIn(13, [m.lesson_id for m in matches])
+        self.assertNotIn(11, [m.lesson_id for m in matches])
 
     # -- Value hands: correct --
 
@@ -4010,7 +4009,7 @@ class TestCBetFlopOOPEvaluation(unittest.TestCase):
 
 
 class TestBBvsCBetOOPEvaluation(unittest.TestCase):
-    """Test _eval_bb_vs_cbet and lesson 18 detection+evaluation."""
+    """Test _eval_bb_vs_cbet and lesson 16 detection+evaluation."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -4029,7 +4028,7 @@ class TestBBvsCBetOOPEvaluation(unittest.TestCase):
 
     def _bb_vs_cbet_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 18), None)
+        m = next((m for m in matches if m.lesson_id == 16), None)
         return m.executed_correctly if m else None
 
     def _setup_bb_vs_cbet(self, hand_id, hero_cards='Ah Kd',
@@ -4062,11 +4061,11 @@ class TestBBvsCBetOOPEvaluation(unittest.TestCase):
 
     # -- Detection --
 
-    def test_detected_as_lesson_18(self):
-        """BB facing c-bet OOP scenario detects lesson 18."""
+    def test_detected_as_lesson_16(self):
+        """BB facing c-bet OOP scenario detects lesson 16."""
         self._setup_bb_vs_cbet('BVC01')
         matches = self._classify('BVC01')
-        self.assertIn(18, [m.lesson_id for m in matches])
+        self.assertIn(16, [m.lesson_id for m in matches])
 
     # -- Strong hand: defend correct, fold incorrect --
 
@@ -4183,11 +4182,11 @@ class TestBBvsCBetOOPEvaluation(unittest.TestCase):
         self.assertEqual(self._bb_vs_cbet_result('BVC41'), 1)
 
     def test_street_is_flop(self):
-        """Lesson 18 match should have street='flop'."""
+        """Lesson 16 match should have street='flop'."""
         self._setup_bb_vs_cbet('BVC50', hero_cards='Ah Kd',
                                board_flop='As 7c 2h')
         matches = self._classify('BVC50')
-        m = next((m for m in matches if m.lesson_id == 18), None)
+        m = next((m for m in matches if m.lesson_id == 16), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'flop')
 
@@ -4196,7 +4195,7 @@ class TestBBvsCBetOOPEvaluation(unittest.TestCase):
 
 
 class TestIPvsCBetEvaluation(unittest.TestCase):
-    """Test _eval_ip_vs_cbet and lesson 20 detection+evaluation."""
+    """Test _eval_ip_vs_cbet and lesson 18 detection+evaluation."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -4215,7 +4214,7 @@ class TestIPvsCBetEvaluation(unittest.TestCase):
 
     def _ip_vs_cbet_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 20), None)
+        m = next((m for m in matches if m.lesson_id == 18), None)
         return m.executed_correctly if m else None
 
     def _setup_ip_vs_cbet(self, hand_id, hero_cards='Ah Kd',
@@ -4247,14 +4246,14 @@ class TestIPvsCBetEvaluation(unittest.TestCase):
 
     # -- Detection --
 
-    def test_detected_as_lesson_20(self):
-        """IP vs CBet detects lesson 20."""
+    def test_detected_as_lesson_18(self):
+        """IP vs CBet detects lesson 18."""
         self._setup_ip_vs_cbet('IVC01')
         matches = self._classify('IVC01')
-        self.assertIn(20, [m.lesson_id for m in matches])
+        self.assertIn(18, [m.lesson_id for m in matches])
 
     def test_not_detected_oop(self):
-        """OOP scenario should not trigger lesson 20."""
+        """OOP scenario should not trigger lesson 18."""
         _insert_hand(self.repo, 'IVC02', position='BB', board_flop='Ts 7d 2c')
         self.repo.conn.execute(
             "UPDATE hands SET hero_cards=? WHERE hand_id=?",
@@ -4271,13 +4270,13 @@ class TestIPvsCBetEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'IVC02', 'flop', 'Hero', 'call',
                        2.0, 1, 5, 'BB')
         matches = self._classify('IVC02')
-        self.assertNotIn(20, [m.lesson_id for m in matches])
+        self.assertNotIn(18, [m.lesson_id for m in matches])
 
     def test_street_is_flop(self):
-        """Lesson 20 match should have street='flop'."""
+        """Lesson 18 match should have street='flop'."""
         self._setup_ip_vs_cbet('IVC03')
         matches = self._classify('IVC03')
-        m = next((m for m in matches if m.lesson_id == 20), None)
+        m = next((m for m in matches if m.lesson_id == 18), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'flop')
 
@@ -4425,7 +4424,7 @@ class TestFacingCheckRaiseEvaluation(unittest.TestCase):
 
     def _cr_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 19), None)
+        m = next((m for m in matches if m.lesson_id == 17), None)
         return m.executed_correctly if m else None
 
     def _setup_facing_checkraise(self, hand_id, hero_cards='Ah Kd',
@@ -4459,22 +4458,22 @@ class TestFacingCheckRaiseEvaluation(unittest.TestCase):
 
     # -- Detection --
 
-    def test_detected_as_lesson_19(self):
-        """Facing check-raise detects lesson 19."""
+    def test_detected_as_lesson_17(self):
+        """Facing check-raise detects lesson 17."""
         self._setup_facing_checkraise('FCR01')
         matches = self._classify('FCR01')
-        self.assertIn(19, [m.lesson_id for m in matches])
+        self.assertIn(17, [m.lesson_id for m in matches])
 
     def test_street_is_flop(self):
-        """Lesson 19 on flop check-raise should have street='flop'."""
+        """Lesson 17 on flop check-raise should have street='flop'."""
         self._setup_facing_checkraise('FCR02')
         matches = self._classify('FCR02')
-        m = next((m for m in matches if m.lesson_id == 19), None)
+        m = next((m for m in matches if m.lesson_id == 17), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'flop')
 
     def test_not_detected_without_checkraise(self):
-        """No check-raise = no lesson 19 detection."""
+        """No check-raise = no lesson 17 detection."""
         _insert_hand(self.repo, 'FCR03', position='BTN',
                      board_flop='As 7d 2c')
         self.repo.conn.execute(
@@ -4492,7 +4491,7 @@ class TestFacingCheckRaiseEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'FCR03', 'flop', 'P1', 'call',
                        2.0, 0, 5, 'BB')
         matches = self._classify('FCR03')
-        self.assertNotIn(19, [m.lesson_id for m in matches])
+        self.assertNotIn(17, [m.lesson_id for m in matches])
 
     # -- Strong hand: must defend, fold is wrong --
 
@@ -4648,7 +4647,7 @@ class Test3BetPotPostflopEvaluation(unittest.TestCase):
 
     def _3bet_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 23), None)
+        m = next((m for m in matches if m.lesson_id == 21), None)
         return m.executed_correctly if m else None
 
     def _setup_3bet_pot_pfa(self, hand_id, hero_cards='Ah Kd',
@@ -4707,22 +4706,22 @@ class Test3BetPotPostflopEvaluation(unittest.TestCase):
 
     # -- Detection --
 
-    def test_detected_as_lesson_23(self):
-        """3-bet pot postflop detects lesson 23."""
+    def test_detected_as_lesson_21(self):
+        """3-bet pot postflop detects lesson 21."""
         self._setup_3bet_pot_pfa('TBP01')
         matches = self._classify('TBP01')
-        self.assertIn(23, [m.lesson_id for m in matches])
+        self.assertIn(21, [m.lesson_id for m in matches])
 
     def test_street_is_flop(self):
-        """Lesson 23 match should have street='flop'."""
+        """Lesson 21 match should have street='flop'."""
         self._setup_3bet_pot_pfa('TBP02')
         matches = self._classify('TBP02')
-        m = next((m for m in matches if m.lesson_id == 23), None)
+        m = next((m for m in matches if m.lesson_id == 21), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'flop')
 
     def test_not_detected_in_single_raised_pot(self):
-        """Single raised pot should not trigger lesson 23."""
+        """Single raised pot should not trigger lesson 21."""
         _insert_hand(self.repo, 'TBP03', position='BTN',
                      board_flop='Ts 7d 2c')
         self.repo.conn.execute(
@@ -4738,7 +4737,7 @@ class Test3BetPotPostflopEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'TBP03', 'flop', 'Hero', 'call',
                        2.0, 1, 4, 'BTN')
         matches = self._classify('TBP03')
-        self.assertNotIn(23, [m.lesson_id for m in matches])
+        self.assertNotIn(21, [m.lesson_id for m in matches])
 
     # -- PFA: strong/medium hands --
 
@@ -4998,7 +4997,7 @@ class TestTurnChangesTexture(unittest.TestCase):
 
 
 class TestCBetTurnEvaluation(unittest.TestCase):
-    """Test _eval_cbet_turn and lesson 15 detection+evaluation."""
+    """Test _eval_cbet_turn and lesson 13 detection+evaluation."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -5017,7 +5016,7 @@ class TestCBetTurnEvaluation(unittest.TestCase):
 
     def _cbet_turn_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 15), None)
+        m = next((m for m in matches if m.lesson_id == 13), None)
         return m.executed_correctly if m else None
 
     def _setup_double_barrel(self, hand_id, hero_cards='Ah Kd',
@@ -5049,22 +5048,22 @@ class TestCBetTurnEvaluation(unittest.TestCase):
 
     # -- Detection --
 
-    def test_detected_as_lesson_15(self):
-        """Double barrel detects lesson 15."""
+    def test_detected_as_lesson_13(self):
+        """Double barrel detects lesson 13."""
         self._setup_double_barrel('CBT01')
         matches = self._classify('CBT01')
-        self.assertIn(15, [m.lesson_id for m in matches])
+        self.assertIn(13, [m.lesson_id for m in matches])
 
     def test_street_is_turn(self):
-        """Lesson 15 match has street='turn'."""
+        """Lesson 13 match has street='turn'."""
         self._setup_double_barrel('CBT02')
         matches = self._classify('CBT02')
-        m = next((m for m in matches if m.lesson_id == 15), None)
+        m = next((m for m in matches if m.lesson_id == 13), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'turn')
 
     def test_not_detected_without_turn(self):
-        """No turn card → lesson 15 not detected."""
+        """No turn card → lesson 13 not detected."""
         _insert_hand(self.repo, 'CBT03', position='BTN',
                      board_flop='Ts 7d 2c')
         self.repo.conn.execute(
@@ -5080,10 +5079,10 @@ class TestCBetTurnEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'CBT03', 'flop', 'Hero', 'bet',
                        2.0, 1, 4, 'BTN')
         matches = self._classify('CBT03')
-        self.assertNotIn(15, [m.lesson_id for m in matches])
+        self.assertNotIn(13, [m.lesson_id for m in matches])
 
     def test_not_detected_without_hero_pfa(self):
-        """Villain is PFA, hero just bets turn → lesson 15 not triggered."""
+        """Villain is PFA, hero just bets turn → lesson 13 not triggered."""
         _insert_hand(self.repo, 'CBT04', position='BB',
                      board_flop='Ts 7d 2c', board_turn='3s')
         self.repo.conn.execute(
@@ -5103,7 +5102,7 @@ class TestCBetTurnEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'CBT04', 'turn', 'Hero', 'bet',
                        4.0, 1, 6, 'BB')
         matches = self._classify('CBT04')
-        self.assertNotIn(15, [m.lesson_id for m in matches])
+        self.assertNotIn(13, [m.lesson_id for m in matches])
 
     # -- Value hands: always correct --
 
@@ -5269,7 +5268,7 @@ class TestCBetTurnEvaluation(unittest.TestCase):
 
 
 class TestDelayedCBetEvaluation(unittest.TestCase):
-    """Test _eval_delayed_cbet and lesson 17 detection+evaluation."""
+    """Test _eval_delayed_cbet and lesson 15 detection+evaluation."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -5288,7 +5287,7 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
 
     def _delayed_cbet_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 17), None)
+        m = next((m for m in matches if m.lesson_id == 15), None)
         return m.executed_correctly if m else None
 
     def _setup_delayed_cbet(self, hand_id, hero_cards='Ah Kd',
@@ -5319,21 +5318,21 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
     # -- Detection --
 
     def test_detected_as_lesson_17(self):
-        """Delayed cbet detects lesson 17."""
+        """Delayed cbet detects lesson 15."""
         self._setup_delayed_cbet('DCB01')
         matches = self._classify('DCB01')
-        self.assertIn(17, [m.lesson_id for m in matches])
+        self.assertIn(15, [m.lesson_id for m in matches])
 
     def test_street_is_turn(self):
-        """Lesson 17 match has street='turn'."""
+        """Lesson 15 match has street='turn'."""
         self._setup_delayed_cbet('DCB02')
         matches = self._classify('DCB02')
-        m = next((m for m in matches if m.lesson_id == 17), None)
+        m = next((m for m in matches if m.lesson_id == 15), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'turn')
 
     def test_not_detected_without_flop_check(self):
-        """Hero bets flop (normal cbet) and bets turn → no lesson 17."""
+        """Hero bets flop (normal cbet) and bets turn → no lesson 15."""
         _insert_hand(self.repo, 'DCB03', position='BTN',
                      board_flop='Ts 7d 2c', board_turn='3s')
         self.repo.conn.execute(
@@ -5356,10 +5355,10 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'DCB03', 'turn', 'Hero', 'bet',
                        4.0, 1, seq, 'BTN')
         matches = self._classify('DCB03')
-        self.assertNotIn(17, [m.lesson_id for m in matches])
+        self.assertNotIn(15, [m.lesson_id for m in matches])
 
     def test_not_detected_without_turn_bet(self):
-        """Hero checks flop, checks turn → no lesson 17."""
+        """Hero checks flop, checks turn → no lesson 15."""
         _insert_hand(self.repo, 'DCB04', position='BTN',
                      board_flop='Ts 7d 2c', board_turn='3s')
         self.repo.conn.execute(
@@ -5380,10 +5379,10 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'DCB04', 'turn', 'Hero', 'check',
                        0, 1, seq, 'BTN')
         matches = self._classify('DCB04')
-        self.assertNotIn(17, [m.lesson_id for m in matches])
+        self.assertNotIn(15, [m.lesson_id for m in matches])
 
     def test_not_detected_if_not_pfa(self):
-        """Villain is PFA and hero checks flop and bets turn → no lesson 17."""
+        """Villain is PFA and hero checks flop and bets turn → no lesson 15."""
         _insert_hand(self.repo, 'DCB05', position='BB',
                      board_flop='Ts 7d 2c', board_turn='3s')
         self.repo.conn.execute(
@@ -5402,7 +5401,7 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'DCB05', 'turn', 'Hero', 'bet',
                        4.0, 1, seq, 'BB')
         matches = self._classify('DCB05')
-        self.assertNotIn(17, [m.lesson_id for m in matches])
+        self.assertNotIn(15, [m.lesson_id for m in matches])
 
     # -- Value hands: always correct --
 
@@ -5514,7 +5513,7 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
         self.assertEqual(self._delayed_cbet_result('DCB40'), 1)
 
     def test_no_board_turn_not_detected(self):
-        """No board_turn stored → lesson 17 not detected (has_turn=False)."""
+        """No board_turn stored → lesson 15 not detected (has_turn=False)."""
         _insert_hand(self.repo, 'DCB41', position='BTN',
                      board_flop='Ts 7d 2c', board_turn=None)
         self.repo.conn.execute(
@@ -5543,16 +5542,16 @@ class TestDelayedCBetEvaluation(unittest.TestCase):
         self.assertEqual(self._delayed_cbet_result('DCB50'), 1)
 
     def test_also_triggers_lesson_15(self):
-        """A delayed cbet also triggers lesson 15 (PFA + turn bet)."""
+        """A delayed cbet also triggers lesson 13 (PFA + turn bet)."""
         self._setup_delayed_cbet('DCB51')
         matches = self._classify('DCB51')
         lesson_ids = [m.lesson_id for m in matches]
+        self.assertIn(13, lesson_ids)
         self.assertIn(15, lesson_ids)
-        self.assertIn(17, lesson_ids)
 
 
 class TestCBetRiverEvaluation(unittest.TestCase):
-    """Test _eval_cbet_river and lesson 16 detection+evaluation."""
+    """Test _eval_cbet_river and lesson 14 detection+evaluation."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -5571,7 +5570,7 @@ class TestCBetRiverEvaluation(unittest.TestCase):
 
     def _cbet_river_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 16), None)
+        m = next((m for m in matches if m.lesson_id == 14), None)
         return m.executed_correctly if m else None
 
     def _setup_triple_barrel(self, hand_id, hero_cards='Ah Kd',
@@ -5612,21 +5611,21 @@ class TestCBetRiverEvaluation(unittest.TestCase):
     # -- Detection tests --
 
     def test_detected_as_lesson_16(self):
-        """Triple barrel detects lesson 16."""
+        """Triple barrel detects lesson 14."""
         self._setup_triple_barrel('CBR01')
         matches = self._classify('CBR01')
-        self.assertIn(16, [m.lesson_id for m in matches])
+        self.assertIn(14, [m.lesson_id for m in matches])
 
     def test_street_is_river(self):
-        """Lesson 16 match has street='river'."""
+        """Lesson 14 match has street='river'."""
         self._setup_triple_barrel('CBR02')
         matches = self._classify('CBR02')
-        m = next((m for m in matches if m.lesson_id == 16), None)
+        m = next((m for m in matches if m.lesson_id == 14), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'river')
 
     def test_not_detected_without_river(self):
-        """No river card → lesson 16 not detected."""
+        """No river card → lesson 14 not detected."""
         _insert_hand(self.repo, 'CBR03', position='BTN',
                      board_flop='Ts 7d 2c', board_turn='3s')
         self.repo.conn.execute(
@@ -5647,10 +5646,10 @@ class TestCBetRiverEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'CBR03', 'turn', 'Hero', 'bet',
                        4.0, 1, seq, 'BTN')
         matches = self._classify('CBR03')
-        self.assertNotIn(16, [m.lesson_id for m in matches])
+        self.assertNotIn(14, [m.lesson_id for m in matches])
 
     def test_not_detected_without_hero_pfa(self):
-        """Villain is PFA, hero bets river → lesson 16 not triggered."""
+        """Villain is PFA, hero bets river → lesson 14 not triggered."""
         _insert_hand(self.repo, 'CBR04', position='BB',
                      board_flop='Ts 7d 2c', board_turn='3s',
                      board_river='5h')
@@ -5676,10 +5675,10 @@ class TestCBetRiverEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'CBR04', 'river', 'Hero', 'bet',
                        8.0, 1, seq, 'BB')
         matches = self._classify('CBR04')
-        self.assertNotIn(16, [m.lesson_id for m in matches])
+        self.assertNotIn(14, [m.lesson_id for m in matches])
 
     def test_not_detected_without_hero_river_bet(self):
-        """Hero checks river → lesson 16 not triggered."""
+        """Hero checks river → lesson 14 not triggered."""
         _insert_hand(self.repo, 'CBR05', position='BTN',
                      board_flop='Ts 7d 2c', board_turn='3s',
                      board_river='5h')
@@ -5705,7 +5704,7 @@ class TestCBetRiverEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'CBR05', 'river', 'Hero', 'check',
                        0, 1, seq, 'BTN')
         matches = self._classify('CBR05')
-        self.assertNotIn(16, [m.lesson_id for m in matches])
+        self.assertNotIn(14, [m.lesson_id for m in matches])
 
     # -- Value hands: always correct (1) --
 
@@ -5878,12 +5877,12 @@ class TestCBetRiverEvaluation(unittest.TestCase):
         self.assertEqual(self._cbet_river_result('CBR50'), 1)
 
     def test_also_triggers_lesson_15(self):
-        """A triple barrel also triggers lesson 15 (PFA + turn bet)."""
+        """A triple barrel also triggers lesson 13 (PFA + turn bet)."""
         self._setup_triple_barrel('CBR51')
         matches = self._classify('CBR51')
         lesson_ids = [m.lesson_id for m in matches]
-        self.assertIn(15, lesson_ids)
-        self.assertIn(16, lesson_ids)
+        self.assertIn(13, lesson_ids)
+        self.assertIn(14, lesson_ids)
 
     def test_river_changes_texture_blank(self):
         """_river_changes_texture returns 'blank' for low disconnected river."""
@@ -5929,271 +5928,11 @@ class TestCBetRiverEvaluation(unittest.TestCase):
         self.assertNotEqual(result, 'dangerous')
 
 
-# ── Lesson 11: MDA Evaluation Tests ─────────────────────────────────
-
-
-class TestMDAEvaluation(unittest.TestCase):
-    """Test _eval_mda evaluation (L11 removed from classify_hand in US-053, tested directly)."""
-
-    def setUp(self):
-        self.conn = sqlite3.connect(':memory:')
-        self.conn.row_factory = sqlite3.Row
-        init_db(self.conn)
-        self.repo = Repository(self.conn)
-        self.classifier = LessonClassifier(self.repo)
-
-    def tearDown(self):
-        self.conn.close()
-
-    def _classify(self, hand_id):
-        hand = _get_hand_dict(self.repo, hand_id)
-        actions = self.repo.get_hand_actions(hand_id)
-        return self.classifier.classify_hand(hand, actions)
-
-    def _mda_result(self, hand_id):
-        """Call _eval_mda directly (L11 removed from classify_hand in US-053)."""
-        hand = _get_hand_dict(self.repo, hand_id)
-        actions = self.repo.get_hand_actions(hand_id)
-        from collections import defaultdict
-        by_street = defaultdict(list)
-        for a in actions:
-            by_street[a['street']].append(a)
-        flop_a = self.classifier._analyze_street_actions(by_street.get('flop', []))
-        turn_a = self.classifier._analyze_street_actions(by_street.get('turn', []))
-        result, _note = self.classifier._eval_mda(hand, flop_a, turn_a)
-        return result
-
-    def _setup_multistreet(self, hand_id, hero_cards='Ah Kd',
-                           board_flop='Ts 7d 2c', board_turn='3s',
-                           hero_pos='BB', preflop_hero_raises=False,
-                           flop_villain_bets=False,
-                           turn_hero_action='check'):
-        """Set up a multi-street hand."""
-        _insert_hand(self.repo, hand_id, position=hero_pos,
-                     board_flop=board_flop, board_turn=board_turn)
-        self.repo.conn.execute(
-            "UPDATE hands SET hero_cards=? WHERE hand_id=?",
-            (hero_cards, hand_id))
-        self.repo.conn.commit()
-        seq = 1
-        # Preflop
-        _insert_action(self.repo, hand_id, 'preflop', 'P1', 'raise',
-                       1.5, 0, seq, 'BTN'); seq += 1
-        if preflop_hero_raises:
-            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'raise',
-                           4.5, 1, seq, hero_pos); seq += 1
-            _insert_action(self.repo, hand_id, 'preflop', 'P1', 'call',
-                           4.5, 0, seq, 'BTN'); seq += 1
-        else:
-            _insert_action(self.repo, hand_id, 'preflop', 'Hero', 'call',
-                           1.5, 1, seq, hero_pos); seq += 1
-        # Flop
-        _insert_action(self.repo, hand_id, 'flop', 'Hero', 'check',
-                       0, 1, seq, hero_pos); seq += 1
-        if flop_villain_bets:
-            _insert_action(self.repo, hand_id, 'flop', 'P1', 'bet',
-                           2.0, 0, seq, 'BTN'); seq += 1
-            _insert_action(self.repo, hand_id, 'flop', 'Hero', 'call',
-                           2.0, 1, seq, hero_pos); seq += 1
-        else:
-            _insert_action(self.repo, hand_id, 'flop', 'P1', 'check',
-                           0, 0, seq, 'BTN'); seq += 1
-        # Turn
-        if flop_villain_bets:
-            _insert_action(self.repo, hand_id, 'turn', 'P1', 'bet',
-                           4.0, 0, seq, 'BTN'); seq += 1
-        if turn_hero_action == 'fold':
-            _insert_action(self.repo, hand_id, 'turn', 'Hero', 'fold',
-                           0, 1, seq, hero_pos)
-        elif turn_hero_action == 'call':
-            _insert_action(self.repo, hand_id, 'turn', 'Hero', 'call',
-                           4.0, 1, seq, hero_pos)
-        else:
-            _insert_action(self.repo, hand_id, 'turn', 'Hero', 'check',
-                           0, 1, seq, hero_pos)
-
-    # -- Detection tests (L11 removed from classify_hand in US-053) --
-
-    def test_not_detected_on_turn(self):
-        """L11 no longer detected by classify_hand (removed in US-053)."""
-        self._setup_multistreet('MDA01')
-        matches = self._classify('MDA01')
-        self.assertNotIn(11, [m.lesson_id for m in matches])
-
-    def test_not_detected_on_river(self):
-        """L11 no longer detected by classify_hand (removed in US-053)."""
-        _insert_hand(self.repo, 'MDA02', position='BTN',
-                     board_flop='Ts 7d 2c', board_turn='3s',
-                     board_river='5h')
-        seq = 1
-        _insert_action(self.repo, 'MDA02', 'preflop', 'Hero', 'raise',
-                       1.5, 1, seq, 'BTN'); seq += 1
-        _insert_action(self.repo, 'MDA02', 'preflop', 'P1', 'call',
-                       1.5, 0, seq, 'BB'); seq += 1
-        _insert_action(self.repo, 'MDA02', 'flop', 'P1', 'check',
-                       0, 0, seq, 'BB'); seq += 1
-        _insert_action(self.repo, 'MDA02', 'flop', 'Hero', 'bet',
-                       2.0, 1, seq, 'BTN'); seq += 1
-        _insert_action(self.repo, 'MDA02', 'river', 'P1', 'check',
-                       0, 0, seq, 'BB'); seq += 1
-        _insert_action(self.repo, 'MDA02', 'river', 'Hero', 'bet',
-                       4.0, 1, seq, 'BTN')
-        matches = self._classify('MDA02')
-        self.assertNotIn(11, [m.lesson_id for m in matches])
-
-    def test_not_detected_flop_only(self):
-        """L11 NOT detected when hand only has flop (no turn/river)."""
-        _insert_hand(self.repo, 'MDA03', position='BTN',
-                     board_flop='Ts 7d 2c')
-        seq = 1
-        _insert_action(self.repo, 'MDA03', 'preflop', 'Hero', 'raise',
-                       1.5, 1, seq, 'BTN'); seq += 1
-        _insert_action(self.repo, 'MDA03', 'preflop', 'P1', 'call',
-                       1.5, 0, seq, 'BB'); seq += 1
-        _insert_action(self.repo, 'MDA03', 'flop', 'P1', 'check',
-                       0, 0, seq, 'BB'); seq += 1
-        _insert_action(self.repo, 'MDA03', 'flop', 'Hero', 'bet',
-                       2.0, 1, seq, 'BTN')
-        matches = self._classify('MDA03')
-        self.assertNotIn(11, [m.lesson_id for m in matches])
-
-    def test_eval_mda_still_works(self):
-        """_eval_mda still callable directly (returns tuple)."""
-        self._setup_multistreet('MDA04')
-        result = self._mda_result('MDA04')
-        self.assertIsNotNone(result)
-
-    def test_eval_mda_returns_score(self):
-        """_eval_mda returns numeric score."""
-        self._setup_multistreet('MDA05')
-        result = self._mda_result('MDA05')
-        self.assertIsNotNone(result)
-
-    # -- Correct execution (1) --
-
-    def test_strong_hand_continues_correct(self):
-        """Strong hand continues on turn vs villain bet: correct (1).
-
-        Hero has top two pair (Ah Kd) on Ah Kd 2c flop, turn 3s.
-        Villain bets turn, hero calls: should not fold made hand.
-        """
-        self._setup_multistreet('MDA10', hero_cards='Ah Kd',
-                                board_flop='Ah Kd 2c', board_turn='3s',
-                                flop_villain_bets=True,
-                                turn_hero_action='call')
-        self.assertEqual(self._mda_result('MDA10'), 1)
-
-    def test_medium_hand_continues_correct(self):
-        """Medium hand (middle pair) continues on turn: correct (1).
-
-        Hero 7h 6d on As 7c 2h flop, turn Kd.
-        Villain bets, hero calls: middle pair is worth continuing.
-        """
-        self._setup_multistreet('MDA11', hero_cards='7h 6d',
-                                board_flop='As 7c 2h', board_turn='Kd',
-                                flop_villain_bets=True,
-                                turn_hero_action='call')
-        self.assertEqual(self._mda_result('MDA11'), 1)
-
-    def test_draw_continues_correct(self):
-        """Draw (flush draw) continues on turn: correct (1).
-
-        Hero Ah 2h on Kh 7h 3c flop (flush draw), turn 9s.
-        Villain bets, hero calls: semi-bluff/draw is correct multi-street play.
-        """
-        self._setup_multistreet('MDA12', hero_cards='Ah 2h',
-                                board_flop='Kh 7h 3c', board_turn='9s',
-                                flop_villain_bets=True,
-                                turn_hero_action='call')
-        self.assertEqual(self._mda_result('MDA12'), 1)
-
-    def test_air_folds_to_villain_bet_correct(self):
-        """Air folds to villain turn bet: correct (1).
-
-        Hero Qd Jc has no pair, no draw on As 7h 3c flop, turn Kd.
-        Villain bets turn, hero folds: correct MDA decision.
-        """
-        self._setup_multistreet('MDA13', hero_cards='Qd Jc',
-                                board_flop='As 7h 3c', board_turn='Kd',
-                                flop_villain_bets=True,
-                                turn_hero_action='fold')
-        self.assertEqual(self._mda_result('MDA13'), 1)
-
-    def test_air_checks_back_correct(self):
-        """Air checks back on turn (no villain bet): correct (1)."""
-        self._setup_multistreet('MDA14', hero_cards='Qd Jc',
-                                board_flop='As 7h 3c', board_turn='Kd',
-                                flop_villain_bets=False,
-                                turn_hero_action='check')
-        self.assertEqual(self._mda_result('MDA14'), 1)
-
-    # -- Incorrect execution (0) --
-
-    def test_strong_hand_folds_to_turn_bet_incorrect(self):
-        """Strong hand folds to single turn bet: incorrect (0).
-
-        Hero Ah Kd (top two pair) on Ah Kd 2c flop, turn 3s.
-        Villain bets turn, hero folds: critical MDA mistake.
-        """
-        self._setup_multistreet('MDA20', hero_cards='Ah Kd',
-                                board_flop='Ah Kd 2c', board_turn='3s',
-                                flop_villain_bets=True,
-                                turn_hero_action='fold')
-        self.assertEqual(self._mda_result('MDA20'), 0)
-
-    def test_medium_hand_folds_to_turn_bet_incorrect(self):
-        """Medium hand (top pair weak kicker) folds to turn bet: incorrect (0).
-
-        Hero 7h 6c on Ah 7d 3s flop, turn 2c.
-        Villain bets turn, hero folds: middle pair should not fold here.
-        """
-        self._setup_multistreet('MDA21', hero_cards='7h 6c',
-                                board_flop='Ah 7d 3s', board_turn='2c',
-                                flop_villain_bets=True,
-                                turn_hero_action='fold')
-        self.assertEqual(self._mda_result('MDA21'), 0)
-
-    # -- Marginal execution (None) --
-
-    def test_air_calls_villain_bet_marginal(self):
-        """Air calling villain turn bet: marginal (None).
-
-        Hero Td 9c has no pair, no draw on As 7h 3c Kd board
-        (T and 9 don't form a 4-card straight window with A 7 3 K).
-        Villain bets turn, hero calls: depends on pot odds and reads.
-        """
-        self._setup_multistreet('MDA30', hero_cards='Td 9c',
-                                board_flop='As 7h 3c', board_turn='Kd',
-                                flop_villain_bets=True,
-                                turn_hero_action='call')
-        self.assertIsNone(self._mda_result('MDA30'))
-
-    # -- Edge cases --
-
-    def test_no_hero_cards_returns_none(self):
-        """Missing hero cards → cannot evaluate (None)."""
-        _insert_hand(self.repo, 'MDA40', position='BB',
-                     board_flop='Ts 7d 2c', board_turn='3s')
-        self.repo.conn.execute(
-            "UPDATE hands SET hero_cards=NULL WHERE hand_id=?", ('MDA40',))
-        self.repo.conn.commit()
-        seq = 1
-        _insert_action(self.repo, 'MDA40', 'preflop', 'P1', 'raise',
-                       1.5, 0, seq, 'BTN'); seq += 1
-        _insert_action(self.repo, 'MDA40', 'preflop', 'Hero', 'call',
-                       1.5, 1, seq, 'BB'); seq += 1
-        _insert_action(self.repo, 'MDA40', 'flop', 'P1', 'bet',
-                       2.0, 0, seq, 'BB'); seq += 1
-        _insert_action(self.repo, 'MDA40', 'turn', 'Hero', 'fold',
-                       0, 1, seq, 'BB')
-        self.assertIsNone(self._mda_result('MDA40'))
-
-
-# ── Lesson 12: Pós-Flop Avançado Evaluation Tests ────────────────────
+# ── Lesson 10: Pós-Flop Avançado Evaluation Tests ────────────────────
 
 
 class TestPostflopAdvancedEvaluation(unittest.TestCase):
-    """Test _eval_postflop_advanced for Lesson 12 (Pós-Flop Avançado)."""
+    """Test _eval_postflop_advanced for Lesson 10 (Pós-Flop Avançado)."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -6212,7 +5951,7 @@ class TestPostflopAdvancedEvaluation(unittest.TestCase):
 
     def _adv_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 12), None)
+        m = next((m for m in matches if m.lesson_id == 10), None)
         return m.executed_correctly if m else None
 
     def _setup_three_streets(self, hand_id, hero_cards='Ah Kd',
@@ -6259,13 +5998,13 @@ class TestPostflopAdvancedEvaluation(unittest.TestCase):
     # -- Detection tests --
 
     def test_detected_on_three_streets(self):
-        """Lesson 12 detected when hand has flop + turn + river."""
+        """Lesson 10 detected when hand has flop + turn + river."""
         self._setup_three_streets('PA01')
         matches = self._classify('PA01')
-        self.assertIn(12, [m.lesson_id for m in matches])
+        self.assertIn(10, [m.lesson_id for m in matches])
 
     def test_not_detected_without_river(self):
-        """Lesson 12 NOT detected without river card."""
+        """Lesson 10 NOT detected without river card."""
         _insert_hand(self.repo, 'PA02', position='BTN',
                      board_flop='Ts 7d 2c', board_turn='3s')
         seq = 1
@@ -6276,10 +6015,10 @@ class TestPostflopAdvancedEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'PA02', 'turn', 'Hero', 'bet',
                        3.0, 1, seq, 'BTN')
         matches = self._classify('PA02')
-        self.assertNotIn(12, [m.lesson_id for m in matches])
+        self.assertNotIn(10, [m.lesson_id for m in matches])
 
     def test_not_detected_flop_only(self):
-        """Lesson 12 NOT detected with flop only."""
+        """Lesson 10 NOT detected with flop only."""
         _insert_hand(self.repo, 'PA03', position='BTN',
                      board_flop='Ts 7d 2c')
         seq = 1
@@ -6288,13 +6027,13 @@ class TestPostflopAdvancedEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'PA03', 'flop', 'Hero', 'bet',
                        2.0, 1, seq, 'BTN')
         matches = self._classify('PA03')
-        self.assertNotIn(12, [m.lesson_id for m in matches])
+        self.assertNotIn(10, [m.lesson_id for m in matches])
 
     def test_confidence_is_low(self):
-        """Lesson 12 has reduced confidence (0.5)."""
+        """Lesson 10 has reduced confidence (0.5)."""
         self._setup_three_streets('PA04')
         matches = self._classify('PA04')
-        m = next((m for m in matches if m.lesson_id == 12), None)
+        m = next((m for m in matches if m.lesson_id == 10), None)
         self.assertIsNotNone(m)
         self.assertAlmostEqual(m.confidence, 0.5)
 
@@ -6437,14 +6176,14 @@ class TestPostflopAdvancedEvaluation(unittest.TestCase):
         matches = self._classify('PA51')
         lesson_ids = [m.lesson_id for m in matches]
         self.assertNotIn(11, lesson_ids)
-        self.assertIn(12, lesson_ids)
+        self.assertIn(10, lesson_ids)
 
 
-# ── Lesson 21: Bet vs Missed Bet Evaluation Tests ─────────────────────
+# ── Lesson 19: Bet vs Missed Bet Evaluation Tests ─────────────────────
 
 
 class TestBetVsMissedBetEvaluation(unittest.TestCase):
-    """Test _eval_bet_vs_missed_bet for Lesson 21 (Bet vs Missed Bet)."""
+    """Test _eval_bet_vs_missed_bet for Lesson 19 (Bet vs Missed Bet)."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -6463,7 +6202,7 @@ class TestBetVsMissedBetEvaluation(unittest.TestCase):
 
     def _bvmb_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 21), None)
+        m = next((m for m in matches if m.lesson_id == 19), None)
         return m.executed_correctly if m else None
 
     def _setup_bet_vs_missed(self, hand_id, hero_cards='Ah Kd',
@@ -6513,19 +6252,19 @@ class TestBetVsMissedBetEvaluation(unittest.TestCase):
         """Detected when villain bet flop, checked turn, hero bets turn."""
         self._setup_bet_vs_missed('BVMB10', villain_flop_action='bet')
         matches = self._classify('BVMB10')
-        self.assertIn(21, [m.lesson_id for m in matches])
+        self.assertIn(19, [m.lesson_id for m in matches])
 
     def test_detected_villain_checked_back_flop(self):
         """Detected when villain checked back flop, hero bets turn."""
         self._setup_bet_vs_missed('BVMB11', villain_flop_action='check')
         matches = self._classify('BVMB11')
-        self.assertIn(21, [m.lesson_id for m in matches])
+        self.assertIn(19, [m.lesson_id for m in matches])
 
     def test_street_is_turn(self):
-        """Lesson 21 match has street='turn' when hero bets turn."""
+        """Lesson 19 match has street='turn' when hero bets turn."""
         self._setup_bet_vs_missed('BVMB12')
         matches = self._classify('BVMB12')
-        m = next((m for m in matches if m.lesson_id == 21), None)
+        m = next((m for m in matches if m.lesson_id == 19), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'turn')
 
@@ -6626,7 +6365,7 @@ class TestBetVsMissedBetEvaluation(unittest.TestCase):
         self.assertEqual(self._bvmb_result('BVMB40'), 1)
 
     def test_not_triggered_when_hero_is_pfa(self):
-        """Lesson 21 NOT triggered when hero is the PFA (that's delayed cbet)."""
+        """Lesson 19 NOT triggered when hero is the PFA (that's delayed cbet)."""
         _insert_hand(self.repo, 'BVMB50', position='BTN',
                      board_flop='Ts 7d 2c', board_turn='3s')
         seq = 1
@@ -6643,14 +6382,14 @@ class TestBetVsMissedBetEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'BVMB50', 'turn', 'Hero', 'bet',
                        4.0, 1, seq, 'BTN')
         matches = self._classify('BVMB50')
-        self.assertNotIn(21, [m.lesson_id for m in matches])
+        self.assertNotIn(19, [m.lesson_id for m in matches])
 
 
-# ── Lesson 22: Probe do BB Evaluation Tests ───────────────────────────
+# ── Lesson 20: Probe do BB Evaluation Tests ───────────────────────────
 
 
 class TestProbeEvaluation(unittest.TestCase):
-    """Test _eval_probe for Lesson 22 (Probe do BB)."""
+    """Test _eval_probe for Lesson 20 (Probe do BB)."""
 
     def setUp(self):
         self.conn = sqlite3.connect(':memory:')
@@ -6669,7 +6408,7 @@ class TestProbeEvaluation(unittest.TestCase):
 
     def _probe_result(self, hand_id):
         matches = self._classify(hand_id)
-        m = next((m for m in matches if m.lesson_id == 22), None)
+        m = next((m for m in matches if m.lesson_id == 20), None)
         return m.executed_correctly if m else None
 
     def _setup_probe(self, hand_id, hero_cards='Ah Kd',
@@ -6704,10 +6443,10 @@ class TestProbeEvaluation(unittest.TestCase):
         """Probe detected: BB calls preflop, both check flop, BB bets turn."""
         self._setup_probe('PRB01')
         matches = self._classify('PRB01')
-        self.assertIn(22, [m.lesson_id for m in matches])
+        self.assertIn(20, [m.lesson_id for m in matches])
 
     def test_not_detected_when_hero_not_bb(self):
-        """Lesson 22 NOT triggered when hero is not BB."""
+        """Lesson 20 NOT triggered when hero is not BB."""
         _insert_hand(self.repo, 'PRB02', position='BTN',
                      board_flop='Ts 7d 2c', board_turn='3s')
         seq = 1
@@ -6722,10 +6461,10 @@ class TestProbeEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'PRB02', 'turn', 'Hero', 'bet',
                        3.0, 1, seq, 'BTN')
         matches = self._classify('PRB02')
-        self.assertNotIn(22, [m.lesson_id for m in matches])
+        self.assertNotIn(20, [m.lesson_id for m in matches])
 
     def test_not_detected_when_hero_pfa(self):
-        """Lesson 22 NOT triggered when hero is the PFA (that's delayed cbet)."""
+        """Lesson 20 NOT triggered when hero is the PFA (that's delayed cbet)."""
         _insert_hand(self.repo, 'PRB03', position='BB',
                      board_flop='Ts 7d 2c', board_turn='3s')
         seq = 1
@@ -6743,10 +6482,10 @@ class TestProbeEvaluation(unittest.TestCase):
         _insert_action(self.repo, 'PRB03', 'turn', 'Hero', 'bet',
                        3.0, 1, seq, 'BB')
         matches = self._classify('PRB03')
-        self.assertNotIn(22, [m.lesson_id for m in matches])
+        self.assertNotIn(20, [m.lesson_id for m in matches])
 
     def test_not_detected_villain_bet_flop(self):
-        """Lesson 22 NOT triggered when villain bet flop (PFA c-bet)."""
+        """Lesson 20 NOT triggered when villain bet flop (PFA c-bet)."""
         _insert_hand(self.repo, 'PRB04', position='BB',
                      board_flop='Ts 7d 2c', board_turn='3s')
         seq = 1
@@ -6767,14 +6506,14 @@ class TestProbeEvaluation(unittest.TestCase):
                        3.0, 1, seq, 'BB')
         # This should trigger Bet vs Missed Bet (21), not Probe (22)
         matches = self._classify('PRB04')
-        self.assertNotIn(22, [m.lesson_id for m in matches])
-        self.assertIn(21, [m.lesson_id for m in matches])
+        self.assertNotIn(20, [m.lesson_id for m in matches])
+        self.assertIn(19, [m.lesson_id for m in matches])
 
     def test_street_is_turn(self):
-        """Lesson 22 match has street='turn'."""
+        """Lesson 20 match has street='turn'."""
         self._setup_probe('PRB05')
         matches = self._classify('PRB05')
-        m = next((m for m in matches if m.lesson_id == 22), None)
+        m = next((m for m in matches if m.lesson_id == 20), None)
         self.assertIsNotNone(m)
         self.assertEqual(m.street, 'turn')
 

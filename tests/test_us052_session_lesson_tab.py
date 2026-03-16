@@ -39,13 +39,13 @@ def _make_poker_db(path: str, game_type: str = 'cash', date: str = '2026-01-15')
               inv, won, net, 0.0, 'T1', 6))
 
     # Link hands to lessons: lesson_id 1 (RFI) for h1, h2, h3
-    # lesson_id 14 (C-Bet OOP) for h3, h4
+    # lesson_id 12 (C-Bet OOP) for h3, h4
     hand_lessons = [
         ('h1', 1, 'preflop', 1),   # RFI - correct
         ('h2', 1, 'preflop', 0),   # RFI - incorrect
         ('h3', 1, 'preflop', 1),   # RFI - correct
-        ('h3', 14, 'flop', 0),     # C-Bet OOP - incorrect
-        ('h4', 14, 'flop', 0),     # C-Bet OOP - incorrect
+        ('h3', 12, 'flop', 0),     # C-Bet OOP - incorrect
+        ('h4', 12, 'flop', 0),     # C-Bet OOP - incorrect
     ]
     for hand_id, lesson_id, street, ec in hand_lessons:
         conn.execute("""
@@ -74,7 +74,7 @@ def _make_analytics_db(path: str, game_type: str = 'cash'):
             'mastery': 'mastered',
         },
         {
-            'lesson_id': 14, 'title': 'C-Bet OOP',
+            'lesson_id': 12, 'title': 'C-Bet OOP',
             'category': 'Postflop', 'total_hands': 30,
             'correct': 18, 'incorrect': 10, 'accuracy': 64.3,
             'mastery': 'needs_work',
@@ -133,8 +133,8 @@ class TestPrepareSessionDayLessons(unittest.TestCase):
                     'category': 'Preflop', 'accuracy': 89.7,
                     'mastery': 'mastered',
                 },
-                14: {
-                    'lesson_id': 14, 'title': 'C-Bet OOP',
+                12: {
+                    'lesson_id': 12, 'title': 'C-Bet OOP',
                     'category': 'Postflop', 'accuracy': 64.3,
                     'mastery': 'needs_work',
                 },
@@ -173,7 +173,7 @@ class TestPrepareSessionDayLessons(unittest.TestCase):
         prepare_session_day_lessons(data, '2026-01-15', 'cash', self.poker_db)
         lesson_ids = {l['lesson_id'] for l in data['session_day_lessons']['lessons']}
         self.assertIn(1, lesson_ids)
-        self.assertIn(14, lesson_ids)
+        self.assertIn(12, lesson_ids)
 
     def test_lesson_counts_correct(self):
         data = dict(self.data)
@@ -186,8 +186,8 @@ class TestPrepareSessionDayLessons(unittest.TestCase):
         self.assertEqual(rfi['correct'], 2)
         self.assertEqual(rfi['incorrect'], 1)
 
-        # lesson 14: h3=incorrect, h4=incorrect → 0 correct, 2 incorrect
-        cbet = lessons[14]
+        # lesson 12: h3=incorrect, h4=incorrect → 0 correct, 2 incorrect
+        cbet = lessons[12]
         self.assertEqual(cbet['total_hands'], 2)
         self.assertEqual(cbet['correct'], 0)
         self.assertEqual(cbet['incorrect'], 2)
@@ -199,22 +199,22 @@ class TestPrepareSessionDayLessons(unittest.TestCase):
 
         # lesson 1: 2/3 = 66.7%
         self.assertAlmostEqual(lessons[1]['accuracy'], 66.7, places=1)
-        # lesson 14: 0/2 = 0.0%
-        self.assertAlmostEqual(lessons[14]['accuracy'], 0.0, places=1)
+        # lesson 12: 0/2 = 0.0%
+        self.assertAlmostEqual(lessons[12]['accuracy'], 0.0, places=1)
 
     def test_global_accuracy_from_lesson_stats(self):
         data = dict(self.data)
         prepare_session_day_lessons(data, '2026-01-15', 'cash', self.poker_db)
         lessons = {l['lesson_id']: l for l in data['session_day_lessons']['lessons']}
         self.assertAlmostEqual(lessons[1]['global_accuracy'], 89.7, places=1)
-        self.assertAlmostEqual(lessons[14]['global_accuracy'], 64.3, places=1)
+        self.assertAlmostEqual(lessons[12]['global_accuracy'], 64.3, places=1)
 
     def test_mastery_from_lesson_stats(self):
         data = dict(self.data)
         prepare_session_day_lessons(data, '2026-01-15', 'cash', self.poker_db)
         lessons = {l['lesson_id']: l for l in data['session_day_lessons']['lessons']}
         self.assertEqual(lessons[1]['mastery'], 'mastered')
-        self.assertEqual(lessons[14]['mastery'], 'needs_work')
+        self.assertEqual(lessons[12]['mastery'], 'needs_work')
 
     def test_vs_global_computed(self):
         data = dict(self.data)
@@ -222,28 +222,28 @@ class TestPrepareSessionDayLessons(unittest.TestCase):
         lessons = {l['lesson_id']: l for l in data['session_day_lessons']['lessons']}
         # lesson 1: session 66.7% vs global 89.7% → worse
         self.assertEqual(lessons[1]['vs_global'], 'worse')
-        # lesson 14: session 0% vs global 64.3% → worse
-        self.assertEqual(lessons[14]['vs_global'], 'worse')
+        # lesson 12: session 0% vs global 64.3% → worse
+        self.assertEqual(lessons[12]['vs_global'], 'worse')
 
     def test_urgency_sorted(self):
         data = dict(self.data)
         prepare_session_day_lessons(data, '2026-01-15', 'cash', self.poker_db)
         lessons = data['session_day_lessons']['lessons']
-        # lesson 14: urgency = 2*(1-0) = 2.0 (0% accuracy, 2 errors)
+        # lesson 12: urgency = 2*(1-0) = 2.0 (0% accuracy, 2 errors)
         # lesson 1:  urgency = 1*(1-0.667) = 0.333 (66.7% accuracy, 1 error)
-        # lesson 14 should be first
-        self.assertEqual(lessons[0]['lesson_id'], 14)
+        # lesson 12 should be first
+        self.assertEqual(lessons[0]['lesson_id'], 12)
         self.assertEqual(lessons[1]['lesson_id'], 1)
 
     def test_summary_totals(self):
         data = dict(self.data)
         prepare_session_day_lessons(data, '2026-01-15', 'cash', self.poker_db)
         summary = data['session_day_lessons']['summary']
-        # 3 hands for lesson 1 + 2 hands for lesson 14 = 5 total
+        # 3 hands for lesson 1 + 2 hands for lesson 12 = 5 total
         self.assertEqual(summary['total_hands'], 5)
-        # 2 correct (lesson 1) + 0 correct (lesson 14) = 2
+        # 2 correct (lesson 1) + 0 correct (lesson 12) = 2
         self.assertEqual(summary['correct'], 2)
-        # 1 incorrect (lesson 1) + 2 incorrect (lesson 14) = 3
+        # 1 incorrect (lesson 1) + 2 incorrect (lesson 12) = 3
         self.assertEqual(summary['incorrect'], 3)
         # 2/5 = 40%
         self.assertAlmostEqual(summary['accuracy'], 40.0, places=1)
@@ -276,7 +276,7 @@ class TestPrepareSessionDayLessons(unittest.TestCase):
         data = dict(self.data)
         prepare_session_day_lessons(data, '2026-01-15', 'cash', self.poker_db)
         lesson_ids = {l['lesson_id'] for l in data['session_day_lessons']['lessons']}
-        # Only lessons 1 and 14 should appear (not all 25 lessons)
+        # Only lessons 1 and 12 should appear (not all 23 lessons)
         self.assertEqual(len(lesson_ids), 2)
 
     def test_filters_by_game_type(self):
@@ -295,15 +295,15 @@ class TestPrepareSessionDayLessons(unittest.TestCase):
             INSERT INTO hand_lessons (hand_id, lesson_id, street,
                                       executed_correctly, confidence, notes, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ('ht1', 24, 'preflop', 1, 1.0, '', '2026-01-15'))
+        """, ('ht1', 22, 'preflop', 1, 1.0, '', '2026-01-15'))
         conn.commit()
         conn.close()
 
         data = dict(self.data)
         prepare_session_day_lessons(data, '2026-01-15', 'cash', self.poker_db)
         lesson_ids = {l['lesson_id'] for l in data['session_day_lessons']['lessons']}
-        # Tournament lesson (24) should not appear in cash query
-        self.assertNotIn(24, lesson_ids)
+        # Tournament lesson (22) should not appear in cash query
+        self.assertNotIn(22, lesson_ids)
 
     def test_no_global_stats_still_works(self):
         """Should work even without global lesson_stats in data."""
@@ -323,7 +323,7 @@ class TestPrepareSessionDayLessons(unittest.TestCase):
         data = {
             'lesson_stats': {
                 1: {'lesson_id': 1, 'accuracy': 67.0, 'mastery': 'learning'},
-                14: {'lesson_id': 14, 'accuracy': 64.3, 'mastery': 'needs_work'},
+                12: {'lesson_id': 12, 'accuracy': 64.3, 'mastery': 'needs_work'},
             }
         }
         prepare_session_day_lessons(data, '2026-01-15', 'cash', self.poker_db)

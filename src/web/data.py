@@ -1859,7 +1859,7 @@ def prepare_lessons_data(data, period='year', from_date='', to_date=''):
     lesson_summary = data.get('lesson_summary') or {}
 
     # Overview cards
-    data['lesson_total'] = lesson_summary.get('total_lessons', 25)
+    data['lesson_total'] = lesson_summary.get('total_lessons', 23)
     data['lesson_classified_hands'] = lesson_summary.get('total_hands', 0)
     data['lesson_global_accuracy'] = lesson_summary.get('global_accuracy')
     data['lesson_mastered'] = lesson_summary.get('mastered', 0)

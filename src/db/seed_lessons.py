@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-# 25 RegLife lessons organized by category and subcategory
+# 23 RegLife lessons organized by category and subcategory
 REGLIFE_LESSONS = [
     # ── Preflop: Ranges ──────────────────────────────────────────────
     {
@@ -80,28 +80,12 @@ REGLIFE_LESSONS = [
     },
     # ── Postflop: Fundamentos ────────────────────────────────────────
     {
-        'title': 'Introdução ao Pós-Flop',
-        'category': 'Postflop',
-        'subcategory': 'Fundamentos',
-        'pdf_filename': 'RegLife-INTRODUCAOAOPOS-FLOP (1).pdf',
-        'description': 'Conceitos básicos de jogo pós-flop: posição, pot odds, equity.',
-        'sort_order': 10,
-    },
-    {
-        'title': 'Introdução ao MDA',
-        'category': 'Postflop',
-        'subcategory': 'Fundamentos',
-        'pdf_filename': 'RegLife-INTRODUCAOAOMDA.pdf',
-        'description': 'Introdução ao Modelo de Decisão Avançado para pós-flop.',
-        'sort_order': 11,
-    },
-    {
         'title': 'Pós-Flop Avançado',
         'category': 'Postflop',
         'subcategory': 'Fundamentos',
         'pdf_filename': 'RegLife-POS-FLOPAVANCADO.pdf',
         'description': 'Conceitos avançados de jogo pós-flop: polarização, ranges, bloqueadores.',
-        'sort_order': 12,
+        'sort_order': 10,
     },
     # ── Postflop: C-Bet ──────────────────────────────────────────────
     {
@@ -110,7 +94,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'C-Bet',
         'pdf_filename': 'RegLife-CBETFLOPEMPOSICAO (3).pdf',
         'description': 'Estratégia de continuation bet no flop quando em posição (IP).',
-        'sort_order': 13,
+        'sort_order': 11,
     },
     {
         'title': 'C-Bet OOP',
@@ -118,7 +102,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'C-Bet',
         'pdf_filename': 'RegLife-C-BETOOP (2).pdf',
         'description': 'Estratégia de continuation bet fora de posição (OOP).',
-        'sort_order': 14,
+        'sort_order': 12,
     },
     {
         'title': 'C-Bet Turn',
@@ -126,7 +110,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'C-Bet',
         'pdf_filename': 'RegLife-C-BETTURN.pdf',
         'description': 'Continuation bet no turn: sizing, frequência e seleção de mãos.',
-        'sort_order': 15,
+        'sort_order': 13,
     },
     {
         'title': 'C-Bet River',
@@ -134,7 +118,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'C-Bet',
         'pdf_filename': 'RegLife-C-BETRIVER.pdf',
         'description': 'Continuation bet no river: value bets e bluffs.',
-        'sort_order': 16,
+        'sort_order': 14,
     },
     {
         'title': 'Delayed C-Bet',
@@ -142,7 +126,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'C-Bet',
         'pdf_filename': 'RegLife-DELAYEDCBET.pdf',
         'description': 'Quando e como usar delayed continuation bet.',
-        'sort_order': 17,
+        'sort_order': 15,
     },
     # ── Postflop: Defesa ─────────────────────────────────────────────
     {
@@ -151,7 +135,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'Defesa',
         'pdf_filename': 'RegLife-BBvsCbet-OOP (1).pdf',
         'description': 'Estratégia do BB enfrentando c-bet fora de posição.',
-        'sort_order': 18,
+        'sort_order': 16,
     },
     {
         'title': 'Enfrentando o Check-Raise',
@@ -159,7 +143,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'Defesa',
         'pdf_filename': 'RegLife-ENFRENTANDOOCHECK-RAISE.pdf',
         'description': 'Como reagir quando enfrentar check-raise no pós-flop.',
-        'sort_order': 19,
+        'sort_order': 17,
     },
     {
         'title': 'Pós-Flop IP - Enfrentando C-Bet do BTN',
@@ -167,7 +151,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'Defesa',
         'pdf_filename': 'RegLife-POS-FLOPIP-enfrentandoC-betjogandodoBTN.pdf',
         'description': 'Jogando IP (do BTN) enfrentando c-bet do adversário.',
-        'sort_order': 20,
+        'sort_order': 18,
     },
     # ── Postflop: Avançado ───────────────────────────────────────────
     {
@@ -176,7 +160,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'Avançado',
         'pdf_filename': 'RegLife-BETVSMISSEDBET.pdf',
         'description': 'Exploração de situações quando adversário não continua apostando.',
-        'sort_order': 21,
+        'sort_order': 19,
     },
     {
         'title': 'Probe do BB',
@@ -184,7 +168,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'Avançado',
         'pdf_filename': 'RegLife-PROBEDOBB.pdf',
         'description': 'Estratégia de probe bet do Big Blind no turn.',
-        'sort_order': 22,
+        'sort_order': 20,
     },
     {
         'title': '3-Betted Pots Pós-Flop',
@@ -192,7 +176,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'Avançado',
         'pdf_filename': 'RegLife-3-BETTEDPOTS-POSFLOP.pdf',
         'description': 'Jogo pós-flop em potes 3-bettados: sizing e ranges.',
-        'sort_order': 23,
+        'sort_order': 21,
     },
     # ── Torneios ─────────────────────────────────────────────────────
     {
@@ -201,7 +185,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'Bounty',
         'pdf_filename': 'RegLife-INTRODUCAOAOSTORNEIOSBOUNTY.pdf',
         'description': 'Conceitos fundamentais de torneios bounty e ajustes de range.',
-        'sort_order': 24,
+        'sort_order': 22,
     },
     {
         'title': 'Torneios Bounty - Ranges Práticos',
@@ -209,7 +193,7 @@ REGLIFE_LESSONS = [
         'subcategory': 'Bounty',
         'pdf_filename': 'RegLife-TORNEIOSBOUNTY-RANGESPRATICOS.pdf',
         'description': 'Ranges práticos para torneios bounty: call, shove e ajustes.',
-        'sort_order': 25,
+        'sort_order': 23,
     },
 ]
 

@@ -38,7 +38,7 @@ def _create_analytics_db_with_lessons(path: str, game_type: str = 'cash'):
     # Lesson summary
     lesson_summary = {
         'total_lessons_with_data': 8,
-        'total_lessons': 25,
+        'total_lessons': 23,
         'total_hands': 320,
         'total_correct': 240,
         'total_incorrect': 60,
@@ -308,7 +308,7 @@ class TestPrepareLessonsData(unittest.TestCase):
     def test_overview_cards(self):
         data = self._make_data()
         prepare_lessons_data(data)
-        self.assertEqual(data['lesson_total'], 25)
+        self.assertEqual(data['lesson_total'], 23)
         self.assertEqual(data['lesson_classified_hands'], 320)
         self.assertEqual(data['lesson_global_accuracy'], 80.0)
         self.assertEqual(data['lesson_mastered'], 3)
@@ -372,7 +372,7 @@ class TestPrepareLessonsData(unittest.TestCase):
     def test_empty_data(self):
         data = {}
         prepare_lessons_data(data)
-        self.assertEqual(data['lesson_total'], 25)
+        self.assertEqual(data['lesson_total'], 23)
         self.assertEqual(data['lesson_classified_hands'], 0)
         self.assertIsNone(data['lesson_global_accuracy'])
         self.assertEqual(data['lessons_list'], [])
@@ -415,7 +415,7 @@ class TestLessonsRoutes(unittest.TestCase):
         # Tournament lesson summary
         tourn_summary = {
             'total_lessons_with_data': 2,
-            'total_lessons': 25,
+            'total_lessons': 23,
             'total_hands': 40,
             'total_correct': 30,
             'total_incorrect': 10,
