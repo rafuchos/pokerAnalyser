@@ -1858,7 +1858,8 @@
         "src/web/static/css/style.css",
         "src/web/static/js/hand_replayer.js",
         "src/db/repository.py"
-      ]
+      ],
+      "passes": true
     }
   ]
 }
